@@ -1,0 +1,71 @@
+{
+  "status": "planning_estimate_not_benchmark_result",
+  "launches_model_jobs": false,
+  "assumptions_notice": "All unit costs and durations are hypothetical planning inputs, not supplier prices, benchmark measurements, or approved spending.",
+  "currency": "USD",
+  "phases": [
+    {
+      "id": "E1",
+      "name": "Development screening plus at most 12 location-reference runs",
+      "cases": 24,
+      "arms": 3,
+      "models": 1,
+      "repeats": 1,
+      "factorial_runs": 72,
+      "extra_runs_upper_bound": 12,
+      "planned_runs_upper_bound": 84
+    }
+  ],
+  "planned_runs_upper_bound": 84,
+  "assumed_minutes_per_run": 20.0,
+  "assumed_parallel_workers": 2,
+  "assumed_utilization": 0.7,
+  "serial_run_hours": 28.0,
+  "approximate_elapsed_run_hours": 20.0,
+  "reserve_fraction": 0.25,
+  "cost_scenarios": [
+    {
+      "name": "illustrative_0_25",
+      "assumed_usd_per_run": 0.25,
+      "estimated_model_cost_usd": 21.0,
+      "with_reserve_usd": 26.25
+    },
+    {
+      "name": "illustrative_1_00",
+      "assumed_usd_per_run": 1.0,
+      "estimated_model_cost_usd": 84.0,
+      "with_reserve_usd": 105.0
+    },
+    {
+      "name": "illustrative_3_00",
+      "assumed_usd_per_run": 3.0,
+      "estimated_model_cost_usd": 252.0,
+      "with_reserve_usd": 315.0
+    }
+  ],
+  "sample_size_alpha": 0.05,
+  "sample_size_power": 0.8,
+  "sample_size_rough_scenarios": [
+    {
+      "assumed_absolute_gain": 0.05,
+      "assumed_discordant_probability": 0.2,
+      "approximate_independent_pairs": 621
+    },
+    {
+      "assumed_absolute_gain": 0.1,
+      "assumed_discordant_probability": 0.2,
+      "approximate_independent_pairs": 150
+    }
+  ],
+  "sample_size_limitations": [
+    "Normal approximation for independent paired binary cases",
+    "Not a calculation for repeated seeds, correlated repositories, or non-inferiority",
+    "Not an assertion that the proposed improvement exists"
+  ],
+  "excluded_costs": [
+    "Environment preparation time and compute costs",
+    "Human review time",
+    "A second backbone and formal-paper closest-method replications",
+    "Additional runs due to protocol changes; revise plan before execution"
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "purpose": "Environment preparation only",
+  "warning": "Contains evaluator-only fixed revisions. Do not mount this whole file in a solver environment. Metadata availability is not reproduction success.",
+  "benchmark_revision_pinned": false,
+  "cases": [
+    {
+      "case_id": "BugsInPy:black:1",
+      "project": "black",
+      "python_version": "3.8.3",
+      "buggy_commit": "26c9465a22c732ab1e17b0dec578fa3432e9b558",
+      "test_command": "python -m unittest -q tests.test_black.BlackTestCase.test_works_in_mono_process_only_environment",
+      "test_file": "tests/test_black.py",
+      "evaluator_only": {
+        "fixed_commit": "c0a7582e3d4cc8bec3b7f5a6c52b36880dcb57d7"
+      },
+      "metadata_url": "https://raw.githubusercontent.com/soarsmu/BugsInPy/master/projects/black/bugs/1/bug.info",
+      "test_script_url": "https://raw.githubusercontent.com/soarsmu/BugsInPy/master/projects/black/bugs/1/run_test.sh",
+      "metadata_checked": "2026-09-12",
+      "execution_status": "not_run",
+      "buggy_reproduces": null,
+      "fixed_passes": null,
+      "source_of_logs": "to_be_generated_from_actual_test_execution",
+      "selection_reason": "Public metadata access and cross-project environment preparation, not model performance"
+    },
+    {
+      "case_id": "BugsInPy:tornado:1",
+      "project": "tornado",
+      "python_version": "3.7.0",
+      "buggy_commit": "6a5a0bfa370b6c0d3dbbf9589a560a98202d2baa",
+      "test_command": "python -m unittest -q tornado.test.websocket_test.WebSocketTest.test_nodelay",
+      "test_file": "tornado/test/websocket_test.py",
+      "evaluator_only": {
+        "fixed_commit": "4677c54cc18bbfbdf0f4dadf11610fab6203fd63"
+      },
+      "metadata_url": "https://raw.githubusercontent.com/soarsmu/BugsInPy/master/projects/tornado/bugs/1/bug.info",
+      "test_script_url": "https://raw.githubusercontent.com/soarsmu/BugsInPy/master/projects/tornado/bugs/1/run_test.sh",
+      "metadata_checked": "2026-09-12",
+      "execution_status": "not_run",
+      "buggy_reproduces": null,
+      "fixed_passes": null,
+      "source_of_logs": "to_be_generated_from_actual_test_execution",
+      "selection_reason": "Public metadata access and cross-project environment preparation, not model performance"
+    },
+    {
+      "case_id": "BugsInPy:httpie:1",
+      "project": "httpie",
+      "python_version": "3.7.3",
+      "buggy_commit": "001bda19450ad85c91345eea3cfa3991e1d492ba",
+      "test_command": "pytest tests/test_downloads.py::TestDownloadUtils::test_unique_filename",
+      "test_file": "tests/test_downloads.py",
+      "evaluator_only": {
+        "fixed_commit": "5300b0b490b8db48fac30b5e32164be93dc574b7"
+      },
+      "metadata_url": "https://raw.githubusercontent.com/soarsmu/BugsInPy/master/projects/httpie/bugs/1/bug.info",
+      "test_script_url": "https://raw.githubusercontent.com/soarsmu/BugsInPy/master/projects/httpie/bugs/1/run_test.sh",
+      "metadata_checked": "2026-09-12",
+      "execution_status": "not_run",
+      "buggy_reproduces": null,
+      "fixed_passes": null,
+      "source_of_logs": "to_be_generated_from_actual_test_execution",
+      "selection_reason": "Public metadata access and cross-project environment preparation, not model performance"
+    }
+  ]
+}

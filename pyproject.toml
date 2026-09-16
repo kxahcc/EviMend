@@ -1,0 +1,10 @@
+[project]
+name = "dfx-agent"
+version = "0.1.0"
+description = "Evidence-based HarmonyOS fault analysis and repair tooling"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"

@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "status": "planning_only",
+  "created": "2026-09-12",
+  "currency": "USD",
+  "assumptions_notice": "All unit costs and durations are hypothetical planning inputs, not supplier prices, benchmark measurements, or approved spending.",
+  "parallel_workers": 2,
+  "utilization": 0.7,
+  "minutes_per_run": 20,
+  "reserve_fraction": 0.25,
+  "cost_per_run_scenarios": [
+    {
+      "name": "illustrative_0_25",
+      "usd": 0.25
+    },
+    {
+      "name": "illustrative_1_00",
+      "usd": 1
+    },
+    {
+      "name": "illustrative_3_00",
+      "usd": 3
+    }
+  ],
+  "phases": [
+    {
+      "id": "E1",
+      "name": "Development screening plus at most 12 location-reference runs",
+      "cases": 24,
+      "arms": 3,
+      "models": 1,
+      "repeats": 1,
+      "extra_runs": 12,
+      "enabled_by_default": true
+    },
+    {
+      "id": "E2",
+      "name": "Independent confirmation, only after development signal",
+      "cases": 60,
+      "arms": 3,
+      "models": 1,
+      "repeats": 3,
+      "extra_runs": 0,
+      "enabled_by_default": false
+    },
+    {
+      "id": "E3",
+      "name": "Mechanism replacements with freshly run P reference",
+      "cases": 30,
+      "arms": 2,
+      "models": 1,
+      "repeats": 2,
+      "extra_runs": 60,
+      "enabled_by_default": false
+    }
+  ],
+  "sample_size_scenarios": [
+    {
+      "absolute_gain": 0.05,
+      "discordant_probability": 0.2
+    },
+    {
+      "absolute_gain": 0.1,
+      "discordant_probability": 0.2
+    }
+  ],
+  "sample_size_alpha": 0.05,
+  "sample_size_power": 0.8,
+  "exclusions": [
+    "Environment preparation time and compute costs",
+    "Human review time",
+    "A second backbone and formal-paper closest-method replications",
+    "Additional runs due to protocol changes; revise plan before execution"
+  ],
+  "launches_model_jobs": false,
+  "actual_model_runs": 0
+}
