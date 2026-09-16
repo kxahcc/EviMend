@@ -13,7 +13,14 @@
       "read_level": "README, agent loop, Docker environment, dependencies, license",
       "use": "Engineering baseline candidate; not installed or reproduced",
       "accessed": "2026-09-12",
-      "reproduced": false
+      "reproduced": false,
+      "rechecks": [
+        {
+          "date": "2026-09-16",
+          "scope": "Repository README",
+          "purpose": "Bound claims about lightweight agents, staged repair and runtime-evidence constraints; no reproduction or full novelty audit"
+        }
+      ]
     },
     {
       "id": "S02",
@@ -39,7 +46,14 @@
       "read_level": "Abstract",
       "use": "Simple staged baseline precedent",
       "accessed": "2026-09-12",
-      "reproduced": false
+      "reproduced": false,
+      "rechecks": [
+        {
+          "date": "2026-09-16",
+          "scope": "arXiv abstract page",
+          "purpose": "Bound claims about lightweight agents, staged repair and runtime-evidence constraints; no reproduction or full novelty audit"
+        }
+      ]
     },
     {
       "id": "S04",
@@ -91,7 +105,14 @@
       "read_level": "Methods, localization setting, cost and limitations",
       "use": "TraceRepair runtime evidence method; match localization assumptions",
       "accessed": "2026-09-12",
-      "reproduced": false
+      "reproduced": false,
+      "rechecks": [
+        {
+          "date": "2026-09-16",
+          "scope": "arXiv abstract page",
+          "purpose": "Bound claims about lightweight agents, staged repair and runtime-evidence constraints; no reproduction or full novelty audit"
+        }
+      ]
     },
     {
       "id": "S08",

@@ -38,9 +38,19 @@ Diagnosis 保存 exception_locations、hypotheses、selected_hypothesis_id、unk
 
 程序拒绝不存在的行号、错误版本引用及不存在的 evidence_id。因果链本身的正确性依赖后续检查，不能通过 JSON 校验宣称成立。
 
+### 1.2.1 修复义务和动作提案
+
+RepairObligation 包含 obligation_id、kind（运行条件/业务行为）、statement、bindings、source_evidence_ids、authority（已核验需求/接口规则/既有行为/模型推断）、checkability、status、scope 与依赖版本。Hypothesis 关联 obligation_ids；CandidatePatch 关联 restores 与 preserves；Check/Result 关联所检验或违反的义务。
+
+模型推断的义务只能作为假设，不得仅因某候选违反该推断就机械拒绝它。局部执行只能支持对应输入与路径，不自动证明全局成立。可信语义不足时明确 unknown。
+
+ActionProposal 包含 action、target_ids、reason、required_capabilities、expected_observations、decision_if_observed、estimated_cost_basis。针对探针，target_ids 指向待区分的根因/修法；未知结果分支必须存在。控制器验证引用、权限和预算，不能把模型预期当执行结果。
+
+反例 Counterexample 保存实际输入或产物引用、执行版本、观察、violated_obligation_ids 及 affected_hypothesis_ids。关联本身也可能是模型推断，必须标记；只反驳观测所覆盖的主张。重试时优先携带有效反例与未知项，不重复携带所有长日志。
+
 ### 1.3 补丁、验证和尝试
 
-CandidatePatch 包含 candidate_id、ordinal、parent_snapshot_sha256、diff_sha256、diagnosis_id、intended_constraint、preserved_behaviors、changed_paths、verification_obligations。完整 diff 登记后才进入任何候选专属检查；格式错误、无法应用和局部检查失败同样记为已产生候选的失败。
+CandidatePatch 包含 candidate_id、ordinal、parent_snapshot_sha256、diff_sha256、diagnosis_id、intended_constraint、restores、preserves、preserved_behaviors、changed_paths、verification_obligations。完整 diff 登记后才进入任何候选专属检查；格式错误、无法应用和局部检查失败同样记为已产生候选的失败。
 
 没有生成完整候选的模型失败记录为 generation_failure，计入总成本，但不伪造一个可验证候选。首次候选通过率同时报告“全部任务”为分母的端到端口径，避免把未生成补丁的任务排除后抬高成绩。
 
