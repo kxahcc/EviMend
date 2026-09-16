@@ -2,7 +2,7 @@
 name = "dfx-agent"
 version = "0.1.0"
 description = "Evidence-based HarmonyOS fault analysis and repair tooling"
-requires-python = ">=3.11"
+requires-python = ">=3.13,<3.14"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

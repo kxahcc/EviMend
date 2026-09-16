@@ -1,7 +1,7 @@
 # 相关研究证据
 
 状态：当前参考证据。最后维护：2026-09-16。
-主要来源查阅日期：2026-09-12；2026-09-16 定点复核 mini-swe-agent 仓库 README、Agentless 与 TraceRepair 的 arXiv 摘要页，未重新进行完整查新。当前架构决策以 [开发设计草案](../development/system-design-draft.md) 为准，本文只记录来源、参考价值与复用限制。
+主要来源查阅日期：2026-09-12；2026-09-16 定点复核 mini-swe-agent 仓库 README、Agentless 与 TraceRepair 的 arXiv 摘要页，另核对了 LangGraph、模型适配、Pydantic、uv 和远程执行相关官方文档，工程来源登记在 sources.json；未重新进行完整查新。当前架构决策以 [开发设计草案](../development/system-design-draft.md) 为准，本文只记录来源、参考价值与复用限制。
 
 采用“在成熟方法上升级”的定位。以下是面向技术决策的检索，不是系统综述或完整查新证明；录用状态若来自 arXiv Comments，明确视为作者页面声明。
 
@@ -47,7 +47,7 @@ ARISE 明确报告了额外 Token 消耗，图构建时间也随仓库规模变�
 
 ## 代码查阅结论
 
-mini-swe-agent：已查阅 [Agent 主循环](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/src/minisweagent/agents/default.py)、[Docker 接口](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/src/minisweagent/environments/docker.py)、[依赖](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/pyproject.toml) 与 [MIT 许可证](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/LICENSE.md)。当前费用和墙钟限制在循环边界检查，单次调用可能越界；正式比赛需另设调用/进程级限制并记录越界，而不能声称配置阈值就是硬上限。读取的是 main 页面，未固定 SHA，未验证安装。
+mini-swe-agent：已查阅 [Agent 主循环](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/src/minisweagent/agents/default.py)、[Docker 接口](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/src/minisweagent/environments/docker.py)、[依赖](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/pyproject.toml) 与 [MIT 许可证](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/LICENSE.md)。9 月 12 日所读代码的费用和墙钟限制在循环边界检查，单次调用可能越界；正式比赛需另设调用/进程级限制并记录越界，而不能声称配置阈值就是硬上限。读取的是 main 页面，未固定 SHA，未验证安装。
 
 SHERLOC：论文提供 [官方 recipe](https://github.com/NVIDIA-NeMo/Skills/tree/main/recipes/sherloc)。已确认目录入口，未完成完整依赖与许可审核；整体采用前需要完成依赖、许可及接入成本评估。
 

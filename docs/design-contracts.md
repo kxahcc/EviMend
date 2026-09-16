@@ -36,7 +36,7 @@ Diagnosis 保存 exception_locations、hypotheses、selected_hypothesis_id、unk
 | missing_evidence | 哪个事实未知，以及为何可能改变修改方向 |
 | distinguishing_check | 至多一个优先检查建议，包含不同结果会导致的决策；可空 |
 
-程序拒绝不存在的行号、错误版本引用及不存在的 evidence_id。因果链本身的正确性依赖后续检查，不能通过 JSON 校验宣称成立。
+边界对象使用 Pydantic 2 校验，LangGraph 状态保存可序列化数据与产物引用，领域策略不接收 SDK 对象。程序拒绝不存在的行号、错误版本引用及不存在的 evidence_id。因果链本身的正确性依赖后续检查，不能通过 JSON 校验宣称成立。
 
 ### 1.2.1 修复义务和动作提案
 
