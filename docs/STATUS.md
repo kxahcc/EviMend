@@ -14,7 +14,7 @@ P0 设计闭合。已存在部分 P1 离线原型，但不表示完整设计或 
 | 数据与材料核查 | 已做只读盘点和代表材料静态审查；来源/运行版本仍有待核验项 | [数据报告](preparation/data-b-assessment-2026-09-15.md)、resources/preparation/data-b-inventory.json |
 | 项目蓝图 | 已明确目标工具、案例流程、重点和技术底座概览；详细规格仍需闭合 | DEVELOPMENT.md、开发设计第 1.1 节 |
 | 技术选型 | 当前优先 Deep Agents SDK（底层 LangGraph）/Pydantic/模型适配/SQLite 与 HTTP 远程执行方案；已核对官方能力，接入边界待合成验证；未安装新框架、未生成 uv.lock、未完成集成验证 | 开发设计第 1.1、6 节 |
-| 方法设计 | 已细化修复义务贯穿诊断/补丁/验证、按决策需要检查及反例更新机制；部分可执行 schema、恢复/持久化细节未落地 | [设计草案](development/system-design-draft.md)、[模块规格](design-contracts.md) |
+| 方法设计 | 已落实竞争力设计、四项工作与失败风险、端到端推演及强基线比较要求，供用户审阅；部分可执行 schema、恢复/持久化细节未落地 | [设计草案](development/system-design-draft.md)、[模块规格](design-contracts.md) |
 | 离线原型 | 快照、日志解析、栈位置映射和证据报告 | src/dfx_agent；不包含语义根因推理或自动修复 |
 | 软件自检 | 最近一次 10 项合成输入检查通过 | sessions/2026-09-16-stack-selection.json；仅现有原型，非新栈接入或应用评测 |
 | 仓库管理 | 本地 Git 已建立，模板与开发材料分开；失效规划已归档，当前文档设有归属及检查规则 | AGENTS.md、DEVELOPMENT.md、Git 历史 |
