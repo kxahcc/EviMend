@@ -1,6 +1,6 @@
 # 应用软件代码故障精准定位与自修复：开发设计草案
 
-状态：当前设计草案，尚未全部实现或实测。最后维护：2026-09-16。
+状态：当前设计草案，尚未全部实现或实测。最后维护：2026-09-17。
 职责：维护架构、核心算法及后端抽象。实现状态见 [STATUS](../STATUS.md)，字段与规则见 [模块规格](../design-contracts.md)，阶段见 [实施计划](../project-work-plan.md)。
 
 ## 1. 核心决策
@@ -17,49 +17,51 @@
 
 栈命中不是根因预测，补丁落点也不自动等于根因。定位评测采用独立标签；功能正确性采用行为证据。
 
-### 1.1 产品形态与确定的技术栈
+### 1.1 产品形态与技术栈
 
 目标交付是支持单任务与批处理的代码故障定位与自修复 Agent，命令行是启动入口。输入为日志、源码和允许的执行入口，输出为根因位置、可应用补丁、验证记录和资源报告。模型负责选择动作，执行框架负责调度与保存状态，我们实现修复策略及验收适配。
 
-**首版采用 Python 3.13 + LangGraph Graph API + Pydantic 2 + LangChain 提供方适配包 + SQLite；远程执行采用 HTTPX 客户端和 FastAPI/Uvicorn 服务。** 这是确定的架构选型。精确补丁版本要经过隔离依赖解析和无模型接入自检后写入 uv.lock；当前未安装或验证这些新依赖，不能称为已经跑通。
+**首版采用 Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + LangChain 提供方适配包 + SQLite；远程执行采用 HTTPX 客户端和 FastAPI/Uvicorn 服务。** 这是当前主实现方向，接入验收通过后锁定具体版本。精确补丁版本要经过隔离依赖解析和无模型接入自检后写入 uv.lock；当前未安装或验证这些新依赖，不能称为已经跑通。
 
 #### 选型依据与替代方案
 
-项目需要长时间等待构建/设备执行，在中断后继续同一任务，并对诊断和验证分支做可控消融。复用执行引擎比自行开发完整恢复机制更符合时间约束。官方 [LangGraph 概览](https://docs.langchain.com/oss/python/langgraph/overview) 描述了可混合确定性逻辑与模型决策的底层编排；[持久化文档](https://docs.langchain.com/oss/python/langgraph/persistence) 给出检查点与 SQLite 等后端。我们选择 Graph API 显式表达决策边界，而不是直接套用预置 Agent 的全部行为。
+直接使用 LangGraph 需要我们补通用代码工具、上下文管理和 Agent 循环，首版工程量偏大。主实现方向改为 **Deep Agents SDK**，LangGraph 保留为其底层运行时；使用 SDK 的循环、文件工具、上下文压缩与 Skills 接入，我们实现领域策略、候选管理和应用验证。此为基于官方接口的选型判断，不是本项目效果或接入成功的证明。
 
 | 方案 | 适合之处 | 本项目取舍 |
 |---|---|---|
-| LangGraph Graph API | 显式分支、状态、检查点，业务节点可用普通 Python 函数 | 作为唯一 Agent 编排引擎；承担一定图状态与依赖学习成本 |
-| 完全手写 Python 循环 | 最小原型直接、依赖少 | 不再承担完整编排；保留领域策略为普通函数，避免自制通用恢复框架 |
-| mini-swe-agent | 简洁的代码工具循环，适合作为独立基础参照 | 保留研究/工程对照价值；首版不把其循环嵌套进 LangGraph，否则两套消息和重试状态难统一 |
-| PydanticAI | 类型化模型/工具接口与 Agent 循环 | 是合理备选；当前不再叠加第二层 Agent 循环，其持久执行接入另有引擎选项，具体见官方 [说明](https://pydantic.dev/docs/ai/capabilities/durable_execution/overview/) |
-| LiteLLM SDK | 多提供方统一入口 | 首版提供方数量有限，选择与 LangGraph 生态一致的独立模型适配包，减少一层兼容和重试配置；不是判断它普遍不适用 |
+| Deep Agents SDK | 提供文件工具、上下文管理、Skills、可扩展工具和中间件，底层沿用 LangGraph | 当前优先接入；先用合成检查核验约束、恢复与计费，不自行重写通用 Agent 循环 |
+| Claude Agent SDK | 提供 Claude Code 的工具、循环、上下文及 hooks，可接自定义工具 | 若确定使用 Claude，是快速落地的有力选择；当前模型资源未定，优先保留跨提供方能力 |
+| mini-swe-agent | 简洁的代码修复循环，便于理解与改动 | 外部基础参照；若主框架适配负担过重再评估替代，不同步维护两套主引擎 |
+| LangGraph Graph API | 显式状态和分支，控制自由度高 | 作为 SDK 底层能力；首版不自行搭建完整节点图 |
+| PydanticAI / 手写循环 | 类型化工具或极简循环可控 | 不作为当前主线，避免继续承担通用 coding harness 的组装工作 |
 
-不采用 Deep Agents 预置规划/子代理体系，不部署 LangSmith、LangGraph Server、Redis、Celery 或 Kubernetes。这里的取舍是首版范围，不是断言这些组件不成熟。框架只提供基础设施，不构成研究创新。
+依据为官方 [Deep Agents 概览](https://docs.langchain.com/oss/python/deepagents/overview)、[定制接口](https://docs.langchain.com/oss/python/deepagents/customization)、[后端说明](https://docs.langchain.com/oss/python/deepagents/backends)、[Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) 和 [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent)，本次查阅日期为 2026-09-17。没有以其他基准的成绩推断 HarmonyOS 效果。
+
+首版一个主 Agent，不部署云端托管平台、Redis、Celery 或 Kubernetes。SDK 自带子代理不代表需要启用多 Agent；必须核验并禁用默认委派，不能假设 subagents=[] 就足够。具体禁用接口随锁定版本确认，避免把 Beta 配置能力当作已稳定的基础依赖。
 
 #### 技术栈与边界
 
-| 层 | 确定选择 | 我们需要实现的部分 |
+| 层 | 当前选择 | 我们需要实现的部分 |
 |---|---|---|
 | 运行时 | 标准 CPython 3.13，支持本机 Windows 开发；独立项目虚拟环境 | 不复用全局 Anaconda 环境作为最终可复现环境；已有原型测试不等于新环境验收 |
 | 环境与锁定 | uv、pyproject.toml、uv.lock、.python-version | 记录直接/传递依赖及 Python 补丁版本；正式运行使用锁定环境 |
-| 编排 | langgraph 的 StateGraph 和条件边 | 观察、模型决策、动作校验、工具执行、结果归并与终止节点；单 Agent 可循环回访 |
+| 编排 | deepagents 的 create_deep_agent，底层 LangChain/LangGraph | 复用工具循环和上下文管理；领域工具/中间件负责动作校验、预算与验收，不再嵌套第二套循环 |
 | 状态恢复 | langgraph-checkpoint-sqlite；首版单本地主进程写入 | run_id 对应独立 thread_id，保存最小状态和产物引用；SQLite 位于本地磁盘 |
 | 数据校验 | Pydantic 2；关键外部字段严格校验，JSON Schema 导出 | 诊断、义务、动作、补丁和验证对象；GraphState 用可序列化 TypedDict/dict，不存 SDK 会话或进程句柄 |
 | 模型 | langchain-core + 按提供方选装 langchain-openai 或 langchain-anthropic | ModelClient 包装适配差异、动作解析、usage、错误分类；每次评测固定实际模型标识 |
-| 检索与修改 | Python pathlib/标准库、ripgrep、Git CLI | 路径/文本与局部调用线索；隔离候选目录，git apply 检查及实际 diff；暂不引入向量库或未经核验的 ArkTS AST |
+| 检索与修改 | SDK 文件工具及后端；Python、ripgrep、Git 补充 | 复用读写/搜索能力；我们管理任务工作目录、候选 diff、版本绑定与回退；不自行开发通用编辑器 |
 | 本地轨迹 | SQLite 持久状态 + JSONL 事件导出 + 文件产物哈希 | 模型请求、工具结果、动作和成本可追踪；JSONL 是导出/审阅轨迹，不另做相互竞争的状态真值 |
-| 配置与 Skills | TOML 运行配置，Markdown 规则正文和 Pydantic 校验的结构化元数据 | Skills 显式注册到工具/策略，不依赖运行时自动发现 SKILL.md 的假设 |
+| 配置与 Skills | TOML 运行配置，Markdown 规则正文和 Pydantic 校验的结构化元数据 | 通过 SDK skills 参数显式加载受控规则目录；不加载 data_B 中的 Prompt/AGENTS 等构造说明；行为义务仍由程序校验 |
 | 命令行 | 沿用 argparse | 单例、批量、恢复和报告入口；先不另引 Typer 或 Web UI |
 | 远程 API | HTTPX + FastAPI + Uvicorn，JSON 请求/结果 | 提交、查询、取消、能力描述、产物下载；真实设备环境独立 |
 | 应用执行 | 远程现有 DevEco/SDK，Hvigor、ohpm、hdc 与适配后的 Hypium | 完整工程、签名、目标操作、功能和回归判据；版本按应用要求锁定，不自动升级为最新版 |
 | 开发质量 | pytest、Ruff、Pyright | 单元/契约/状态恢复检查和静态质量；模型与应用实验单独运行 |
 
-模型使用 LangChain 的独立适配包，而不依赖 langchain 顶层的预置 create_agent 流程。langchain-core 等实际传递依赖仍存在，不能宣称只安装一个零依赖框架。[ChatOpenAI](https://docs.langchain.com/oss/python/integrations/chat/openai) 与 [ChatAnthropic](https://docs.langchain.com/oss/python/integrations/chat/anthropic) 提供工具调用及 usage 接口；第三方 OpenAI-compatible 服务不能默认视为完全兼容，必须核对动作、推理相关协议字段与成本字段，必要时使用其专用适配包。
+Deep Agents 依赖 LangChain Agent 和 LangGraph；模型使用提供方适配包。接受这些依赖以减少自研基础设施，不再宣称绕开预置 Agent 流程。[ChatOpenAI](https://docs.langchain.com/oss/python/integrations/chat/openai) 与 [ChatAnthropic](https://docs.langchain.com/oss/python/integrations/chat/anthropic) 提供工具调用及 usage 接口；第三方 OpenAI-compatible 服务不能默认视为完全兼容，必须核对动作、推理相关协议字段与成本字段，必要时使用其专用适配包。
 
 #### 模型与策略如何解耦
 
-模型适配输出我们自己的 ActionProposal/ModelObservation，业务策略不依赖 AIMessage 内部字段。优先使用原生工具调用，返回后再做本地 Pydantic 校验。供应商格式约束不能代替业务校验，格式修复同样记为模型调用。
+SDK 维护模型消息和工具循环；工具边界转换为我们自己的 ActionProposal/ModelObservation，业务策略不依赖 AIMessage 内部字段。优先使用原生工具调用，返回后再做本地 Pydantic 校验。供应商格式约束不能代替业务校验，格式修复同样记为模型调用。
 
 只由一层负责语义重试和预算，关闭或显式计入 SDK 的自动重试；不允许 SDK、图节点和控制器各重试一轮却只记录一次。原始响应中可获得的 usage/请求标识保留，适配器不支持的字段保持未知，不静默删除后称计费完整。确认的格式、usage、上下文和工具能力写入模型配置；具体模型账号和型号不是框架选择的前提。
 
@@ -71,11 +73,18 @@
 
 #### 依赖接入门槛
 
-选型本轮确定；下一实现批次建立独立环境并生成真实 uv.lock，先做以下不调用模型、不连接设备的接入检查：图分支与 SQLite 恢复；严格对象校验；固定响应的工具调用/usage 解析；HTTP 模拟提交/查询/取消；隔离目录中 patch 应用/回退。通过后提交 lock 和所支持平台记录，再接实际资源。
+下一实现批次只做不调用真实模型、不连接设备的最小接入切片，先核验四项：
 
-不用手写“看起来精确”的补丁版本或空 lockfile。首版 API 系列选 LangGraph 1.x 与 Pydantic 2.x；其余包选与这些系列及 Python 3.13 相容的非预发布版本，经解析、自检后锁定。正式运行使用 uv sync --locked；锁定不会自动证明供应链安全或平台兼容，升级必须有明确原因并重跑受影响检查。uv 的锁定语义见 [官方文档](https://docs.astral.sh/uv/concepts/projects/sync/)。
+1. 固定响应能驱动读取、编辑、候选登记、检查失败和继续修复，领域对象能严格校验。
+2. 文件编辑只产生工作副本变更；run_check 必须先冻结并登记实际 diff，绑定不可变 candidate_id。任何可执行修改后代码的通道都走同一登记门，不开放可绕过该门的任意 shell；检查期间不得修改被测快照。自定义工具不能取消原有通用检查能力。
+3. 主循环、上下文压缩、格式修复、SDK 重试等调用全部进入预算；默认子代理禁用，工具与模型调用记录可导出。基础/增强组使用同一套框架配置，不能把默认能力差异算成算法收益。
+4. SQLite 恢复及模拟远程作业不重复累积补丁，不错误重复提交，也不能在未运行检查时宣称成功。
 
-若接入检查显示框架成本明显超过收益，先定位具体 API/平台问题；确需更换时整批修改本节、蓝图、实现和锁文件，不在主线同时保留两套编排器。PydanticAI 是备选而非同步开发方向。
+内置 FilesystemBackend 只是一种文件访问后端，不是系统级沙箱；使用任务根目录和虚拟路径限制，远程执行保持独立。文件后端不会自动提供 HarmonyOS 的构建、设备和业务验收能力，仍由我们的 ExecutionBackend 实现。
+
+若这些边界需要大范围修改 SDK 源码才能满足，就不继续加框架补丁；回到本节比较的轻量主循环方案评估。先使用公开工具/中间件扩展点，不 fork SDK，也不并行实现备选引擎。
+
+通过上述检查后生成真实 uv.lock，提交受支持平台记录。采用与 Python 3.13、Pydantic 2 相容的非预发布版本，以 Deep Agents 的兼容依赖约束解析底层 LangGraph，不手写未经解析的精确版本。正式运行使用 uv sync --locked；升级重跑受影响检查。锁定语义见 [uv 文档](https://docs.astral.sh/uv/concepts/projects/sync/)。
 
 ### 1.2 实现切分与第一版 Agent 工具
 
@@ -84,13 +93,13 @@
 | 模块 | 负责什么 | 复用边界 |
 |---|---|---|
 | models.py | ModelClient、动作响应、usage 和错误分类 | 包装 LangChain 提供方适配包，不在领域代码传播 SDK 类型 |
-| agent.py | LangGraph 图节点、条件路由及恢复入口 | 基础/增强共享图与工具，通过领域策略开关比较 |
+| agent.py | Deep Agents 创建、领域工具/中间件注册及恢复入口 | 基础/增强共享 harness 与配置，通过领域策略开关比较 |
 | workspace.py | 隔离源码副本、diff 应用、候选版本、回退与产物 | 使用成熟 diff/版本工具；不直接修改 data_B |
 | policies.py | 义务关联、修复方向比较与检查触发策略 | 本项目主要增量实现位置 |
 | verification.py | 检查提案、结果绑定和独立验收汇总 | 统一调用本地检查和 ExecutionBackend |
 | backends.py | 执行能力、远程任务提交/查询/取消和产物获取 | 具体 SDK/设备执行依赖远程环境 |
 
-首版工具接口覆盖 read_source、search_source、inspect_context、register_diagnosis、propose_patch、run_check、read_result 和 finish。模型可反复选择读取/查证动作，补丁后也能重新定位，流程不是固定执行每个阶段一次。所有组均拥有同等源码检索、修改和已配置检查能力；检查接口应覆盖任务所需的通用逻辑与应用协议，不局限于四类规则内置样例。
+首版复用 SDK 读取、搜索和编辑工具；领域接口补充 inspect_context、register_diagnosis、propose_patch（冻结并登记当前 diff）、run_check、read_result 和 finish。多次编辑只是候选工作区修改，首次执行该代码前必须完成候选登记，后续修改形成新候选。模型可反复选择读取/查证动作，补丁后也能重新定位，流程不是固定执行每个阶段一次。所有组均拥有同等源码检索、修改和已配置检查能力；检查接口应覆盖任务所需的通用逻辑与应用协议，不局限于四类规则内置样例。
 
 先用固定模型响应和合成执行反馈核验调度；随后接入真实模型，再接入应用执行。已装好 SDK、能生成 diff、能调用工具分别是接入证据，不等同于有效修复。
 

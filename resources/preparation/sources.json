@@ -414,6 +414,54 @@
       "use": "Official command-line/CI testing and Hypium entry points; exact dataset SDK not verified",
       "accessed": "2026-09-16",
       "reproduced": false
+    },
+    {
+      "id": "S32",
+      "title": "Deep Agents overview",
+      "type": "official engineering documentation",
+      "url": "https://docs.langchain.com/oss/python/deepagents/overview",
+      "status": "Primary source inspected for harness selection",
+      "version": "Live documentation; exact package versions not locked",
+      "read_level": "Relevant documentation sections",
+      "use": "Reusable coding harness instead of hand-built graph loop",
+      "accessed": "2026-09-17",
+      "reproduced": false
+    },
+    {
+      "id": "S33",
+      "title": "Deep Agents customization",
+      "type": "official engineering documentation",
+      "url": "https://docs.langchain.com/oss/python/deepagents/customization",
+      "status": "Primary source inspected for harness selection",
+      "version": "Live documentation; exact package versions not locked",
+      "read_level": "Relevant documentation sections",
+      "use": "Tools, middleware, skills and default subagent behavior; exact pinned API not tested",
+      "accessed": "2026-09-17",
+      "reproduced": false
+    },
+    {
+      "id": "S34",
+      "title": "Deep Agents backends",
+      "type": "official engineering documentation",
+      "url": "https://docs.langchain.com/oss/python/deepagents/backends",
+      "status": "Primary source inspected for harness selection",
+      "version": "Live documentation; exact package versions not locked",
+      "read_level": "Relevant documentation sections",
+      "use": "Filesystem root and execution boundaries; not OS isolation",
+      "accessed": "2026-09-17",
+      "reproduced": false
+    },
+    {
+      "id": "S35",
+      "title": "Claude Agent SDK overview",
+      "type": "official engineering documentation",
+      "url": "https://code.claude.com/docs/en/agent-sdk/overview",
+      "status": "Primary source inspected for harness selection",
+      "version": "Live documentation; exact package versions not locked",
+      "read_level": "Relevant documentation sections",
+      "use": "Alternative ready-made coding agent with hooks and custom tools",
+      "accessed": "2026-09-17",
+      "reproduced": false
     }
   ]
 }
