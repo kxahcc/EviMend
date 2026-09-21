@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "profile": "windows-local-development",
+  "enforcement_status": "planned_not_implemented",
+  "paths": {
+    "managed_root": ".dfx-local",
+    "export_root": "runs/exports"
+  },
+  "limits": {
+    "max_concurrent_runs": 1,
+    "max_active_processes": 16,
+    "cpu_rate_percent": 20,
+    "job_memory_cap_bytes": 4294967296,
+    "job_memory_fraction_of_physical": 0.25,
+    "min_free_memory_bytes": 2147483648,
+    "managed_disk_budget_bytes": 10737418240,
+    "min_free_disk_bytes": 10737418240,
+    "min_free_disk_fraction": 0.10,
+    "monitor_interval_seconds": 2,
+    "default_wall_timeout_seconds": 1800,
+    "stop_grace_seconds": 10,
+    "max_log_file_bytes": 10485760,
+    "max_run_log_bytes": 104857600,
+    "max_download_concurrency": 2,
+    "max_build_concurrency": 1
+  },
+  "execution": {
+    "require_windows_job_limits": true,
+    "allow_background_services": false,
+    "allow_local_model_weights": false,
+    "allow_local_harmony_sdk": false,
+    "allow_model_experiments": false,
+    "allow_application_experiments": false
+  },
+  "cleanup": {
+    "default_dry_run": true,
+    "require_owner_match": true,
+    "refuse_reparse_points": true,
+    "require_quiescent_root": true,
+    "require_export_or_explicit_discard": true
+  }
+}

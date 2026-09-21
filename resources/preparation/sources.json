@@ -462,6 +462,66 @@
       "use": "Alternative ready-made coding agent with hooks and custom tools",
       "accessed": "2026-09-17",
       "reproduced": false
+    },
+    {
+      "id": "S36",
+      "title": "uv environment variables",
+      "type": "official engineering documentation",
+      "url": "https://docs.astral.sh/uv/reference/environment/",
+      "status": "Primary source inspected for local resource design",
+      "version": "Live documentation; implementation not tested",
+      "read_level": "Relevant documentation sections",
+      "use": "Project-owned environment/cache paths; avoid registry and global installs",
+      "accessed": "2026-09-21",
+      "reproduced": false
+    },
+    {
+      "id": "S37",
+      "title": "Windows Job Objects",
+      "type": "official engineering documentation",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects",
+      "status": "Primary source inspected for local resource design",
+      "version": "Live documentation; implementation not tested",
+      "read_level": "Relevant documentation sections",
+      "use": "Process group lifecycle and inherited child limits; not a security sandbox",
+      "accessed": "2026-09-21",
+      "reproduced": false
+    },
+    {
+      "id": "S38",
+      "title": "Windows Job CPU rate control",
+      "type": "official engineering documentation",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information",
+      "status": "Primary source inspected for local resource design",
+      "version": "Live documentation; implementation not tested",
+      "read_level": "Relevant documentation sections",
+      "use": "CPU hard cap for owned job processes",
+      "accessed": "2026-09-21",
+      "reproduced": false
+    },
+    {
+      "id": "S39",
+      "title": "Windows Job extended limits",
+      "type": "official engineering documentation",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information",
+      "status": "Primary source inspected for local resource design",
+      "version": "Live documentation; implementation not tested",
+      "read_level": "Relevant documentation sections",
+      "use": "Committed memory accounting and limits",
+      "accessed": "2026-09-21",
+      "reproduced": false
+    },
+    {
+      "id": "S40",
+      "title": "Windows Job basic limits",
+      "type": "official engineering documentation",
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_limit_information",
+      "status": "Primary source inspected for local resource design",
+      "version": "Live documentation; implementation not tested",
+      "read_level": "Relevant documentation sections",
+      "use": "Kill-on-last-handle-close, process count and breakaway semantics",
+      "accessed": "2026-09-21",
+      "reproduced": false
     }
   ]
 }

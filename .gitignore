@@ -8,3 +8,6 @@ data_B/
 .env
 .env.*
 archive/
+
+# Project-owned runtime, caches and disposable workspaces
+.dfx-local/
