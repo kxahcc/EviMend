@@ -1,4 +1,9 @@
-param([ValidateSet('Paths', 'Processes')][string]$Suite = 'Paths')
+param([ValidateSet('Paths', 'Processes', 'Bootstrap')][string]$Suite = 'Paths')
+
+if ($Suite -eq 'Bootstrap') {
+    & (Join-Path $PSScriptRoot 'test_local_bootstrap.ps1')
+    exit $LASTEXITCODE
+}
 
 if ($Suite -eq 'Processes') {
     & (Join-Path $PSScriptRoot 'test_local_process.ps1')
@@ -73,6 +78,19 @@ try {
     Check ([IO.File]::ReadAllText($script:Sentinel) -ceq 'keep-me') 'outside sentinel unchanged'
     Check ([IO.File]::ReadAllText((Join-Path $script:CaseRepo 'data_B/source.txt')) -ceq 'original') 'data unchanged'
 
+    $uvCache = Join-Path $root 'cache/uv/keep.txt'
+    Write-File $uvCache 'uv-cache'
+    Write-File (Join-Path $root 'cache/pytest/old.txt') 'old-cache'
+    $testCachePlan = Invoke-Local -Arguments @('Clean', '-Scope', 'testcache')
+    Check ($testCachePlan.target_count -eq 1 -and [IO.File]::Exists($uvCache)) 'testcache plan selects only test cache'
+    $null = Invoke-Local -Arguments @('Clean', '-Scope', 'testcache', '-Apply', '-PlanId', $testCachePlan.plan_id)
+    Check (-not [IO.Directory]::Exists((Join-Path $root 'cache/pytest')) -and [IO.File]::Exists($uvCache)) 'testcache preserves uv cache'
+    Write-File (Join-Path $root 'tmp/old.txt') 'temporary'
+    $tmpPlan = Invoke-Local -Arguments @('Clean', '-Scope', 'tmp')
+    Check ($tmpPlan.target_count -eq 1 -and [IO.File]::Exists($uvCache)) 'tmp plan selects only temporary directory'
+    $null = Invoke-Local -Arguments @('Clean', '-Scope', 'tmp', '-Apply', '-PlanId', $tmpPlan.plan_id)
+    Check (-not [IO.Directory]::Exists((Join-Path $root 'tmp')) -and [IO.File]::Exists($uvCache)) 'tmp cleanup preserves cache'
+
     Write-File $cacheFile 'new'
     $stale = Invoke-Local -Arguments @('Clean', '-Scope', 'cache')
     Write-File $cacheFile 'changed length'
@@ -117,6 +135,20 @@ try {
     $workPlan = Invoke-Local -Arguments @('Clean', '-Scope', 'work')
     $null = Invoke-Local -Arguments @('Clean', '-Scope', 'work', '-Apply', '-PlanId', $workPlan.plan_id)
     Check (-not [IO.Directory]::Exists((Join-Path $root 'work'))) 'finished work can be cleaned'
+
+    $internalDir = Join-Path $root 'cache/internal'
+    Write-File (Join-Path $internalDir 'inside.txt') 'internal'
+    New-Item -ItemType Junction -Path (Join-Path $root 'cache/link') -Target $internalDir | Out-Null
+    $internalPlan = Invoke-Local -Arguments @('Clean', '-Scope', 'cache')
+    $null = Invoke-Local -Arguments @('Clean', '-Scope', 'cache', '-Apply', '-PlanId', $internalPlan.plan_id)
+    Check (-not [IO.Directory]::Exists((Join-Path $root 'cache'))) 'verified internal junction is removed without traversal'
+    $shared = Join-Path $root 'cache/shared.txt'
+    Write-File $shared 'shared'
+    [IO.Directory]::CreateDirectory((Join-Path $root 'env')) | Out-Null
+    New-Item -ItemType HardLink -Path (Join-Path $root 'env/shared.txt') -Target $shared | Out-Null
+    $hardlinkPlan = Invoke-Local -Arguments @('Clean', '-Scope', 'env')
+    $null = Invoke-Local -Arguments @('Clean', '-Scope', 'env', '-Apply', '-PlanId', $hardlinkPlan.plan_id)
+    Check ([IO.File]::ReadAllText($shared) -ceq 'shared') 'cleaning hardlink preserves other name'
 
     Write-File (Join-Path $root 'artifacts/patch.diff') 'evidence'
     $blocked = Invoke-Local -Arguments @('Clean', '-Scope', 'all') -ShouldPass $false

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from pathlib import Path
-import re
 
 from .logs import decode_text, framework_path, normalize_frame_path
-
 
 SOURCE_SUFFIXES = {".ets", ".ts", ".js", ".c", ".cpp", ".h", ".hpp"}
 

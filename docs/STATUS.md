@@ -13,34 +13,33 @@ P0 设计闭合进行中。已存在部分 P1 离线原型，但不表示完整�
 |---|---|---|
 | 数据与材料核查 | 已做只读盘点和代表材料静态审查；来源/运行版本仍有待核验项 | [数据报告](preparation/data-b-assessment-2026-09-15.md)、resources/preparation/data-b-inventory.json |
 | 项目蓝图 | 已明确目标工具、案例流程、重点和技术底座概览；详细规格仍需闭合 | DEVELOPMENT.md、开发设计第 1.1 节 |
-| 技术选型 | 当前优先 Deep Agents SDK（底层 LangGraph）/Pydantic/模型适配/SQLite 与 HTTP 远程执行方案；已核对官方能力，接入边界待合成验证；未安装新框架、未生成 uv.lock、未完成集成验证 | 开发设计第 1.1、6 节 |
+| 技术选型 | Deep Agents SDK（底层 LangGraph）/Pydantic/SQLite 已锁定并通过固定响应最小接入；模型提供方与 HTTP 远程后端未接入，端到端修复未验证 | 开发设计第 1.1、6 节；uv.lock；W03 自检 |
 | 方法设计 | 已落实竞争力设计、四项工作与失败风险、端到端推演及强基线比较要求，供用户审阅；部分可执行 schema、恢复/持久化细节未落地 | [设计草案](development/system-design-draft.md)、[模块规格](design-contracts.md) |
-| 本机资源与交接设计 | 已定义集中目录、资源限制、停止/清理协议及 W01–W10 实现包；资源配置已对固定合成 Run 生效，真实任务尚未接入 | 开发设计第 9 节、模块规格第 5 节、实施计划 |
-| W01 本机管理 | Prepare/Status/Clean 已实现；清理默认预览并校验 owner、目标指纹、活动标记和链接；31 条隔离合成断言通过 | scripts/local.ps1、scripts/test_local_runtime.ps1、sessions/2026-09-23-W01-local-cleanup.json |
-| W02 进程保护 | Run/Stop 已实现固定合成场景；Job 的 CPU/提交内存/进程数设置后读回，子进程挂起加入后运行；输出管道按字节上限收集，监测时间、内存预留和磁盘。25 条隔离断言通过；未安装 Agent 依赖 | scripts/local_job.cs、scripts/local_synthetic.ps1、scripts/test_local_process.ps1、sessions/2026-09-23-W02-local-processes.json |
+| 本机资源与交接设计 | 已定义集中目录、资源限制、停止/清理协议及 W01–W10 实现包；Job 限制对合成 Run、Init、pytest 和质量检查生效，真实 Agent 任务尚未接入 | 开发设计第 9 节、模块规格第 5 节、实施计划 |
+| W01 本机管理 | Prepare/Status/Clean 已实现；清理默认预览并校验 owner、目标指纹、活动标记和链接；当前 37 条隔离合成断言通过 | scripts/local.ps1、scripts/test_local_runtime.ps1、sessions/2026-09-23-W01-local-cleanup.json |
+| W02 进程保护 | Run/Stop 已实现固定合成场景；Job 的 CPU/提交内存/进程数设置后读回，子进程挂起加入后运行；输出管道按字节上限收集，监测时间、内存预留和磁盘。25 条隔离断言通过 | scripts/local_job.cs、scripts/local_synthetic.ps1、scripts/test_local_process.ps1、sessions/2026-09-23-W02-local-processes.json |
+| W03 受管依赖与 SDK 切片 | 项目专属 uv 0.12.9、CPython 3.13.5、uv.lock 已就位；Deep Agents 0.7.18 固定响应脚本验证编辑、候选登记、失败后修订、120 Token 记录、禁用委派与 SQLite 恢复。受管 Init 重复执行 10 项断言通过，SDK 合成测试 1 项通过；不代表真实模型或应用修复成功 | configs/bootstrap.json、uv.lock、tests/test_sdk_compat.py、scripts/test_local_bootstrap.ps1、sessions/2026-09-23-W03-managed-sdk.json |
 | 离线原型 | 快照、日志解析、栈位置映射和证据报告 | src/dfx_agent；不包含语义根因推理或自动修复 |
-| 软件自检 | 最近一次 10 项合成输入检查通过 | sessions/2026-09-16-stack-selection.json；仅现有原型，非新栈接入或应用评测 |
+| 软件自检 | 受管 pytest：原型 10 项、SDK 固定响应 1 项通过；受管 Ruff、Pyright、文档检查通过。W01/W02 反例测试见对应行 | .dfx-local/artifacts 下本批运行记录；仅合成自检，非应用评测 |
 | 仓库管理 | 本地 Git 已建立，模板与开发材料分开；失效规划已归档，当前文档设有归属及检查规则 | AGENTS.md、DEVELOPMENT.md、Git 历史 |
 | 文档自检 | 14 份登记文档检查无错误；检查器 5 个合成场景通过；7 个归档文件保留且不再跟踪，3 个提交模板未改动 | scripts/check_docs.py、sessions/2026-09-16-document-governance.json |
 
 ## 尚未完成
 
-真实任务的受管 Run、Init/证据导出和依赖安装；可执行对象 schema；控制器实现及恢复机制；模型接入、语义根因定位和补丁生成；四类规则的可执行模块；完整运行工程与独立业务判据；远程后端；正式任务清单、数据划分和真实效果评测。
+真实 Agent 任务的受管 Run 与证据导出；可执行对象 schema；正式控制器与外部操作恢复机制；模型提供方接入、语义根因定位和补丁生成；四类规则的可执行模块；完整运行工程与独立业务判据；远程后端；正式任务清单、数据划分和真实效果评测。
 
 模型修复运行、应用构建、设备回放次数均为 0。根因准确率、修复率和实际模型成本均未知。
 
 ## 环境与未决条件
 
 - 用户确认暂无 HarmonyOS 运行环境，将后续寻找远程资源。环境缺失只阻塞实际运行验收，不阻塞 P0/P1。
-- 最近离线自检使用 Python 3.13.5 与 pytest。9 月 16 日只读检查未在 PATH 找到 hdc/ohpm/hvigorw，未接通模型提供方；这些是观察记录，不是对所有安装位置和账号的完整证明。
+- 当前受管环境使用项目专属 Python 3.13.5 与锁定依赖。9 月 16 日只读检查未在 PATH 找到 hdc/ohpm/hvigorw，未接通模型提供方；这些是观察记录，不是对所有安装位置和账号的完整证明。
 - 远程 SDK/设备/传输方式、模型资源与预算、正式赛程和评测规则细节尚未确定。不要把未决事项填成已配置事实。
 
 ## 下一步及完成条件
 
-**下一工作包：W03，受管依赖与 Agent SDK 固定响应接入。** W01/W02 的受控入口已通过隔离合成验证；仅固定合成任务可由 Run 启动，不能把此结果当作 Agent 或应用实验成功。
+**下一工作包：W04，正式对象与候选工作目录。** W01–W03 已通过对应的隔离/固定响应自检；不能把这当作 Agent 或应用实验成功。
 
-1. W03 给 Init 和受管测试任务建立可核验的执行路径，再安装项目专属 Python/SDK 并锁定依赖。先完成路径、容量及失败回收测试，不直接在普通 shell 安装。
-2. W03 用固定响应模型验证 Deep Agents 最小编辑、计费、恢复和委派边界；不调用真实模型或设备。遇到 SDK API 冲突报告可复现失败，不放宽资源限制。
-3. W04–W10 的具体交付和验收仍以 [实施计划](project-work-plan.md) 为准；远程资源到位后再做应用实测。
-
-模型修复运行、应用构建和设备回放次数仍为 0。根因准确率、修复率和实际模型成本未知。
+1. W04 按 [实施计划](project-work-plan.md) 实现 `contracts.py` 与 `workspace.py`，建立严格对象校验、可写工作副本、候选 diff 的登记与回退，不把 W03 测试工具当正式实现。
+2. W04 的反例至少覆盖错误行号、推断冒充执行、候选版本错误、应用失败、源数据未改和共享链接风险；通过受管 pytest/Ruff/Pyright 检查。
+3. W05–W10 继续按实施计划推进；真实模型和应用实验仍等用户安排与远程资源条件。

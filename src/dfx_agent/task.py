@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path, PurePosixPath
 import re
 import shutil
 import zipfile
+from pathlib import Path, PurePosixPath
 
 from .logs import MAX_LOG_BYTES
-
 
 PROFILE = "analysis_source_v1"
 INCLUDED_SUFFIXES = {".ets", ".ts", ".js", ".json", ".json5", ".xml", ".html", ".css", ".c", ".cpp", ".h", ".hpp", ".cmake"}

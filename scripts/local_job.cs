@@ -151,7 +151,9 @@ namespace DfxLocal {
             int seconds, long maxLogBytes) {
             if (disposed || ProcessId != 0) throw new InvalidOperationException("Job already used");
             if (maxLogBytes < 1024) throw new ArgumentOutOfRangeException(nameof(maxLogBytes));
-            if (scenario != "idle" && scenario != "child" && scenario != "noisy" && scenario != "memory")
+            if (scenario != "idle" && scenario != "child" && scenario != "noisy" &&
+                scenario != "memory" && scenario != "bootstrap" && scenario != "test" &&
+                scenario != "docs" && scenario != "ruff" && scenario != "pyright")
                 throw new ArgumentException("Unsupported synthetic scenario");
             // Fixed executable and fixed script, with bounded data-only arguments.
             string command = "\"" + executable + "\" -NoProfile -NonInteractive -File \"" + script +

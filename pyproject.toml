@@ -3,6 +3,14 @@ name = "dfx-agent"
 version = "0.1.0"
 description = "Evidence-based HarmonyOS fault analysis and repair tooling"
 requires-python = ">=3.13,<3.14"
+dependencies = [
+  "deepagents>=0.3,<1",
+  "langgraph-checkpoint-sqlite>=2,<4",
+  "pydantic>=2,<3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1", "pyright>=1.1,<2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

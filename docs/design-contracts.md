@@ -148,7 +148,7 @@ Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和�
 
 ## 5. 本机资源与清理契约
 
-本节规定目标字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。LocalOwner、CleanupPlan 与 CleanupReceipt 已由 W01 的 PowerShell 管理入口部分实现；W02 已为合成 Run 建立 Job 限制、活动标记与生效限额记录。下表完整的 ProcessLease/EffectiveResourcePolicy/LocalUsage schema、正式任务接入及远程状态联动仍待实现，现有 runtime.py 不包含这些能力。
+本节规定目标字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。LocalOwner、CleanupPlan 与 CleanupReceipt 已由 W01 的 PowerShell 管理入口部分实现；W02/W03 已为合成、Init、测试与质量 Run 建立 Job 限制、活动标记与生效限额记录。下表完整的 ProcessLease/EffectiveResourcePolicy/LocalUsage schema、正式 Agent 任务接入及远程状态联动仍待实现，现有 runtime.py 不包含这些能力。
 
 | 对象 | 必须字段 / 约束 |
 |---|---|
@@ -159,7 +159,7 @@ Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和�
 | CleanupPlan | plan_id、实例 ID、scope、规范目标列表、估计字节、保留项、证据导出状态、远程未结作业、目标身份/状态摘要；Apply 前重新核验，不能直接信任可编辑 JSON 中的路径 |
 | CleanupReceipt | 实际删除/保留/失败项、时间、关联 plan_id、剩余占用；部分失败不记完整成功，重复执行可安全恢复 |
 
-受管根只接受设计指定的仓库内目录。拒绝空路径、卷根、仓库根、上级/同前缀目录和任一层 reparse point；解析失败则不清理。清理流程持有独占维护锁并阻止新工作；进程未退出、文件仍在用、证据未处理或远程作业未知时返回阻塞原因。测试应覆盖扫描之后发生路径替换的情况；本机同用户恶意篡改不能仅靠应用层路径检查获得完全隔离保证。
+受管根只接受设计指定的仓库内目录。拒绝空路径、卷根、仓库根、上级/同前缀目录、路径链中的链接与目录外链接目标；管理根内部的 uv/Python 链接须解析核验并只删除链接本身。解析失败则不清理。清理流程持有独占维护锁并阻止新工作；进程未退出、文件仍在用、证据未处理或远程作业未知时返回阻塞原因。测试应覆盖扫描之后发生路径替换的情况；本机同用户恶意篡改不能仅靠应用层路径检查获得完全隔离保证。
 
 资源中断不得归因成补丁功能错误：result 使用 inconclusive 或 blocked，并记录 failure_kind=resource_limit / timeout / interrupted 及原因；已产生候选和所有成本保留。任务停止归入 budget_exhausted（资源/时间上限）、blocked（保护器不兼容或环境不可用）或 unresolved（用户停止），不新增另一套成功语义。操作系统内存上限触发可能导致分配失败而非自动退出，管理器仍须检测并结束/报告。
 

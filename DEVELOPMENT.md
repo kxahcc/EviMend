@@ -76,7 +76,7 @@ Skills 是上述知识和动作的组织方式，例如“容量与元素数怎�
 | 输入输出 | Pydantic 2 | 检查模型动作、证据、候选与验证结果的结构 |
 | 模型 | langchain-openai / langchain-anthropic 等独立提供方包，外包一层 ModelClient | 接口相对统一，具体模型可替换；账号与型号后续确定 |
 | 状态与轨迹 | SQLite 检查点、JSONL 事件导出、文件产物 | 本地即可运行和检查，不先部署数据库服务 |
-| 环境管理 | uv + pyproject.toml + uv.lock | 隔离依赖、锁定可复现环境；精确版本接入测试后生成 |
+| 环境管理 | uv + pyproject.toml + uv.lock | 项目内隔离依赖并锁定版本；固定响应 SDK 切片已做合成验证 |
 | 代码工具 | Python、ripgrep、Git CLI | 按需读源码、生成/检查补丁、维护候选目录 |
 | 远程执行 | HTTPX 客户端，FastAPI/Uvicorn 服务及独立作业进程 | 本地 Agent 不必安装设备 SDK，远程执行可查询和恢复 |
 | 应用验证 | 项目匹配的 DevEco/SDK、Hvigor、ohpm、hdc、Hypium | 复用已有构建与场景测试资源，补业务验收 |
@@ -84,13 +84,13 @@ Skills 是上述知识和动作的组织方式，例如“容量与元素数怎�
 
 Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增量仍在修复义务与检查选择。首版不叠加多 Agent 框架、云端追踪平台或消息队列；mini-swe-agent 保留为外部工程参照。我们仍须实现领域工具、候选登记、幂等作业和业务验证，框架不会自动解决这些问题。
 
-这是当前优先接入方向，尚未通过集成验收。先做不调用真实模型/设备的框架接入自检，再生成依赖锁；当前安装与验证进度看 STATUS。
+这一底座已完成不调用真实模型/设备的最小框架接入自检并生成依赖锁；正式修复控制器、领域对象和远程验证尚待实现，进度看 STATUS。
 
 ### 本机资源怎样集中管理
 
-后续本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；需要长期保留的证据导出到 runs/exports。日常只启动一个受管任务，不在本机加载模型权重或部署 HarmonyOS 设备环境。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
+本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；需要长期保留的证据计划导出到 runs/exports。日常只启动一个受管任务，不在本机加载模型权重或部署 HarmonyOS 设备环境。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop，以及只运行短时合成任务的受限 Run。Run 先建立 Windows Job 的 CPU、提交内存和进程数限制，再启动子进程；输出经有上限的管道收集。真实 Agent 任务尚未接入该入口，Init/Export 也未实现。下一步 W03 在该保护器下建立项目依赖并做固定响应框架自检。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)，资源数值集中在 [本机配置](configs/local-runtime.json)。
+管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop、Init，以及固定合成任务和测试/质量检查的受限 Run。Init、测试先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local。真实 Agent 任务与 Export 尚未接入。下一步 W04 实现正式对象和候选工作目录。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)，资源数值集中在 [本机配置](configs/local-runtime.json)。
 
 ## 6. 怎样一步步把它做出来
 
@@ -134,22 +134,24 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
 | `src/dfx_agent/` | Python 离线证据整理原型；模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 入口 |
-| `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop 和受限合成 Run 入口；真实任务与安装尚未接入 |
+| `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init 与受限合成/测试/质量任务入口；真实 Agent 任务尚未接入 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
-| `scripts/test_local_runtime.ps1`、`scripts/test_local_process.ps1` | W01 路径清理和 W02 进程保护的隔离合成反例检查 |
+| `scripts/local_bootstrap.ps1`、`scripts/local_test.ps1`、`scripts/local_quality.ps1` | Job 内的固定依赖安装、pytest 和文档/Ruff/Pyright 检查，不接受任意 shell 命令 |
+| `scripts/test_local_runtime.ps1`、`scripts/test_local_process.ps1`、`scripts/test_local_bootstrap.ps1` | W01 路径清理、W02 进程保护和 W03 重复 Init 的合成验收 |
 | `scripts/check_docs.py` | 文档登记、链接、维护元数据及 archive 跟踪检查 |
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
-| `tests/test_offline_evidence.py` | 合成输入自检；最近测试结果由 STATUS 记录 |
+| `tests/test_offline_evidence.py`、`tests/test_sdk_compat.py` | 原型合成输入与固定响应 SDK 接入自检；最近结果由 STATUS 记录 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 项目 Skill 的模板位置；实际实现状态见 STATUS |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
-| `configs/local-runtime.json` | 本机资源/清理策略；CPU/内存/进程限制仅对合成 Run 生效，字段语义见设计与契约 |
-| `.dfx-local/` | 本机环境、缓存、工作副本与运行状态根；Git 忽略，管理与合成 Run 保护已可用 |
+| `configs/local-runtime.json` | 本机资源/清理策略；CPU/内存/进程限制对合成 Run、Init、测试和质量任务生效，字段语义见设计与契约 |
+| `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
+| `.dfx-local/` | 本机环境、缓存、工作副本与运行状态根；Git 忽略，合成、安装、测试和质量任务受管 |
 | `runs/` | 历史原型产物、管理工具接入前的临时材料及需保留的 exports；Git 忽略 |
 | `archive/` | 失效文档及配套材料；Git 忽略，不作为当前入口或运行依赖 |
-| `pyproject.toml`、`.python-version` | Python 3.13 基线和当前原型配置；新框架依赖及 uv.lock 在隔离接入自检时补齐 |
+| `pyproject.toml`、`uv.lock`、`.python-version` | Python 3.13 基线、SDK 与质量工具的已解析依赖锁 |
 | `.gitignore` | 排除本地数据、归档、运行产物、缓存、虚拟环境和凭据文件 |
 | `.gitkeep` / 各目录 README.txt / template-session.json | 竞赛模板的占位及格式说明 |
 
@@ -173,8 +175,10 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 
 ```powershell
 python scripts/dfx.py --help
-python scripts/check_docs.py
 .\scripts\local.ps1 Status
+.\scripts\local.ps1 Init
+.\scripts\local.ps1 Run -Task test -TestPath tests/test_sdk_compat.py
+.\scripts\local.ps1 Run -Task docs
 .\scripts\test_local_runtime.ps1 -Suite Paths
 ```
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
 
@@ -45,7 +45,7 @@ def analyze_task(directory: Path, max_anchors: int = 8, radius: int = 6) -> dict
         anchors.append(anchor)
     finished = perf_counter()
     return {
-        "schema_version": 1, "task_id": task["task_id"], "created_at": datetime.now(timezone.utc).isoformat(),
+        "schema_version": 1, "task_id": task["task_id"], "created_at": datetime.now(UTC).isoformat(),
         "stage": "stack_evidence", "status": "evidence_ready" if anchors else "needs_input_review",
         "source_snapshot_sha256": task["source_snapshot_sha256"], "crash_sha256": crash.sha256,
         "error_name": crash.error_name, "error_name_source": crash.error_name_source,

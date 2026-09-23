@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date
-from pathlib import Path
 import re
 import subprocess
+from datetime import date
+from pathlib import Path
 from urllib.parse import unquote, urlsplit
-
 
 ROOT = Path(__file__).resolve().parents[1]
 EXCLUDED = {"archive", "runs", "data_B"}
@@ -31,7 +30,7 @@ def check() -> tuple[list[str], list[str], int]:
             errors.append(f"Local-only material remains tracked: {p}")
     ignore = subprocess.run(
         ["git", "check-ignore", "--no-index", "archive/__doc_check_probe__"],
-        cwd=ROOT, capture_output=True,
+        cwd=ROOT, capture_output=True, check=False,
     )
     if ignore.returncode != 0:
         errors.append("archive/ is not ignored")
@@ -39,11 +38,11 @@ def check() -> tuple[list[str], list[str], int]:
     guide = (ROOT / "DEVELOPMENT.md").read_text(encoding="utf-8")
     match = re.search(
         r"<!-- document-registry:start -->(.*?)<!-- document-registry:end -->",
-        guide, re.S,
+        guide, re.DOTALL,
     )
     if not match:
         return errors + ["Missing DEVELOPMENT document registry"], notes, 0
-    rows = re.findall(r"^\| `([^`]+)` \| ([^|]+) \|", match.group(1), re.M)
+    rows = re.findall(r"^\| `([^`]+)` \| ([^|]+) \|", match.group(1), re.MULTILINE)
     registry = {path: kind.strip() for path, kind in rows}
     if len(rows) != len(registry):
         errors.append("Duplicate registry paths")
@@ -68,9 +67,9 @@ def check() -> tuple[list[str], list[str], int]:
                 date.fromisoformat(dates[0])
             except ValueError:
                 errors.append(f"{name}: invalid maintenance date")
-        if not re.search(r"^状态：", text, re.M):
+        if not re.search(r"^状态：", text, re.MULTILINE):
             errors.append(f"{name}: missing document status")
-        if re.search(r"^(?:>\s*)?版本：v\d|^>.*\d{4}-\d{2}-\d{2}.*更新", text, re.M):
+        if re.search(r"^(?:>\s*)?版本：v\d|^>.*\d{4}-\d{2}-\d{2}.*更新", text, re.MULTILINE):
             errors.append(f"{name}: manual document version or appended dated update")
         for target in re.findall(r"\]\(([^)]+)\)", text):
             target = target.strip("<>")

@@ -2,8 +2,8 @@
 
 import argparse
 import json
-from pathlib import Path
 import zipfile
+from pathlib import Path
 
 from .analysis import analyze_task
 from .runtime import doctor

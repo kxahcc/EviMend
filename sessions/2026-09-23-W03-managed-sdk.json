@@ -1,0 +1,33 @@
+{
+  "session_id": "session-2026-09-23-W03-managed-sdk",
+  "date": "2026-09-23",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "W03",
+  "user_request_summary": "继续按计划实施项目，当前仅开展设计与合成软件自检，暂不启动真实模型或 HarmonyOS 应用实验。",
+  "changes": [
+    "固定 uv 0.12.9 下载来源、SHA-256 和大小上限；在受限 Job 中建立项目专属 CPython 3.13.5、虚拟环境和 uv.lock。",
+    "增加受管 Init、单文件 pytest、文档/Ruff/Pyright 任务，验证环境身份；测试禁用持久缓存并清理自身临时目录。",
+    "Deep Agents 0.7.18 固定响应切片验证读写、候选登记、失败修订、模型 usage、禁用默认委派与 SQLite 重开。",
+    "清理器增加 testcache/tmp 精确范围，隔离断言覆盖只清指定目录；同步更新蓝图、设计、规格和状态。"
+  ],
+  "validation": {
+    "bootstrap_assertions": 10,
+    "path_cleanup_assertions_current": 37,
+    "process_assertions": 25,
+    "sdk_synthetic_tests": 1,
+    "offline_evidence_tests": 10,
+    "docs_registered": 14,
+    "docs_errors": 0,
+    "ruff": "passed",
+    "pyright": "0 errors",
+    "model_repair_runs": 0,
+    "device_replays": 0
+  },
+  "limitations": [
+    "固定响应使用临时工具和合成样例，正式控制器、领域对象、外部操作幂等与真实修复尚未实现。",
+    "真实 Agent 运行和证据导出尚未接入受管入口；Job 不是不可信代码安全沙箱。",
+    "不同 Windows 账户运行测试产生的旧 pytest 缓存曾阻塞宿主 Init；已按受管计划清理，改为无持久缓存并在测试后重复验证 Init。"
+  ],
+  "next_work_package": "W04"
+}

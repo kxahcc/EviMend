@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import hashlib
 import re
-
+from dataclasses import asdict, dataclass
 
 MAX_LOG_BYTES = 10_000_000
 FRAME = re.compile(r"^\s*at\s+(.*?)\((.+?\.(?:ets|ts|js)):(\d+):(\d+)\)\s*$")
@@ -28,8 +27,7 @@ def decode_text(data: bytes) -> tuple[str, str, list[str]]:
 
 def normalize_frame_path(value: str) -> str:
     value = value.replace("\\", "/")
-    if value.startswith("file:"):
-        value = value[5:]
+    value = value.removeprefix("file:")
     return re.sub(r"/+", "/", value)
 
 

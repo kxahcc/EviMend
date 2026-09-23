@@ -1,13 +1,15 @@
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet('Status', 'Prepare', 'Clean', 'Run', 'Stop')][string]$Action,
-    [ValidateSet('cache', 'work', 'env', 'all')][string]$Scope = 'cache',
+    [ValidateSet('Status', 'Prepare', 'Clean', 'Run', 'Stop', 'Init')][string]$Action,
+    [ValidateSet('cache', 'testcache', 'tmp', 'work', 'env', 'all')][string]$Scope = 'cache',
     [switch]$Apply,
     [string]$PlanId,
     [switch]$DiscardEvidence,
+    [ValidateSet('synthetic', 'test', 'docs', 'ruff', 'pyright')][string]$Task = 'synthetic',
+    [string]$TestPath,
     [ValidateSet('idle', 'child', 'noisy', 'memory')][string]$Scenario = 'idle',
     [ValidateRange(1, 120)][int]$Seconds = 3,
-    [ValidateRange(1, 1800)][int]$TimeoutSeconds = 30
+    [ValidateRange(1, 1800)][int]$TimeoutSeconds = 1800
 )
 
 Set-StrictMode -Version Latest
@@ -21,6 +23,7 @@ if ($script:Policy.schema_version -ne 1 -or $script:Policy.paths.managed_root -c
 if ($script:Policy.execution.require_windows_job_limits -ne $true -or $script:Policy.cleanup.default_dry_run -ne $true) {
     throw 'Local runtime safety settings cannot be disabled'
 }
+if ($script:Policy.enforcement_status -cne 'setup_and_quality_guarded') { throw 'Unsupported enforcement status' }
 $script:Root = [IO.Path]::GetFullPath((Join-Path $script:Repo '.dfx-local'))
 $script:OwnerPath = Join-Path $script:Root 'owner.json'
 $script:StatePath = Join-Path $script:Root 'state'
@@ -48,7 +51,8 @@ function Assert-PathChain([string]$Path) {
         $cursor = Join-Path $cursor $segment
         if ([IO.File]::Exists($cursor) -or [IO.Directory]::Exists($cursor) -or (Test-Path -LiteralPath $cursor)) {
             $part = Get-Item -LiteralPath $cursor -Force
-            if (($part.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $null -ne $part.LinkType) {
+            if (($part.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                ($null -ne $part.LinkType -and $part.LinkType -cne 'HardLink')) {
                 throw "Reparse point in managed path: $cursor"
             }
         }
@@ -73,6 +77,15 @@ function Read-Owner() {
     return $owner
 }
 
+function Get-InternalLinkTarget([IO.FileSystemInfo]$Entry) {
+    $resolved = $Entry.ResolveLinkTarget($true)
+    if ($null -eq $resolved) { throw "Unresolved reparse point: $($Entry.FullName)" }
+    $target = [IO.Path]::GetFullPath($resolved.FullName)
+    if (-not (Test-Within $target $script:Root)) { throw "Reparse point outside managed root: $($Entry.FullName)" }
+    Assert-PathChain $target
+    return $target
+}
+
 function Get-Members([string]$Target) {
     $entries = [Collections.Generic.List[object]]::new()
     if (-not [IO.Directory]::Exists($Target)) { return @() }
@@ -82,16 +95,19 @@ function Get-Members([string]$Target) {
     while ($pending.Count -gt 0) {
         $folder = $pending.Pop()
         foreach ($entry in [IO.DirectoryInfo]::new($folder).EnumerateFileSystemInfos()) {
-            Assert-PathChain $entry.FullName
+            $isLink = ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+            if ($isLink) { $linkTarget = Get-InternalLinkTarget $entry }
+            else { Assert-PathChain $entry.FullName; $linkTarget = $null }
             $isDir = ($entry.Attributes -band [IO.FileAttributes]::Directory) -ne 0
             $relative = $entry.FullName.Substring($script:Root.Length).TrimStart([IO.Path]::DirectorySeparatorChar)
             if ($relative -in @('state\cleanup-plan.json', 'state/cleanup-plan.json')) { continue }
-            $length = if ($isDir) { 0L } else { [long]([IO.FileInfo]$entry).Length }
+            $length = if ($isDir -or $isLink) { 0L } else { [long]([IO.FileInfo]$entry).Length }
             $entries.Add([pscustomobject]@{
                 path = $relative; directory = $isDir; bytes = $length
-                modified_utc_ticks = if ($isDir) { 0L } else { $entry.LastWriteTimeUtc.Ticks }
+                link_target = $linkTarget
+                modified_utc_ticks = if ($isDir -or $isLink) { 0L } else { $entry.LastWriteTimeUtc.Ticks }
             })
-            if ($isDir) { $pending.Push($entry.FullName) }
+            if ($isDir -and -not $isLink) { $pending.Push($entry.FullName) }
         }
     }
     return @($entries | Sort-Object -Property path -CaseSensitive)
@@ -103,7 +119,7 @@ function Get-Fingerprint([string[]]$Targets) {
     foreach ($target in $Targets) {
         Assert-PathChain $target
         foreach ($member in @(Get-Members $target)) {
-            $records.Add("$($member.path)|$($member.directory)|$($member.bytes)|$($member.modified_utc_ticks)")
+            $records.Add("$($member.path)|$($member.directory)|$($member.link_target)|$($member.bytes)|$($member.modified_utc_ticks)")
             $bytes += $member.bytes
         }
     }
@@ -111,9 +127,44 @@ function Get-Fingerprint([string[]]$Targets) {
     return [pscustomobject]@{ hash = [Convert]::ToHexString($sha); bytes = $bytes; entries = $records.Count }
 }
 
+function Get-ManagedBytes([string[]]$Targets = @(), [bool]$VerifyLinks = $false) {
+    Assert-PathChain $script:Root
+    [long]$bytes = 0
+    $pending = [Collections.Generic.Stack[string]]::new()
+    if ($Targets.Count -eq 0) {
+        $Targets = @('tools', 'python', 'env', 'cache', 'tmp', 'work', 'artifacts', 'state') |
+            ForEach-Object { Join-Path $script:Root $_ }
+    }
+    foreach ($folder in $Targets) {
+        Assert-PathChain $folder
+        if ([IO.Directory]::Exists($folder)) { $pending.Push($folder) }
+    }
+    while ($pending.Count -gt 0) {
+        $folder = $pending.Pop()
+        try { $entries = @([IO.DirectoryInfo]::new($folder).EnumerateFileSystemInfos()) }
+        catch [IO.DirectoryNotFoundException] { continue }
+        foreach ($entry in $entries) {
+            try {
+                $entry.Refresh()
+                if (-not $entry.Exists) { continue }
+                if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    if ($VerifyLinks) { $null = Get-InternalLinkTarget $entry }
+                    continue
+                }
+                if (($entry.Attributes -band [IO.FileAttributes]::Directory) -ne 0) { $pending.Push($entry.FullName) }
+                else { $bytes += [long]([IO.FileInfo]$entry).Length }
+            } catch [IO.FileNotFoundException] { continue }
+            catch [IO.DirectoryNotFoundException] { continue }
+        }
+    }
+    return $bytes
+}
+
 function Get-Targets([string]$SelectedScope) {
     $children = switch ($SelectedScope) {
         'cache' { @('cache', 'tmp') }
+        'testcache' { @('cache/pytest', 'cache/pycache') }
+        'tmp' { @('tmp') }
         'work' { @('work') }
         'env' { @('tools', 'python', 'env') }
         'all' { @('.') }
@@ -158,14 +209,38 @@ function Remove-VerifiedTree([string]$Target) {
     Assert-PathChain $Target
     if (-not [IO.Directory]::Exists($Target)) { return }
     foreach ($entry in [IO.DirectoryInfo]::new($Target).EnumerateFileSystemInfos()) {
-        Assert-PathChain $entry.FullName
-        if (($entry.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
+        $isLink = ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+        if ($isLink) { $null = Get-InternalLinkTarget $entry }
+        else { Assert-PathChain $entry.FullName }
+        if ($isLink -and ($entry.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
+            [IO.Directory]::Delete($entry.FullName, $false)
+        } elseif ($isLink) {
+            [IO.File]::Delete($entry.FullName)
+        } elseif (($entry.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
             Remove-VerifiedTree $entry.FullName
         } else {
             [IO.File]::Delete($entry.FullName)
         }
     }
     [IO.Directory]::Delete($Target, $false)
+}
+
+function Remove-VerifiedLinks([string]$Target) {
+    Assert-PathChain $Target
+    if (-not [IO.Directory]::Exists($Target)) { return }
+    foreach ($entry in [IO.DirectoryInfo]::new($Target).EnumerateFileSystemInfos()) {
+        if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            $null = Get-InternalLinkTarget $entry
+            if (($entry.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
+                [IO.Directory]::Delete($entry.FullName, $false)
+            } else { [IO.File]::Delete($entry.FullName) }
+        } else {
+            Assert-PathChain $entry.FullName
+            if (($entry.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
+                Remove-VerifiedLinks $entry.FullName
+            }
+        }
+    }
 }
 
 function Get-VerifiedManager($Marker) {
@@ -203,7 +278,7 @@ function Get-RunLimits() {
     [double]$diskReserve = [Math]::Max([double]$limits.min_free_disk_bytes,
         [Math]::Ceiling([double]$drive.TotalSize * [double]$limits.min_free_disk_fraction))
     if ($drive.AvailableFreeSpace -lt $diskReserve) { throw 'Insufficient free disk for reserve' }
-    [long]$managedBytes = (Get-Fingerprint @($script:Root)).bytes
+    [long]$managedBytes = Get-ManagedBytes -VerifyLinks $true
     if ($managedBytes -gt [long]$limits.managed_disk_budget_bytes) { throw 'Managed disk budget exceeded' }
     return [pscustomobject]@{
         cpu_percent = [int]$limits.cpu_rate_percent; max_processes = [uint32]$limits.max_active_processes
@@ -225,7 +300,7 @@ if ($Action -eq 'Status') {
     $sizes = @{}
     foreach ($name in @('tools', 'python', 'env', 'cache', 'tmp', 'work', 'artifacts', 'state')) {
         $folder = Join-Path $script:Root $name
-        $sizes[$name] = if ([IO.Directory]::Exists($folder)) { (Get-Fingerprint @($folder)).bytes } else { 0L }
+        $sizes[$name] = if ([IO.Directory]::Exists($folder)) { Get-ManagedBytes @($folder) } else { 0L }
     }
     $exportBytes = if ([IO.Directory]::Exists($script:ExportPath)) {
         [long](@([IO.DirectoryInfo]::new($script:ExportPath).EnumerateFiles('*', [IO.SearchOption]::AllDirectories) | Measure-Object -Property Length -Sum)[0].Sum)
@@ -244,7 +319,7 @@ if ($Action -eq 'Status') {
         active_marker = [IO.File]::Exists((Join-Path $script:StatePath 'active.json'))
         active_state = $activeState
         remote_jobs_unknown = [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
-        resource_enforcement = if ($script:Policy.enforcement_status -eq 'synthetic_guarded') { 'job_guarded_synthetic_only' } else { 'not_implemented' }
+        resource_enforcement = 'job_guarded_setup_and_quality_only'
         cleanup_available = $activeState -eq 'none' -and -not [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
     } | ConvertTo-Json -Depth 5
     exit 0
@@ -317,16 +392,17 @@ try {
     }
 
     $owner = Read-Owner
-    if ($Action -eq 'Run') {
+    if ($Action -in @('Run', 'Init')) {
         if ([IO.File]::Exists($script:ActivePath)) { throw 'Unresolved active marker; use Stop before Run' }
         if ([IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))) { throw 'Unresolved remote job marker blocks Run' }
         Assert-PathChain (Join-Path $script:Root 'tmp')
         Assert-PathChain (Join-Path $script:Root 'artifacts')
         [IO.Directory]::CreateDirectory((Join-Path $script:Root 'tmp')) | Out-Null
         [IO.Directory]::CreateDirectory((Join-Path $script:Root 'artifacts')) | Out-Null
-        $savedTemp = $env:TEMP; $savedTmp = $env:TMP
+        $savedTemp = $env:TEMP; $savedTmp = $env:TMP; $savedTestPath = $env:DFX_TEST_PATH
         $job = $null; $markerCreated = $false
         $runId = [Guid]::NewGuid().ToString()
+        $taskKind = if ($Action -eq 'Init') { 'bootstrap' } elseif ($Task -ne 'synthetic') { $Task } else { $Scenario }
         $logPath = Join-Path $script:Root ("artifacts/$runId.log")
         $recordPath = Join-Path $script:Root ("artifacts/$runId.json")
         $outcome = 'failed'; $reason = $null; $childPid = 0
@@ -336,12 +412,32 @@ try {
                 Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local_job.cs') -Raw -Encoding UTF8) -ErrorAction Stop
             }
             $effective = Get-RunLimits
+            if ($taskKind -in @('test', 'docs', 'ruff', 'pyright')) {
+                $environmentPath = Join-Path $script:StatePath 'environment.json'
+                if (-not [IO.File]::Exists($environmentPath)) { throw 'Managed environment is not initialized' }
+                $environment = Get-Content -LiteralPath $environmentPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($environment.lock_sha256 -cne (Get-FileHash -LiteralPath (Join-Path $script:Repo 'uv.lock') -Algorithm SHA256).Hash -or
+                    $environment.pyproject_sha256 -cne (Get-FileHash -LiteralPath (Join-Path $script:Repo 'pyproject.toml') -Algorithm SHA256).Hash -or
+                    $environment.environment_python -cne (Join-Path $script:Root 'env/Scripts/python.exe')) {
+                    throw 'Managed environment no longer matches lock or path'
+                }
+            }
+            if ($taskKind -eq 'test') {
+                $testRoot = [IO.Path]::GetFullPath((Join-Path $script:Repo 'tests'))
+                $resolvedTest = [IO.Path]::GetFullPath((Join-Path $script:Repo $TestPath))
+                if (-not (Test-Within $resolvedTest $testRoot) -or
+                    [IO.Path]::GetFileName($resolvedTest) -cnotmatch '^test_[A-Za-z0-9_]+\.py$' -or
+                    -not [IO.File]::Exists($resolvedTest)) { throw 'TestPath must name an existing tests/test_*.py file' }
+                Assert-PathChain $resolvedTest
+                $env:DFX_TEST_PATH = $resolvedTest
+            } elseif ($Action -eq 'Run' -and $TestPath) { throw 'TestPath requires -Task test' }
             $job = [DfxLocal.BoundedJob]::new($effective.cpu_percent, $effective.memory_bytes, $effective.max_processes)
             $exe = (Get-Process -Id $PID).Path
             if (-not [IO.File]::Exists($exe)) { throw 'PowerShell executable identity unavailable' }
-            $workerPath = Join-Path $PSScriptRoot 'local_synthetic.ps1'
+            $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } else { 'local_synthetic.ps1' }
+            $workerPath = Join-Path $PSScriptRoot $workerName
             Assert-PathChain $workerPath
-            $job.Start($exe, $workerPath, $Scenario, $logPath, $script:Repo, $Seconds,
+            $job.Start($exe, $workerPath, $taskKind, $logPath, $script:Repo, $Seconds,
                 [long]$effective.max_log_file_bytes)
             $childPid = [int]$job.ProcessId
             $child = Get-Process -Id $childPid -ErrorAction Stop
@@ -351,7 +447,7 @@ try {
                 manager_pid = $PID; manager_start_utc_ticks = $self.StartTime.ToUniversalTime().Ticks
                 manager_executable = $exe; child_pid = $childPid
                 child_start_utc_ticks = $child.StartTime.ToUniversalTime().Ticks
-                effective_limits = $effective; started_at = [DateTimeOffset]::UtcNow.ToString('o')
+                task = $taskKind; effective_limits = $effective; started_at = [DateTimeOffset]::UtcNow.ToString('o')
             } | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $script:ActivePath -Encoding UTF8
             $markerCreated = $true
             $elapsed = [Diagnostics.Stopwatch]::StartNew()
@@ -375,7 +471,7 @@ try {
                 }
                 $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($script:Root))
                 if ($drive.AvailableFreeSpace -lt $effective.disk_reserve_bytes -or
-                    (Get-Fingerprint @($script:Root)).bytes -gt $effective.disk_budget_bytes) {
+                    (Get-ManagedBytes) -gt $effective.disk_budget_bytes) {
                     $outcome = 'failed'; $reason = 'disk_limit'; $job.Terminate(); break
                 }
                 Start-Sleep -Seconds $effective.monitor_seconds
@@ -396,7 +492,7 @@ try {
                 }
                 $job.Dispose()
             }
-            $env:TEMP = $savedTemp; $env:TMP = $savedTmp
+            $env:TEMP = $savedTemp; $env:TMP = $savedTmp; $env:DFX_TEST_PATH = $savedTestPath
             $logTruncated = $null -ne $job -and $job.LogExceeded
             if ($logTruncated -and $reason -notin @('stop_requested', 'timeout')) {
                 $outcome = 'failed'; $reason = 'log_limit'
@@ -409,7 +505,8 @@ try {
                 try { $stream.SetLength([long]$script:Policy.limits.max_log_file_bytes) } finally { $stream.Dispose() }
                 $logTruncated = $true
             }
-            [pscustomobject]@{ schema_version = 1; run_id = $runId; status = $outcome; reason = $reason
+            [pscustomobject]@{ schema_version = 1; run_id = $runId; task = $taskKind
+                status = $outcome; reason = $reason
                 child_pid = $childPid; log_path = $logPath; log_truncated = $logTruncated
                 finished_at = [DateTimeOffset]::UtcNow.ToString('o') } |
                 ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $recordPath -Encoding UTF8
@@ -459,6 +556,7 @@ try {
     Assert-Quiescent $Scope ([bool]$DiscardEvidence)
     $deleted = [Collections.Generic.List[string]]::new()
     try {
+        foreach ($target in $targets) { Remove-VerifiedLinks $target }
         foreach ($target in $targets) {
             Remove-VerifiedTree $target
             $deleted.Add($target)
