@@ -35,7 +35,7 @@
   "cleanup": {
     "default_dry_run": true,
     "require_owner_match": true,
-    "refuse_reparse_points": true,
+    "refuse_external_reparse_points": true,
     "require_quiescent_root": true,
     "require_export_or_explicit_discard": true
   }
