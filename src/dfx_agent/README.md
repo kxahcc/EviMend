@@ -1,9 +1,9 @@
 # 离线证据原型
 
-状态：当前使用说明。最后维护：2026-09-16。
+状态：当前使用说明。最后维护：2026-09-23。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
-当前代码支持输入快照、日志解码、栈位置到源码映射及离线报告。尚不具备语义根因定位、模型调用、补丁生成或应用运行验证能力。
+当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`contracts.py` 与 `workspace.py` 另提供首批严格对象和候选 diff 登记库，但命令行尚未连接它们；尚不具备语义根因定位、模型调用或应用运行验证能力。
 
 从项目根目录查看命令：
 
@@ -33,4 +33,4 @@ ZIP 内日志还需要 `log.member`，哈希对应成员解压后的原始字节
 
 `analyze` 接收含 `task.json` 的快照目录，输出目录必须在该快照之外。报告保存栈位置、相关源码和映射歧义；`root_cause` 与 `patch` 为 null，验证状态保持 not_run。输入哈希校验能发现相对清单的改动，不证明清单的来源可信或日志与源码运行版本一致。
 
-合成输入自检位于 `tests/test_offline_evidence.py`。它不读取或运行 data_B 中的应用，不调用模型或设备。当前设计与待实现功能见 [技术设计](../../docs/development/system-design-draft.md) 和 [模块契约](../../docs/design-contracts.md)。
+合成输入自检位于 `tests/test_offline_evidence.py`，领域对象和候选目录反例位于 `tests/test_contracts.py`、`tests/test_workspace.py`。这些检查不读取或运行 data_B 中的应用，不调用真实模型或设备。当前设计与待实现功能见 [技术设计](../../docs/development/system-design-draft.md) 和 [模块契约](../../docs/design-contracts.md)。

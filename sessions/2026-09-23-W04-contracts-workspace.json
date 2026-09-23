@@ -1,0 +1,29 @@
+{
+  "session_id": "session-2026-09-23-W04-contracts-workspace",
+  "date": "2026-09-23",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "W04",
+  "user_request_summary": "继续实施，到适当进度汇报已完成工作和本机环境。",
+  "changes": [
+    "src/dfx_agent/contracts.py 增加首批严格 Pydantic 对象、可信来源录入、源码版本/行号/证据引用检查。",
+    "src/dfx_agent/workspace.py 从已校验分析快照独立复制草稿，精确文本编辑失败时保留原草稿，登记完整 diff 与候选源码，并在检查前复核哈希。",
+    "tests/test_contracts.py 和 tests/test_workspace.py 覆盖错误行号、伪造执行来源、错误版本/引用、失败编辑、未登记候选、篡改、回退和硬链接隔离。",
+    "更新蓝图、原型使用说明、规格、设计和状态，明确这仍是离线工作区而非完整运行工程。"
+  ],
+  "validation": {
+    "contracts_tests_passed": 5,
+    "workspace_tests_passed": 4,
+    "workspace_tests_skipped": 1,
+    "ruff": "passed",
+    "pyright": "0 errors",
+    "model_repair_runs": 0,
+    "device_replays": 0
+  },
+  "limitations": [
+    "当前 Windows 账户不能创建符号链接，拒绝符号链接的单项测试被跳过；硬链接不共享可写副本已实际验证。",
+    "尚未实现完整动作/验证对象、正式 Agent 循环、可构建运行工程或远程执行。",
+    "候选工作区当前接受已校验的分析快照；不能由此推断应用代码修复成功。"
+  ],
+  "next_work_package": "W05"
+}

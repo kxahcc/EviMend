@@ -90,7 +90,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 
 本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；需要长期保留的证据计划导出到 runs/exports。日常只启动一个受管任务，不在本机加载模型权重或部署 HarmonyOS 设备环境。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop、Init，以及固定合成任务和测试/质量检查的受限 Run。Init、测试先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local。真实 Agent 任务与 Export 尚未接入。下一步 W04 实现正式对象和候选工作目录。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)，资源数值集中在 [本机配置](configs/local-runtime.json)。
+管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop、Init，以及固定合成任务和测试/质量检查的受限 Run。Init、测试先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local。真实 Agent 任务与 Export 尚未接入。W04 已完成首批对象与候选目录，下一步 W05 将它们接入固定响应修复循环。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)，资源数值集中在 [本机配置](configs/local-runtime.json)。
 
 ## 6. 怎样一步步把它做出来
 
@@ -132,7 +132,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | 位置 | 用途 |
 |---|---|
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
-| `src/dfx_agent/` | Python 离线证据整理原型；模块职责见下表 |
+| `src/dfx_agent/` | Python 离线证据原型及首批领域对象/候选工作区库；模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 入口 |
 | `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init 与受限合成/测试/质量任务入口；真实 Agent 任务尚未接入 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
@@ -141,6 +141,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `scripts/check_docs.py` | 文档登记、链接、维护元数据及 archive 跟踪检查 |
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
 | `tests/test_offline_evidence.py`、`tests/test_sdk_compat.py` | 原型合成输入与固定响应 SDK 接入自检；最近结果由 STATUS 记录 |
+| `tests/test_contracts.py`、`tests/test_workspace.py` | 领域对象的拒绝条件与候选隔离、登记、回退的合成反例 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
@@ -165,6 +166,8 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `logs.py` | 编码、错误字段与栈帧解析；不推理业务根因 |
 | `sources.py` | 源码路径匹配、歧义和邻近片段；不是 ArkTS 数据流分析器 |
 | `analysis.py` | 汇总栈证据；源码命中不能当作根因预测 |
+| `contracts.py` | 首批 Pydantic 领域记录、可信入口的证据来源标注、引用与行号校验；完整控制器对象仍待补 |
+| `workspace.py` | 从已校验分析快照建立独立草稿、原子文本编辑、冻结完整 diff 与候选哈希；不执行应用检查 |
 | `runtime.py` | 当前仅观察 PATH/模块/环境变量存在性；不启动 SDK/设备 |
 | `cli.py` | 参数与命令分发；不包含 repair 命令 |
 | `__init__.py` | Python 包入口 |
