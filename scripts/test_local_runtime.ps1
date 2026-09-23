@@ -1,4 +1,9 @@
-param([ValidateSet('Paths')][string]$Suite = 'Paths')
+param([ValidateSet('Paths', 'Processes')][string]$Suite = 'Paths')
+
+if ($Suite -eq 'Processes') {
+    & (Join-Path $PSScriptRoot 'test_local_process.ps1')
+    exit $LASTEXITCODE
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'

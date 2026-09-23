@@ -338,13 +338,13 @@ SDK 负责通用读写和循环；policies.py 负责义务与决策策略；work
 
 本机负责编辑、离线测试和轻量 Agent 控制；模型使用远程接口，HarmonyOS 构建与设备执行保留在独立远程环境。首版不在用户电脑部署模型权重、训练任务、模拟器、Docker/WSL、数据库服务或开机任务。以后确需本机应用环境时，先重新核定容量与执行配置，不能直接沿用轻量配置安装 SDK。
 
-采用一个项目专属运行目录和一个 PowerShell 管理入口。用户能查看占用、停止本项目进程、清理缓存或完全移除运行环境；源码、Git、原始数据和已导出证据不会被普通清理删除。环境建好之前先验证停止与清理能力，再接 SDK 和模型。W01 已实现目录归属、状态查看和按计划清理；W02 的执行保护与 Stop 尚未实现，现有原型命令仍未受到资源限制。
+采用一个项目专属运行目录和一个 PowerShell 管理入口。用户能查看占用、停止本项目进程、清理缓存或完全移除运行环境；源码、Git、原始数据和已导出证据不会被普通清理删除。W01 已实现目录归属、状态查看和按计划清理，W02 已实现固定合成任务的进程保护与 Stop。现有 Python 原型命令尚未接入受管 Run，不能把合成保护测试外推为真实 Agent 任务的资源安全。
 
 “集中目录”不等于进程隔离，Python 虚拟环境不限制 CPU/内存。操作系统限制只覆盖管理入口创建的工作进程树，不覆盖 Codex、编辑器、用户其他程序或远程设备；我们不能保证整台电脑绝不满载。磁盘采用容量预检与监测，不是内核硬配额；任意恶意代码不在本机执行，Job Object 也不是安全沙箱。
 
 ### 9.2 文件归属与安装边界
 
-受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。当前 enforcement_status 为 planned_not_implemented；将来通过验收后才能改为 enforced。运行时计算出的绝对路径和生效限制进入本地 manifest，不另维护一份项目进度台账。
+受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。enforcement_status 为 synthetic_guarded，表示仅固定合成 Run 已受保护；真实安装、测试和 Agent 任务在 W03 接入并验收前不得声称受保护。运行时生效限制写入本地活动记录，不另维护一份项目进度台账。
 
 | 位置 | 内容 | 清理性质 |
 |---|---|---|
@@ -358,7 +358,7 @@ SDK 负责通用读写和循环；policies.py 负责义务与决策策略；work
 
 默认管理目录固定在仓库内；首次实现不支持随意更改为任意盘符根目录。需要迁到其他磁盘时，以无活动任务、重新校验路径和重建环境为前提单独实现。虚拟环境不承诺复制后可用。项目总占用报告分开列管理目录、保留数据和导出包，不能只报 .dfx-local 造成“已全部清理”的误解。
 
-入口脚本 scripts/local.ps1 已实现 W01 的 Prepare/Status/Clean；Windows Job 互操作代码 scripts/local_job.cs 仍为 W02 计划路径。首次 Init 的 owner 创建和小型管理器编译为引导操作，不执行依赖下载或应用代码；完整限制建立后才允许启动这些工作。采用 PowerShell 内置能力与小型 .NET/Win32 封装，控制器只在进程范围使用本机系统临时目录进行最初引导，创建 owner 后将后续互操作编译和工作 TEMP/TMP 指向管理目录，并记录引导残留；无需先安装 Python 包即可停止和清理环境；不引入另一套 Agent 框架。系统 PowerShell/.NET 仅调用，不升级或修改。
+入口脚本 scripts/local.ps1 已实现 Prepare/Status/Clean/Stop 与固定合成 Run；scripts/local_job.cs 创建和核验 Windows Job，scripts/local_synthetic.ps1 提供短时验证负载。Prepare 不执行依赖下载或应用代码；Run 只接受固定场景，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装 Python 包、系统工具或后台服务。Init、真实测试和 Agent 运行仍须在 W03 接入此保护器并验证目录路由。
 
 安装时通过显式子进程环境设置 UV_CACHE_DIR、UV_PROJECT_ENVIRONMENT、UV_PYTHON_INSTALL_DIR、UV_PYTHON_BIN_DIR、UV_TOOL_DIR/UV_TOOL_BIN_DIR，以及需要时的 PIP_CACHE_DIR、TEMP/TMP、PYTHONPYCACHEPREFIX、RUFF_CACHE_DIR；pytest 的 cache_dir 与 basetemp 显式指到管理目录。变量只在该子进程树生效，不改用户级 PATH、注册表、Shell profile、Conda base 或全局 pip。uv 使用核验过版本/哈希的便携包；关闭 Python 注册表安装，避免安装到用户共享目录；具体参数在锁定 uv 版本后核验，不依赖未经确认的默认行为。uv run 的正式路径使用 --locked，并显式选择项目解释器，避免误用已激活的 Conda 环境。
 
@@ -372,14 +372,14 @@ SDK 负责通用读写和循环；policies.py 负责义务与决策策略；work
 |---|---|---|
 | CPU、进程数 | Windows Job Object 对受管工作进程树设置 CPU hard cap 和活动进程数上限 | 无法建立/核验限制则拒绝工作进程继续运行，不能悄悄变为无限制 |
 | 内存 | Job 的 committed memory 上限取配置绝对上限与物理内存比例的较小值；启动预留系统可用内存，运行时监测 | 分配可能失败；记录资源原因并停止任务。它不是对全机 RSS 或系统文件缓存的硬限制 |
-| 并发 | 一个管理根的互斥锁与运行租约；受管安装、测试、Agent 执行串行 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
-| 磁盘 | 统计管理目录逻辑大小，所有复制/下载/解压前预估新增和临时空间，检查所在卷剩余空间 | 超过预算或预留线则拒绝；不可估计下载须流式上限，拒绝无界解压 |
-| 日志 | 管道增量写入、文件及每轮总量限制；保留必要错误摘要，标记截断 | 不在内存或磁盘无限堆积 stdout/stderr；仍须持续排空管道或终止，防止子进程死锁 |
+| 并发 | 一个管理根的互斥锁与运行租约；当前合成 Run 串行，后续安装、测试和 Agent 执行沿用 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
+| 磁盘 | 合成 Run 预检和监测管理目录逻辑大小及卷剩余空间；后续复制/下载/解压前还需估算新增和临时空间 | 超过预算或预留线则拒绝；不可估计下载须流式上限，拒绝无界解压 |
+| 日志 | 当前合成 Run 的 stdout/stderr 经管道按字节上限保存，超额立即终止 Job 并继续排空；后续任务沿用相同边界 | 不在内存或磁盘无限堆积输出；留存日志标记截断 |
 | 时间 | 单调时钟截止时间 + 子命令超时，采用资源配置与任务预算中的较严值 | 先请求退出，宽限结束后终止本任务 Job，记录 timeout/inconclusive |
 
 生效计算：内存上限取 min(job_memory_cap_bytes, 总物理内存 × job_memory_fraction_of_physical)；磁盘预留取 max(min_free_disk_bytes, 卷总容量 × min_free_disk_fraction)。启动时要求可用物理内存足以容纳该内存预算和预留，运行时低于预留线则停止；CPU 配置百分比转换为 Windows CpuRate 时乘以 100。硬件容量通过 GlobalMemoryStatusEx 与 .NET DriveInfo 查询，避免依赖可能无权限的 WMI/CIM；读取失败保持未知并拒绝重任务。
 
-启动顺序：读取并校验配置和 owner → 检查空间/可用内存 → 获取项目租约 → 创建 Job 并设置限制 → 以挂起状态创建工作进程 → 加入 Job 并确认归属 → 恢复线程。子进程使用正常 CreateProcess 继承 Job，不允许 breakaway；不通过服务、计划任务或 WMI 绕过管理。启用 KILL_ON_JOB_CLOSE，Job 句柄不继承给工作进程；管理器异常退出时关闭最后句柄才能终止对应树。外层 Codex/终端的 Job 可能影响嵌套，必须实测，失败时停止接入。
+合成 Run 启动顺序：读取并校验配置和 owner → 获取项目租约 → 检查空间/可用内存 → 创建并读回 Job 限制 → 以挂起状态创建工作进程 → 加入 Job → 恢复线程。子进程使用正常 CreateProcess 继承 Job，不允许 breakaway；不通过服务、计划任务或 WMI 绕过管理。启用 KILL_ON_JOB_CLOSE，Job 句柄不继承给工作进程；管理器异常退出后受管树退出已由合成测试验证。外层运行宿主若不支持 Job 嵌套，必须拒绝任务启动，不能无保护继续。
 
 Stop 优先通过当前用户可访问的控制通道请求管理器停止，再使用经归属核对的 Job 终止受管进程。记录 PID、创建时间、可执行路径和实例 ID，不能按 python/node/java 进程名批量杀进程；PID 重用或失联时先核验，无法确认归属就报告，不扩大终止范围。默认前台运行，不遗留后台常驻进程；确需后台助手时隐藏窗口且纳入同一生命周期。
 
@@ -387,14 +387,14 @@ Stop 优先通过当前用户可访问的控制通道请求管理器停止，再
 
 ### 9.4 统一命令与清理协议
 
-下面列出统一接口。W01 的 Prepare/Status/Clean 已可用；其他调用是待实现目标，不能提前运行。
+下面列出统一接口。Prepare/Status/Clean/Stop 与合成 Run 已可用；Init、真实任务 Run 与 Export 是待实现目标。
 
 | 目标调用 | 行为 |
 |---|---|
 | .\scripts\local.ps1 Prepare | 建立或复核仓库内的 owner，不安装运行环境；同一 owner 重复调用幂等 |
 | .\scripts\local.ps1 Status | 无模型、无安装地报告路径、各类字节、受管进程、限制是否生效及远程任务未知项 |
 | .\scripts\local.ps1 Init | 先检查容量和保护器，再建立固定版本 uv/Python/依赖环境；重复执行不重复安装 |
-| .\scripts\local.ps1 Run -Task synthetic | 在受管环境执行明确任务；不提供可绕过边界的任意模型 shell |
+| .\scripts\local.ps1 Run -Scenario idle -Seconds 3 | 运行固定合成任务并记录限额、日志和结束原因；真实任务未接入 |
 | .\scripts\local.ps1 Stop | 停止本项目受管工作树并核验退出；保留文件和证据，释放进程资源 |
 | .\scripts\local.ps1 Export -RunId ID | 输出受限体积、含哈希的证据包，先核对复制所需剩余空间；不导出密钥 |
 | .\scripts\local.ps1 Clean -Scope cache/work/env/all | 默认只生成路径、估算字节、保留项、阻塞项和 plan_id，不删除 |
@@ -410,13 +410,13 @@ cache 只清理缓存及无活动引用的临时文件；work 只清理已结束
 
 ### 9.5 必须先验证的保护与资料依据
 
-W01 路径与清理已通过隔离合成树的 31 条断言；真实用户目录未执行 Clean Apply。W02 保护器验收将使用短时、小容量的合成子进程：模拟进程派生、管理器崩溃、内存分配失败、持续输出、超时、第二次启动与路径攻击。不用真实大任务把电脑跑满来验证；临时阈值只缩小不放大。清理测试使用隔离临时树和目录外哨兵文件，验证链接、PID 重用、过期 plan_id、文件占用、未导出证据和远程未知均不会误删/误停。完整用例归入实施计划，不再维护第二个完成表。
+W01 路径与清理通过隔离合成树的 31 条断言；W02 保护器通过 25 条隔离合成断言，包括进程派生、管理器崩溃、内存分配失败、持续输出、超时、第二次启动、PID 身份不符和路径攻击。临时测试阈值只缩小不放大；未执行真实用户目录的 Clean Apply，也未启动模型或应用任务。保护器测试不证明未知第三方安装器和远程任务都受其覆盖；这些在后续工作包单独验收。
 
-2026-09-21 核对了 [uv 环境变量](https://docs.astral.sh/uv/reference/environment/)、[Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)、[CPU rate control](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information) 与 [扩展内存限制](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information) 官方说明。资料支持可使用的机制，不表示本项目已实现或通过保护器测试。
+2026-09-21 核对了 [uv 环境变量](https://docs.astral.sh/uv/reference/environment/)、[Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)、[CPU rate control](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information) 与 [扩展内存限制](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information) 官方说明。2026-09-23 进一步核对了 [CreatePipe](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createpipe)、[ReadFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile) 和 [句柄继承](https://learn.microsoft.com/en-us/windows/win32/ipc/pipe-handle-inheritance) 的官方说明。资料说明所用机制；实际通过情况以本地合成测试记录为准。
 
 ## 10. 详细设计与接手边界
 
-当前已确定算法、模块职责、本机资源/清理方案和分步验收任务。可执行 schema、SDK 具体适配、Windows 保护器及恢复路径仍待编码和验证；W01 清理实现已有合成验证，不能仅凭设计齐全宣称系统完成。数值配置已入库但尚不生效，具体进度见 STATUS。
+当前已确定算法、模块职责、本机资源/清理方案和分步验收任务。W01 清理与 W02 合成保护器已验证；可执行 schema、SDK 具体适配、真实任务接入及恢复路径仍待编码和验证。资源数值对合成 Run 生效，其他任务尚未受管；具体进度见 STATUS。
 
 接手者按 [实施计划](../project-work-plan.md) 的工作包顺序推进，先读当前包的输入、输出和反例用例；每次交付一个可检查的变更。实现中的局部选择可按契约自行决定；更换框架、放宽本机限制、改变评测判据或开启真实实验不属于随意实现细节，须按已授权边界处理并同步主文档。设计不能保证任何具体模型零错误，但可以使偏离易于发现、每步可回退。
 

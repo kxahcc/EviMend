@@ -148,7 +148,7 @@ Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和�
 
 ## 5. 本机资源与清理契约
 
-本节规定字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。LocalOwner、CleanupPlan 与 CleanupReceipt 已由 W01 的 PowerShell 管理入口部分实现并通过隔离合成验证；ProcessLease、EffectiveResourcePolicy 的执行能力及真实远程状态联动仍是目标对象。现有 runtime.py 不包含这些能力。
+本节规定目标字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。LocalOwner、CleanupPlan 与 CleanupReceipt 已由 W01 的 PowerShell 管理入口部分实现；W02 已为合成 Run 建立 Job 限制、活动标记与生效限额记录。下表完整的 ProcessLease/EffectiveResourcePolicy/LocalUsage schema、正式任务接入及远程状态联动仍待实现，现有 runtime.py 不包含这些能力。
 
 | 对象 | 必须字段 / 约束 |
 |---|---|

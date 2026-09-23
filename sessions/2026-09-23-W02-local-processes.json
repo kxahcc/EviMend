@@ -1,0 +1,29 @@
+{
+  "session_id": "session-2026-09-23-W02-local-processes",
+  "date": "2026-09-23",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "W02",
+  "user_request_summary": "按既定实现包开始实施，并保证本机资源可限额、可停止、可集中清理。",
+  "changes": [
+    "scripts/local_job.cs 建立 Windows Job 的 CPU、提交内存与进程数限制并读回，子进程挂起创建、加入 Job 后恢复；管道增量收集 stdout/stderr 到有界日志。",
+    "scripts/local.ps1 增加固定合成 Run、Stop、有效限额和活动标记；监测墙钟、内存预留与磁盘，拒绝无保护运行。",
+    "scripts/local_synthetic.ps1 和 scripts/test_local_process.ps1 验证受管树、失败退出和回收；资源配置状态限定为 synthetic_guarded。",
+    "更新开发导览、状态、设计与资源契约，明确真实 Agent 任务仍未接入。"
+  ],
+  "validation": {
+    "synthetic_process_assertions": 25,
+    "synthetic_path_cleanup_assertions": 31,
+    "job_limits_read_back": true,
+    "manager_crash_kills_grandchild": true,
+    "log_bytes_bounded": true,
+    "model_repair_runs": 0,
+    "device_replays": 0
+  },
+  "limitations": [
+    "仅固定合成场景可由受管 Run 启动；安装、pytest 和 Agent 尚未接入保护器。",
+    "磁盘预算与剩余空间由周期性监测执行，不是文件系统硬配额；Job 不构成不可信代码安全沙箱。",
+    "未执行真实用户目录的 Clean Apply。"
+  ],
+  "next_work_package": "W03"
+}

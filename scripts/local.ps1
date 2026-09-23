@@ -1,10 +1,13 @@
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet('Status', 'Prepare', 'Clean')][string]$Action,
+    [ValidateSet('Status', 'Prepare', 'Clean', 'Run', 'Stop')][string]$Action,
     [ValidateSet('cache', 'work', 'env', 'all')][string]$Scope = 'cache',
     [switch]$Apply,
     [string]$PlanId,
-    [switch]$DiscardEvidence
+    [switch]$DiscardEvidence,
+    [ValidateSet('idle', 'child', 'noisy', 'memory')][string]$Scenario = 'idle',
+    [ValidateRange(1, 120)][int]$Seconds = 3,
+    [ValidateRange(1, 1800)][int]$TimeoutSeconds = 30
 )
 
 Set-StrictMode -Version Latest
@@ -23,6 +26,8 @@ $script:OwnerPath = Join-Path $script:Root 'owner.json'
 $script:StatePath = Join-Path $script:Root 'state'
 $script:PlanPath = Join-Path $script:StatePath 'cleanup-plan.json'
 $script:ExportPath = Join-Path $script:Repo 'runs/exports'
+$script:ActivePath = Join-Path $script:StatePath 'active.json'
+$script:StopPath = Join-Path $script:StatePath 'stop-request.json'
 $script:Comparison = [StringComparison]::OrdinalIgnoreCase
 
 function Test-Within([string]$Path, [string]$Parent) {
@@ -163,6 +168,54 @@ function Remove-VerifiedTree([string]$Target) {
     [IO.Directory]::Delete($Target, $false)
 }
 
+function Get-VerifiedManager($Marker) {
+    if ($Marker.schema_version -ne 1 -or $Marker.project_instance_id -cne (Read-Owner).project_instance_id -or
+        -not [Guid]::TryParse([string]$Marker.run_id, [ref][Guid]::Empty) -or
+        $Marker.manager_pid -lt 1 -or $Marker.manager_start_utc_ticks -lt 1 -or
+        $Marker.child_pid -lt 1 -or $Marker.child_start_utc_ticks -lt 1) {
+        throw 'Active marker identity is invalid'
+    }
+    $process = Get-Process -Id ([int]$Marker.manager_pid) -ErrorAction SilentlyContinue
+    if ($null -eq $process) { return $null }
+    if ($process.StartTime.ToUniversalTime().Ticks -ne [long]$Marker.manager_start_utc_ticks -or
+        $process.Path -cne [string]$Marker.manager_executable) { throw 'Manager PID identity mismatch; refusing Stop' }
+    return $process
+}
+
+function Get-RunLimits() {
+    $limits = $script:Policy.limits
+    if ($limits.max_concurrent_runs -ne 1 -or $limits.max_active_processes -lt 1 -or
+        $limits.cpu_rate_percent -lt 1 -or $limits.cpu_rate_percent -gt 100 -or
+        $limits.job_memory_cap_bytes -lt 16777216 -or
+        $limits.job_memory_fraction_of_physical -le 0 -or $limits.job_memory_fraction_of_physical -gt 1 -or
+        $limits.monitor_interval_seconds -lt 1 -or $limits.monitor_interval_seconds -gt 30 -or
+        $limits.default_wall_timeout_seconds -lt 1 -or $limits.stop_grace_seconds -lt 1 -or
+        $limits.max_log_file_bytes -lt 1024 -or $limits.max_run_log_bytes -lt $limits.max_log_file_bytes) {
+        throw 'Invalid local resource policy'
+    }
+    $physical = [DfxLocal.BoundedJob]::PhysicalMemory()
+    [ulong]$memoryCap = [Math]::Min([double]$limits.job_memory_cap_bytes,
+        [Math]::Floor([double]$physical[0] * [double]$limits.job_memory_fraction_of_physical))
+    if ($memoryCap -lt 16777216 -or [double]$physical[1] -lt ([double]$memoryCap + [double]$limits.min_free_memory_bytes)) {
+        throw 'Insufficient free physical memory for Job and reserve'
+    }
+    $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($script:Root))
+    [double]$diskReserve = [Math]::Max([double]$limits.min_free_disk_bytes,
+        [Math]::Ceiling([double]$drive.TotalSize * [double]$limits.min_free_disk_fraction))
+    if ($drive.AvailableFreeSpace -lt $diskReserve) { throw 'Insufficient free disk for reserve' }
+    [long]$managedBytes = (Get-Fingerprint @($script:Root)).bytes
+    if ($managedBytes -gt [long]$limits.managed_disk_budget_bytes) { throw 'Managed disk budget exceeded' }
+    return [pscustomobject]@{
+        cpu_percent = [int]$limits.cpu_rate_percent; max_processes = [uint32]$limits.max_active_processes
+        memory_bytes = $memoryCap; disk_reserve_bytes = [long]$diskReserve
+        disk_budget_bytes = [long]$limits.managed_disk_budget_bytes
+        min_free_memory_bytes = [long]$limits.min_free_memory_bytes
+        max_log_file_bytes = [long]$limits.max_log_file_bytes
+        monitor_seconds = [int]$limits.monitor_interval_seconds
+        timeout_seconds = [Math]::Min($TimeoutSeconds, [int]$limits.default_wall_timeout_seconds)
+    }
+}
+
 if ($Action -eq 'Status') {
     Assert-PathChain $script:Root
     $ownerValid = $false
@@ -177,13 +230,65 @@ if ($Action -eq 'Status') {
     $exportBytes = if ([IO.Directory]::Exists($script:ExportPath)) {
         [long](@([IO.DirectoryInfo]::new($script:ExportPath).EnumerateFiles('*', [IO.SearchOption]::AllDirectories) | Measure-Object -Property Length -Sum)[0].Sum)
     } else { 0L }
+    $activeState = 'none'
+    if ([IO.File]::Exists($script:ActivePath)) {
+        try {
+            $marker = Get-Content -LiteralPath $script:ActivePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $manager = Get-VerifiedManager $marker
+            $activeState = if ($null -eq $manager) { 'stale_requires_stop' } else { 'running' }
+        } catch { $activeState = 'identity_unverified' }
+    }
     [pscustomobject]@{
         managed_root = $script:Root; owner_valid = $ownerValid
         managed_bytes_by_category = $sizes; export_bytes = $exportBytes
         active_marker = [IO.File]::Exists((Join-Path $script:StatePath 'active.json'))
+        active_state = $activeState
         remote_jobs_unknown = [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
-        resource_enforcement = 'not_implemented'; cleanup_available = $true
+        resource_enforcement = if ($script:Policy.enforcement_status -eq 'synthetic_guarded') { 'job_guarded_synthetic_only' } else { 'not_implemented' }
+        cleanup_available = $activeState -eq 'none' -and -not [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
     } | ConvertTo-Json -Depth 5
+    exit 0
+}
+
+if ($Action -eq 'Stop') {
+    Assert-PathChain $script:ActivePath
+    if (-not [IO.File]::Exists($script:ActivePath)) {
+        [pscustomobject]@{ stopped = $true; active_run = $false; remote_jobs_unknown = [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json')) } | ConvertTo-Json
+        exit 0
+    }
+    $marker = Get-Content -LiteralPath $script:ActivePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $manager = Get-VerifiedManager $marker
+    if ($null -ne $manager) {
+        [pscustomobject]@{ schema_version = 1; run_id = $marker.run_id; requested_at = [DateTimeOffset]::UtcNow.ToString('o') } |
+            ConvertTo-Json | Set-Content -LiteralPath $script:StopPath -Encoding UTF8
+        $deadline = [Diagnostics.Stopwatch]::StartNew()
+        while ($deadline.Elapsed.TotalSeconds -lt [int]$script:Policy.limits.stop_grace_seconds) {
+            Start-Sleep -Milliseconds 200
+            $manager = Get-VerifiedManager $marker
+            if ($null -eq $manager) { break }
+        }
+        if ($null -ne $manager) {
+            $manager = Get-VerifiedManager $marker
+            if ($null -ne $manager) { Stop-Process -InputObject $manager -Force -ErrorAction Stop }
+        }
+    }
+    $wait = [Diagnostics.Stopwatch]::StartNew()
+    while ($wait.Elapsed.TotalSeconds -lt 5 -and $null -ne (Get-VerifiedManager $marker)) { Start-Sleep -Milliseconds 100 }
+    if ($null -ne (Get-VerifiedManager $marker)) { throw 'Manager did not exit after Stop' }
+    if ([IO.File]::Exists($script:ActivePath)) {
+        $current = Get-Content -LiteralPath $script:ActivePath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($current.run_id -cne $marker.run_id) { throw 'Active run changed during Stop' }
+        if ($current.child_pid -gt 0) {
+            $child = Get-Process -Id ([int]$current.child_pid) -ErrorAction SilentlyContinue
+            if ($null -ne $child -and $child.StartTime.ToUniversalTime().Ticks -eq [long]$current.child_start_utc_ticks) {
+                throw 'Managed child survived manager exit; refusing to clear activity marker'
+            }
+        }
+        Remove-Item -LiteralPath $script:ActivePath -Force
+        if ([IO.File]::Exists($script:StopPath)) { Remove-Item -LiteralPath $script:StopPath -Force }
+    }
+    [pscustomobject]@{ stopped = $true; active_run = $false; run_id = $marker.run_id
+        remote_jobs_unknown = [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json')) } | ConvertTo-Json
     exit 0
 }
 
@@ -212,6 +317,115 @@ try {
     }
 
     $owner = Read-Owner
+    if ($Action -eq 'Run') {
+        if ([IO.File]::Exists($script:ActivePath)) { throw 'Unresolved active marker; use Stop before Run' }
+        if ([IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))) { throw 'Unresolved remote job marker blocks Run' }
+        Assert-PathChain (Join-Path $script:Root 'tmp')
+        Assert-PathChain (Join-Path $script:Root 'artifacts')
+        [IO.Directory]::CreateDirectory((Join-Path $script:Root 'tmp')) | Out-Null
+        [IO.Directory]::CreateDirectory((Join-Path $script:Root 'artifacts')) | Out-Null
+        $savedTemp = $env:TEMP; $savedTmp = $env:TMP
+        $job = $null; $markerCreated = $false
+        $runId = [Guid]::NewGuid().ToString()
+        $logPath = Join-Path $script:Root ("artifacts/$runId.log")
+        $recordPath = Join-Path $script:Root ("artifacts/$runId.json")
+        $outcome = 'failed'; $reason = $null; $childPid = 0
+        try {
+            $env:TEMP = Join-Path $script:Root 'tmp'; $env:TMP = $env:TEMP
+            if (-not ('DfxLocal.BoundedJob' -as [type])) {
+                Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local_job.cs') -Raw -Encoding UTF8) -ErrorAction Stop
+            }
+            $effective = Get-RunLimits
+            $job = [DfxLocal.BoundedJob]::new($effective.cpu_percent, $effective.memory_bytes, $effective.max_processes)
+            $exe = (Get-Process -Id $PID).Path
+            if (-not [IO.File]::Exists($exe)) { throw 'PowerShell executable identity unavailable' }
+            $workerPath = Join-Path $PSScriptRoot 'local_synthetic.ps1'
+            Assert-PathChain $workerPath
+            $job.Start($exe, $workerPath, $Scenario, $logPath, $script:Repo, $Seconds,
+                [long]$effective.max_log_file_bytes)
+            $childPid = [int]$job.ProcessId
+            $child = Get-Process -Id $childPid -ErrorAction Stop
+            $self = Get-Process -Id $PID -ErrorAction Stop
+            [pscustomobject]@{
+                schema_version = 1; run_id = $runId; project_instance_id = $owner.project_instance_id
+                manager_pid = $PID; manager_start_utc_ticks = $self.StartTime.ToUniversalTime().Ticks
+                manager_executable = $exe; child_pid = $childPid
+                child_start_utc_ticks = $child.StartTime.ToUniversalTime().Ticks
+                effective_limits = $effective; started_at = [DateTimeOffset]::UtcNow.ToString('o')
+            } | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $script:ActivePath -Encoding UTF8
+            $markerCreated = $true
+            $elapsed = [Diagnostics.Stopwatch]::StartNew()
+            while (-not $job.HasExited()) {
+                if ([IO.File]::Exists($script:StopPath)) {
+                    $request = Get-Content -LiteralPath $script:StopPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($request.run_id -cne $runId) { throw 'Stop request has mismatched run ID' }
+                    $outcome = 'canceled'; $reason = 'stop_requested'; $job.Terminate(); break
+                }
+                if ($job.LogExceeded) {
+                    $outcome = 'failed'; $reason = 'log_limit'; $job.Terminate(); break
+                }
+                if ($null -ne $job.OutputError) {
+                    $outcome = 'failed'; $reason = 'output_capture_failed'; $job.Terminate(); break
+                }
+                if ($elapsed.Elapsed.TotalSeconds -ge $effective.timeout_seconds) {
+                    $outcome = 'canceled'; $reason = 'timeout'; $job.Terminate(); break
+                }
+                if ([DfxLocal.BoundedJob]::PhysicalMemory()[1] -lt [ulong]$effective.min_free_memory_bytes) {
+                    $outcome = 'failed'; $reason = 'memory_reserve'; $job.Terminate(); break
+                }
+                $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($script:Root))
+                if ($drive.AvailableFreeSpace -lt $effective.disk_reserve_bytes -or
+                    (Get-Fingerprint @($script:Root)).bytes -gt $effective.disk_budget_bytes) {
+                    $outcome = 'failed'; $reason = 'disk_limit'; $job.Terminate(); break
+                }
+                Start-Sleep -Seconds $effective.monitor_seconds
+            }
+            if ($null -eq $reason -and $job.LogExceeded) { $outcome = 'failed'; $reason = 'log_limit' }
+            if ($null -eq $reason -and $null -ne $job.OutputError) { $outcome = 'failed'; $reason = 'output_capture_failed' }
+            if ($null -eq $reason) {
+                if ($job.ExitCode() -eq 0) { $outcome = 'finished'; $reason = 'exited_zero' }
+                else { $outcome = 'failed'; $reason = 'child_exit_nonzero' }
+            }
+        } catch {
+            $outcome = 'failed'; $reason = $_.Exception.Message
+            if ($null -ne $job) { try { $job.Terminate() } catch {} }
+        } finally {
+            if ($null -ne $job) {
+                if ($childPid -gt 0 -and -not $job.WaitForExit(5000)) {
+                    try { $job.Terminate(); $null = $job.WaitForExit(5000) } catch {}
+                }
+                $job.Dispose()
+            }
+            $env:TEMP = $savedTemp; $env:TMP = $savedTmp
+            $logTruncated = $null -ne $job -and $job.LogExceeded
+            if ($logTruncated -and $reason -notin @('stop_requested', 'timeout')) {
+                $outcome = 'failed'; $reason = 'log_limit'
+            }
+            if ($null -ne $job -and $null -ne $job.OutputError -and $null -eq $reason) {
+                $outcome = 'failed'; $reason = 'output_capture_failed'
+            }
+            if ([IO.File]::Exists($logPath) -and [IO.FileInfo]::new($logPath).Length -gt $script:Policy.limits.max_log_file_bytes) {
+                $stream = [IO.File]::Open($logPath, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::None)
+                try { $stream.SetLength([long]$script:Policy.limits.max_log_file_bytes) } finally { $stream.Dispose() }
+                $logTruncated = $true
+            }
+            [pscustomobject]@{ schema_version = 1; run_id = $runId; status = $outcome; reason = $reason
+                child_pid = $childPid; log_path = $logPath; log_truncated = $logTruncated
+                finished_at = [DateTimeOffset]::UtcNow.ToString('o') } |
+                ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $recordPath -Encoding UTF8
+            if ($markerCreated -and [IO.File]::Exists($script:ActivePath)) {
+                $current = Get-Content -LiteralPath $script:ActivePath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($current.run_id -ceq $runId) { Remove-Item -LiteralPath $script:ActivePath -Force }
+            }
+            if ([IO.File]::Exists($script:StopPath)) {
+                $request = Get-Content -LiteralPath $script:StopPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($request.run_id -ceq $runId) { Remove-Item -LiteralPath $script:StopPath -Force }
+            }
+        }
+        Get-Content -LiteralPath $recordPath -Raw -Encoding UTF8
+        if ($outcome -ne 'finished') { exit 2 }
+        exit 0
+    }
     Assert-Quiescent $Scope ([bool]$DiscardEvidence)
     if (-not $Apply) {
         $targets = @(Get-Targets $Scope)

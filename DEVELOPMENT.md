@@ -90,7 +90,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 
 后续本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；需要长期保留的证据导出到 runs/exports。日常只启动一个受管任务，不在本机加载模型权重或部署 HarmonyOS 设备环境。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-管理入口 scripts/local.ps1 现已提供 Prepare、Status 和 Clean：能创建项目归属、查看占用、先预览再按计划清理。Stop/Run/Init/Export 和 CPU/内存保护器尚未实现，资源配置也未生效；下一步是 W02 的进程树限制与停止，再安装 Agent 依赖。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)，资源数值集中在 [本机配置](configs/local-runtime.json)。
+管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop，以及只运行短时合成任务的受限 Run。Run 先建立 Windows Job 的 CPU、提交内存和进程数限制，再启动子进程；输出经有上限的管道收集。真实 Agent 任务尚未接入该入口，Init/Export 也未实现。下一步 W03 在该保护器下建立项目依赖并做固定响应框架自检。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)，资源数值集中在 [本机配置](configs/local-runtime.json)。
 
 ## 6. 怎样一步步把它做出来
 
@@ -134,8 +134,9 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
 | `src/dfx_agent/` | Python 离线证据整理原型；模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 入口 |
-| `scripts/local.ps1` | W01 本机 Prepare、Status、Clean 入口；资源执行与安装尚不可用 |
-| `scripts/test_local_runtime.ps1` | W01 隔离合成目录的归属、预览与清理反例检查 |
+| `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop 和受限合成 Run 入口；真实任务与安装尚未接入 |
+| `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
+| `scripts/test_local_runtime.ps1`、`scripts/test_local_process.ps1` | W01 路径清理和 W02 进程保护的隔离合成反例检查 |
 | `scripts/check_docs.py` | 文档登记、链接、维护元数据及 archive 跟踪检查 |
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
 | `tests/test_offline_evidence.py` | 合成输入自检；最近测试结果由 STATUS 记录 |
@@ -144,8 +145,8 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 项目 Skill 的模板位置；实际实现状态见 STATUS |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
-| `configs/local-runtime.json` | 已登记、尚未生效的本机资源/清理策略；字段语义见设计与契约 |
-| `.dfx-local/` | 本机环境、缓存、工作副本与运行状态根；Git 忽略，W01 归属/清理可用，执行保护尚未实现 |
+| `configs/local-runtime.json` | 本机资源/清理策略；CPU/内存/进程限制仅对合成 Run 生效，字段语义见设计与契约 |
+| `.dfx-local/` | 本机环境、缓存、工作副本与运行状态根；Git 忽略，管理与合成 Run 保护已可用 |
 | `runs/` | 历史原型产物、管理工具接入前的临时材料及需保留的 exports；Git 忽略 |
 | `archive/` | 失效文档及配套材料；Git 忽略，不作为当前入口或运行依赖 |
 | `pyproject.toml`、`.python-version` | Python 3.13 基线和当前原型配置；新框架依赖及 uv.lock 在隔离接入自检时补齐 |
