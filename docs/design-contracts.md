@@ -1,6 +1,6 @@
 # 模块契约与规则规格
 
-状态：当前规格草案。最后维护：2026-09-21。
+状态：当前规格草案。最后维护：2026-09-23。
 职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。这是待实现的软件与方法规格，不是运行结果；文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
@@ -148,7 +148,7 @@ Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和�
 
 ## 5. 本机资源与清理契约
 
-本节规定字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。以下为目标对象，不代表现有 runtime.py 已实现它们。
+本节规定字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。LocalOwner、CleanupPlan 与 CleanupReceipt 已由 W01 的 PowerShell 管理入口部分实现并通过隔离合成验证；ProcessLease、EffectiveResourcePolicy 的执行能力及真实远程状态联动仍是目标对象。现有 runtime.py 不包含这些能力。
 
 | 对象 | 必须字段 / 约束 |
 |---|---|

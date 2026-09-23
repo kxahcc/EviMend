@@ -1,6 +1,6 @@
 # 项目蓝图与开发导览
 
-状态：当前开发入口。最后维护：2026-09-21。
+状态：当前开发入口。最后维护：2026-09-23。
 职责：先用通俗语言说明要做什么、如何做和重点在哪，再提供文件导航。这里是设计的概览；具体技术决策以开发设计为准，实际进度以 STATUS 为准。
 
 ## 1. 我们最终要做出什么
@@ -90,7 +90,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 
 后续本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；需要长期保留的证据导出到 runs/exports。日常只启动一个受管任务，不在本机加载模型权重或部署 HarmonyOS 设备环境。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-目标管理入口是 scripts/local.ps1：Status 查看占用，Stop 释放运行进程，Clean 先预览再按指定范围清理。CPU/内存限制由 Windows 进程保护器执行，磁盘采用预检和监测。**这些命令目前尚未实现，配置文件也尚未生效**；下一步先做保护与清理自检，再安装 Agent 依赖。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)，资源数值集中在 [本机配置](configs/local-runtime.json)。
+管理入口 scripts/local.ps1 现已提供 Prepare、Status 和 Clean：能创建项目归属、查看占用、先预览再按计划清理。Stop/Run/Init/Export 和 CPU/内存保护器尚未实现，资源配置也未生效；下一步是 W02 的进程树限制与停止，再安装 Agent 依赖。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)，资源数值集中在 [本机配置](configs/local-runtime.json)。
 
 ## 6. 怎样一步步把它做出来
 
@@ -134,6 +134,8 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
 | `src/dfx_agent/` | Python 离线证据整理原型；模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 入口 |
+| `scripts/local.ps1` | W01 本机 Prepare、Status、Clean 入口；资源执行与安装尚不可用 |
+| `scripts/test_local_runtime.ps1` | W01 隔离合成目录的归属、预览与清理反例检查 |
 | `scripts/check_docs.py` | 文档登记、链接、维护元数据及 archive 跟踪检查 |
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
 | `tests/test_offline_evidence.py` | 合成输入自检；最近测试结果由 STATUS 记录 |
@@ -143,7 +145,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `skill/` | 项目 Skill 的模板位置；实际实现状态见 STATUS |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
 | `configs/local-runtime.json` | 已登记、尚未生效的本机资源/清理策略；字段语义见设计与契约 |
-| `.dfx-local/` | 规划的本机环境、缓存、工作副本与运行状态根；Git 忽略，管理工具尚未实现 |
+| `.dfx-local/` | 本机环境、缓存、工作副本与运行状态根；Git 忽略，W01 归属/清理可用，执行保护尚未实现 |
 | `runs/` | 历史原型产物、管理工具接入前的临时材料及需保留的 exports；Git 忽略 |
 | `archive/` | 失效文档及配套材料；Git 忽略，不作为当前入口或运行依赖 |
 | `pyproject.toml`、`.python-version` | Python 3.13 基线和当前原型配置；新框架依赖及 uv.lock 在隔离接入自检时补齐 |
@@ -171,6 +173,8 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 ```powershell
 python scripts/dfx.py --help
 python scripts/check_docs.py
+.\scripts\local.ps1 Status
+.\scripts\test_local_runtime.ps1 -Suite Paths
 ```
 
 已安装 pytest 时，可运行 `python -m pytest tests/test_offline_evidence.py -q`。它只使用合成输入，不启动模型或应用。盘点工具用法见其 README，真实任务输入必须显式提供经核验的清单。
