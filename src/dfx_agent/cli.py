@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from .analysis import analyze_task
 from .runtime import doctor
-from .task import prepare_task
+from .task import CaseCatalog, prepare_task
 
 
 def main() -> None:
@@ -38,13 +38,8 @@ def main() -> None:
         if args.command == "doctor":
             result = doctor()
         elif args.command == "prepare":
-            catalog = json.loads(args.catalog.read_text(encoding="utf-8"))
-            if catalog.get("schema_version") != 1:
-                raise ValueError("Unsupported catalog schema")
-            matches = [c for c in catalog["cases"] if c["task_id"] == args.case]
-            if len(matches) != 1:
-                raise ValueError("Expected exactly one catalog case matching --case")
-            result = prepare_task(args.data_root, matches[0], args.output)
+            catalog = CaseCatalog.model_validate_json(args.catalog.read_text(encoding="utf-8"))
+            result = prepare_task(args.data_root, catalog.select(args.case).model_dump(exclude_none=True), args.output)
         elif args.command == "analyze":
             if args.output.resolve().is_relative_to(args.task.resolve()):
                 raise ValueError("Analysis output must be outside the fixed task input")

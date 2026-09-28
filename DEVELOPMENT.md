@@ -120,7 +120,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `docs/development/system-design-draft.md` | 当前设计 | 架构、算法与后端抽象 |
 | `docs/design-contracts.md` | 当前规格 | 字段不变量、状态转换、规则卡 |
 | `docs/preparation/metrics-and-gates.md` | 当前评测 | 指标、对照与验收口径 |
-| `docs/preparation/data-b-assessment-2026-09-15.md` | 当前证据 | 数据事实、异常及来源；文件日期是采集日期 |
+| `docs/preparation/data-b-assessment.md` | 当前证据 | 数据事实、异常及来源；正文分别标明采集日期 |
 | `docs/preparation/prior-art.md` | 当前证据 | 文献查阅事实、可借鉴内容及限制 |
 | `src/dfx_agent/README.md` | 当前说明 | 离线原型命令、输入格式和边界 |
 | `scripts/preparation/README.md` | 当前说明 | 数据盘点工具用法 |
@@ -143,7 +143,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `scripts/test_local_runtime.ps1`、`scripts/test_local_process.ps1`、`scripts/test_local_bootstrap.ps1` | W01 路径清理、W02 进程保护和 W03 重复 Init 的合成验收 |
 | `scripts/check_docs.py` | 文档登记、链接、维护元数据及 archive 跟踪检查 |
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
-| `tests/test_offline_evidence.py`、`tests/test_sdk_compat.py` | 原型合成输入与固定响应 SDK 接入自检；最近结果由 STATUS 记录 |
+| `tests/test_offline_evidence.py`、`tests/test_case_identity.py`、`tests/test_sdk_compat.py` | 原型合成输入、显式案例身份与固定响应 SDK 接入自检；最近结果由 STATUS 记录 |
 | `tests/test_contracts.py`、`tests/test_workspace.py` | 领域对象的拒绝条件与候选隔离、登记、回退的合成反例 |
 | `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py` | 固定响应闭环、模拟 HTTP、领域策略及动作/应用接受契约的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
@@ -166,7 +166,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 
 | 文件 | 职责与边界 |
 |---|---|
-| `task.py` | 指定日志/ZIP 成员、文件筛选、分析快照和哈希校验；不生成完整运行工程 |
+| `task.py` | 显式案例目录契约、日志/ZIP 成员与场景脚本哈希核对、分析快照和身份摘要；不生成完整运行工程 |
 | `logs.py` | 编码、错误字段与栈帧解析；不推理业务根因 |
 | `sources.py` | 源码路径匹配、歧义和邻近片段；不是 ArkTS 数据流分析器 |
 | `analysis.py` | 汇总栈证据；源码命中不能当作根因预测 |
