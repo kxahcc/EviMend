@@ -1,6 +1,6 @@
 # 应用软件代码故障精准定位与自修复：开发设计草案
 
-状态：当前设计草案，尚未全部实现或实测。最后维护：2026-09-23。
+状态：当前设计草案，尚未全部实现或实测。最后维护：2026-09-28。
 职责：维护架构、核心算法及后端抽象。实现状态见 [STATUS](../STATUS.md)，字段与规则见 [模块规格](../design-contracts.md)，阶段见 [实施计划](../project-work-plan.md)。
 
 ## 1. 核心决策
@@ -21,7 +21,7 @@
 
 目标交付是支持单任务与批处理的代码故障定位与自修复 Agent，命令行是启动入口。输入为日志、源码和允许的执行入口，输出为根因位置、可应用补丁、验证记录和资源报告。模型负责选择动作，执行框架负责调度与保存状态，我们实现修复策略及验收适配。
 
-**首版采用 Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + LangChain 提供方适配包 + SQLite；远程执行采用 HTTPX 客户端和 FastAPI/Uvicorn 服务。** 项目专属 Python、SDK 和 SQLite 检查点已由 uv.lock 锁定，固定响应最小接入已通过；提供方适配、HTTP 远程后端与正式修复控制器仍是设计目标。
+**首版采用 Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + LangChain 提供方适配包 + SQLite；远程执行采用 HTTPX 客户端和 FastAPI/Uvicorn 服务。** 项目专属 Python、SDK 和 SQLite 检查点已由 uv.lock 锁定，固定响应离线控制循环已接入；真实提供方、HTTP 远程后端和应用验收控制仍是设计目标。
 
 #### 选型依据与替代方案
 
@@ -339,27 +339,27 @@ SDK 负责通用读写和循环；policies.py 负责义务与决策策略；work
 
 本机负责编辑、离线测试和轻量 Agent 控制；模型使用远程接口，HarmonyOS 构建与设备执行保留在独立远程环境。首版不在用户电脑部署模型权重、训练任务、模拟器、Docker/WSL、数据库服务或开机任务。以后确需本机应用环境时，先重新核定容量与执行配置，不能直接沿用轻量配置安装 SDK。
 
-采用一个项目专属运行目录和一个 PowerShell 管理入口。用户能查看占用、停止本项目进程、清理缓存或完全移除运行环境；源码、Git、原始数据和已导出证据不会被普通清理删除。W01 实现目录归属与按计划清理，W02 实现 Job 进程保护与 Stop，W03 将同一保护用于 Init、pytest、文档/Ruff/Pyright 检查。现有 Python 原型命令和真实 Agent 仍未接入受管 Run。
+采用一个项目专属运行目录和一个 PowerShell 管理入口。用户能查看占用、停止本项目进程、清理缓存或完全移除运行环境；源码、Git、原始数据和已导出证据不会被普通清理删除。W01 实现目录归属与按计划清理，W02 实现 Job 进程保护与 Stop，W03 将同一保护用于 Init、pytest、文档/Ruff/Pyright 检查，W05 接入固定响应离线 Agent 的 repair/resume。真实模型与应用任务仍未接入受管 Run。
 
 “集中目录”不等于进程隔离，Python 虚拟环境不限制 CPU/内存。操作系统限制只覆盖管理入口创建的工作进程树，不覆盖 Codex、编辑器、用户其他程序或远程设备；我们不能保证整台电脑绝不满载。磁盘采用容量预检与监测，不是内核硬配额；任意恶意代码不在本机执行，Job Object 也不是安全沙箱。
 
 ### 9.2 文件归属与安装边界
 
-受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。`enforcement_status=setup_and_quality_guarded` 表示固定合成 Run、Init、pytest 和质量检查使用相同 Job 保护；真实 Agent 运行尚未接入。运行时生效限制写入本地活动记录，不另维护一份项目进度台账。
+受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。`enforcement_status=offline_agent_guarded` 表示固定合成 Run、Init、pytest、质量检查和固定响应离线 Agent 使用相同 Job 保护；真实模型与应用执行仍未接入。运行时生效限制写入本地活动记录，不另维护一份项目进度台账。
 
 | 位置 | 内容 | 清理性质 |
 |---|---|---|
 | .dfx-local/tools/、python/、env/ | 固定版本便携 uv、项目 Python、项目虚拟环境 | 可按依赖锁重新建立；清理不卸载系统 Python |
 | .dfx-local/cache/、tmp/ | uv/pip/检查工具缓存，下载与解压临时目录 | 空闲后可清理；下次可能重新下载 |
-| .dfx-local/work/ | 每个 run 的可写源码副本和中间文件 | 结束后可清理；不共享可写硬链接到 data_B |
-| .dfx-local/artifacts/、state/ | diff、受限日志、检查点、资源记录、候选及反例 | 为证据/恢复数据，不按缓存自动删 |
+| .dfx-local/work/ | 每个 run 的可写源码副本、候选 diff、SQLite 检查点、检查意图与报告 | 结束并处理证据后可清理；不共享可写硬链接到 data_B |
+| .dfx-local/artifacts/、state/ | 受限进程日志、资源记录、管理状态 | 为证据/恢复数据，不按缓存自动删 |
 | .dfx-local/owner.json | schema、仓库绝对路径、随机项目实例 ID、创建时间 | 管理入口生成，用于校验归属；不是删除授权本身 |
 | runs/exports/ | 用户保留的报告、补丁和证据导出包及哈希清单 | 普通清理保留；独立显示大小，不能无上限自动导出 |
 | data_B/、archive/、既有 runs/ | 用户数据、历史归档与旧原型产物 | 报告现有占用但不接管、不移动、不默认清理 |
 
 默认管理目录固定在仓库内；首次实现不支持随意更改为任意盘符根目录。需要迁到其他磁盘时，以无活动任务、重新校验路径和重建环境为前提单独实现。虚拟环境不承诺复制后可用。项目总占用报告分开列管理目录、保留数据和导出包，不能只报 .dfx-local 造成“已全部清理”的误解。
 
-入口脚本 scripts/local.ps1 已实现 Prepare/Status/Clean/Stop/Init，以及固定合成、仓库测试和质量任务的 Run；scripts/local_job.cs 创建和核验 Windows Job。Prepare 不下载依赖；Init 只在 Job 内通过固定来源和 SHA-256 安装便携 uv/CPython 并同步锁定环境。Run 接受固定任务与仓库测试路径，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装全局 Python 包、系统工具或后台服务。真实 Agent 运行仍待接入。
+入口脚本 scripts/local.ps1 已实现 Prepare/Status/Clean/Stop/Init，以及固定合成、仓库测试、质量检查和固定响应离线 Agent 的 Run；scripts/local_job.cs 创建和核验 Windows Job。Prepare 不下载依赖；Init 只在 Job 内通过固定来源和 SHA-256 安装便携 uv/CPython 并同步锁定环境。Run 接受固定任务、仓库测试路径或已审查快照与固定脚本，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装全局 Python 包、系统工具或后台服务。真实模型与应用任务仍待接入。
 
 安装时通过显式子进程环境设置 UV_CACHE_DIR、UV_PROJECT_ENVIRONMENT、UV_PYTHON_INSTALL_DIR、UV_PYTHON_BIN_DIR、UV_TOOL_DIR/UV_TOOL_BIN_DIR、TEMP/TMP 与 PYTHONPYCACHEPREFIX；Pyright 后备 Node 目录和 Ruff 缓存也路由到项目根。pytest 使用受管 basetemp，关闭持久 pytest 缓存和字节码写入，并在退出时删除自己的临时目录，避免不同 Windows 账户交替运行时产生不可访问目录。变量只在该子进程树生效，不改用户级 PATH、注册表、Shell profile、Conda base 或全局 pip。uv 固定版本/下载哈希，关闭 Python 注册表安装；环境同步使用 `uv sync --locked` 和项目 Python。正式 Agent 任务也须遵循同样入口，不用普通 `uv run` 绕过限制。
 
@@ -373,7 +373,7 @@ SDK 负责通用读写和循环；policies.py 负责义务与决策策略；work
 |---|---|---|
 | CPU、进程数 | Windows Job Object 对受管工作进程树设置 CPU hard cap 和活动进程数上限 | 无法建立/核验限制则拒绝工作进程继续运行，不能悄悄变为无限制 |
 | 内存 | Job 的 committed memory 上限取配置绝对上限与物理内存比例的较小值；启动预留系统可用内存，运行时监测 | 分配可能失败；记录资源原因并停止任务。它不是对全机 RSS 或系统文件缓存的硬限制 |
-| 并发 | 一个管理根的互斥锁与运行租约；合成、安装、测试和质量任务串行，后续 Agent 执行沿用 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
+| 并发 | 一个管理根的互斥锁与运行租约；合成、安装、测试、质量和离线 Agent 任务串行 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
 | 磁盘 | 受管任务预检和监测管理目录逻辑大小及卷剩余空间；下载前估算，uv ZIP 流式限定字节 | 超过预算或预留线则拒绝；后续工作目录复制仍须专门估算新增和临时空间 |
 | 日志 | 受管任务的 stdout/stderr 经管道按字节上限保存，超额立即终止 Job 并继续排空 | 不在内存或磁盘无限堆积输出；留存日志标记截断 |
 | 时间 | 单调时钟截止时间 + 子命令超时，采用资源配置与任务预算中的较严值 | 先请求退出，宽限结束后终止本任务 Job，记录 timeout/inconclusive |
@@ -388,16 +388,17 @@ Stop 优先通过当前用户可访问的控制通道请求管理器停止，再
 
 ### 9.4 统一命令与清理协议
 
-下面列出统一接口。Prepare/Status/Clean/Stop/Init 与固定合成、测试、质量 Run 已可用；真实 Agent Run 与 Export 是待实现目标。
+下面列出统一接口。Prepare/Status/Clean/Stop/Init 与固定合成、测试、质量、固定响应离线 Agent Run 已可用；真实模型/应用 Run 与 Export 是待实现目标。
 
 | 目标调用 | 行为 |
 |---|---|
 | .\scripts\local.ps1 Prepare | 建立或复核仓库内的 owner，不安装运行环境；同一 owner 重复调用幂等 |
 | .\scripts\local.ps1 Status | 无模型、无安装地报告路径、各类字节、受管进程、限制是否生效及远程任务未知项 |
 | .\scripts\local.ps1 Init | 先检查容量和保护器，再建立固定版本 uv/Python/依赖环境；重复执行不重复安装 |
-| .\scripts\local.ps1 Run -Scenario idle -Seconds 3 | 运行固定合成任务并记录限额、日志和结束原因；真实任务未接入 |
+| .\scripts\local.ps1 Run -Scenario idle -Seconds 3 | 运行固定合成任务并记录限额、日志和结束原因 |
 | .\scripts\local.ps1 Run -Task test -TestPath tests/test_sdk_compat.py | 在受管环境运行单个现存仓库测试文件；不接受任意命令或数据包脚本 |
 | .\scripts\local.ps1 Run -Task docs/ruff/pyright | 在受管环境运行固定文档、Lint 或类型检查 |
+| .\scripts\local.ps1 Run -Task offline -OfflineTaskPath TASK -OfflineScriptPath SCRIPT -OfflineWorkId ID | 在受管环境运行固定响应、合成判据的离线闭环；同一 ID 可加 -Resume 恢复，详情见原型说明 |
 | .\scripts\local.ps1 Stop | 停止本项目受管工作树并核验退出；保留文件和证据，释放进程资源 |
 | .\scripts\local.ps1 Export -RunId ID | 输出受限体积、含哈希的证据包，先核对复制所需剩余空间；不导出密钥 |
 | .\scripts\local.ps1 Clean -Scope cache/testcache/tmp/work/env/all | 默认只生成路径、估算字节、保留项、阻塞项和 plan_id，不删除 |
@@ -419,7 +420,7 @@ W01 路径与清理通过隔离合成树的 37 条断言；W02 保护器通过 2
 
 ## 10. 详细设计与接手边界
 
-当前已确定算法、模块职责、本机资源/清理方案和分步验收任务。W01 清理、W02 合成保护器及 W03 受管环境与最小 SDK 接入已验证；可执行领域 schema、正式模型适配、真实任务接入及完整恢复路径仍待编码和验证。资源数值对受管 Init/测试/质量任务生效，不代表真实 Agent 运行受管；具体进度见 STATUS。
+当前已确定算法、模块职责、本机资源/清理方案和分步验收任务。W01–W03 的本机管理和 SDK 接入、W04 的首批对象、W05 的固定响应离线闭环已完成合成验证；正式模型适配、真实应用任务及远程恢复路径仍待编码和验证。资源数值对受管 Init/测试/质量/离线 Agent 任务生效，不代表真实模型或设备任务已受管；具体进度见 STATUS。
 
 接手者按 [实施计划](../project-work-plan.md) 的工作包顺序推进，先读当前包的输入、输出和反例用例；每次交付一个可检查的变更。实现中的局部选择可按契约自行决定；更换框架、放宽本机限制、改变评测判据或开启真实实验不属于随意实现细节，须按已授权边界处理并同步主文档。设计不能保证任何具体模型零错误，但可以使偏离易于发现、每步可回退。
 

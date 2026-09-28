@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "profile": "windows-local-development",
-  "enforcement_status": "setup_and_quality_guarded",
+  "enforcement_status": "offline_agent_guarded",
   "paths": {
     "managed_root": ".dfx-local",
     "export_root": "runs/exports"

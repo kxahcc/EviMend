@@ -5,8 +5,12 @@ param(
     [switch]$Apply,
     [string]$PlanId,
     [switch]$DiscardEvidence,
-    [ValidateSet('synthetic', 'test', 'docs', 'ruff', 'pyright')][string]$Task = 'synthetic',
+    [ValidateSet('synthetic', 'test', 'docs', 'ruff', 'pyright', 'offline')][string]$Task = 'synthetic',
     [string]$TestPath,
+    [string]$OfflineTaskPath,
+    [string]$OfflineScriptPath,
+    [string]$OfflineWorkId,
+    [switch]$Resume,
     [ValidateSet('idle', 'child', 'noisy', 'memory')][string]$Scenario = 'idle',
     [ValidateRange(1, 120)][int]$Seconds = 3,
     [ValidateRange(1, 1800)][int]$TimeoutSeconds = 1800
@@ -25,7 +29,7 @@ if ($script:Policy.execution.require_windows_job_limits -ne $true -or
     $script:Policy.cleanup.refuse_external_reparse_points -ne $true) {
     throw 'Local runtime safety settings cannot be disabled'
 }
-if ($script:Policy.enforcement_status -cne 'setup_and_quality_guarded') { throw 'Unsupported enforcement status' }
+if ($script:Policy.enforcement_status -cne 'offline_agent_guarded') { throw 'Unsupported enforcement status' }
 $script:Root = [IO.Path]::GetFullPath((Join-Path $script:Repo '.dfx-local'))
 $script:OwnerPath = Join-Path $script:Root 'owner.json'
 $script:StatePath = Join-Path $script:Root 'state'
@@ -321,7 +325,7 @@ if ($Action -eq 'Status') {
         active_marker = [IO.File]::Exists((Join-Path $script:StatePath 'active.json'))
         active_state = $activeState
         remote_jobs_unknown = [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
-        resource_enforcement = 'job_guarded_setup_and_quality_only'
+        resource_enforcement = 'job_guarded_setup_quality_and_offline_agent'
         cleanup_available = $activeState -eq 'none' -and -not [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
     } | ConvertTo-Json -Depth 5
     exit 0
@@ -402,6 +406,8 @@ try {
         [IO.Directory]::CreateDirectory((Join-Path $script:Root 'tmp')) | Out-Null
         [IO.Directory]::CreateDirectory((Join-Path $script:Root 'artifacts')) | Out-Null
         $savedTemp = $env:TEMP; $savedTmp = $env:TMP; $savedTestPath = $env:DFX_TEST_PATH
+        $savedOfflineTask = $env:DFX_OFFLINE_TASK; $savedOfflineScript = $env:DFX_OFFLINE_SCRIPT
+        $savedOfflineWork = $env:DFX_OFFLINE_WORK; $savedOfflineResume = $env:DFX_OFFLINE_RESUME
         $job = $null; $markerCreated = $false
         $runId = [Guid]::NewGuid().ToString()
         $taskKind = if ($Action -eq 'Init') { 'bootstrap' } elseif ($Task -ne 'synthetic') { $Task } else { $Scenario }
@@ -414,7 +420,7 @@ try {
                 Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local_job.cs') -Raw -Encoding UTF8) -ErrorAction Stop
             }
             $effective = Get-RunLimits
-            if ($taskKind -in @('test', 'docs', 'ruff', 'pyright')) {
+            if ($taskKind -in @('test', 'docs', 'ruff', 'pyright', 'offline')) {
                 $environmentPath = Join-Path $script:StatePath 'environment.json'
                 if (-not [IO.File]::Exists($environmentPath)) { throw 'Managed environment is not initialized' }
                 $environment = Get-Content -LiteralPath $environmentPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -433,10 +439,35 @@ try {
                 Assert-PathChain $resolvedTest
                 $env:DFX_TEST_PATH = $resolvedTest
             } elseif ($Action -eq 'Run' -and $TestPath) { throw 'TestPath requires -Task test' }
+            if ($taskKind -eq 'offline') {
+                if ($OfflineWorkId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' -or
+                    -not $OfflineTaskPath -or -not $OfflineScriptPath) { throw 'Offline task, script and work ID are required' }
+                $resolvedTask = [IO.Path]::GetFullPath((Join-Path $script:Repo $OfflineTaskPath))
+                $resolvedScript = [IO.Path]::GetFullPath((Join-Path $script:Repo $OfflineScriptPath))
+                foreach ($path in @($resolvedTask, $resolvedScript)) {
+                    if (-not (Test-Within $path $script:Repo) -or
+                        (Test-Within $path (Join-Path $script:Repo 'data_B')) -or
+                        (Test-Within $path (Join-Path $script:Repo 'archive'))) {
+                        throw 'Offline inputs must be reviewed task/script paths within this repository, outside data_B/archive'
+                    }
+                    Assert-PathChain $path
+                }
+                if (-not [IO.Directory]::Exists($resolvedTask) -or -not [IO.File]::Exists($resolvedScript)) {
+                    throw 'Offline task or script is missing'
+                }
+                $offlineWork = Join-Path $script:Root ("work/offline-" + $OfflineWorkId)
+                Assert-PathChain $offlineWork
+                if ($Resume -and -not [IO.Directory]::Exists($offlineWork)) { throw 'Offline work does not exist for resume' }
+                if (-not $Resume -and [IO.Directory]::Exists($offlineWork)) { throw 'Offline work already exists' }
+                $env:DFX_OFFLINE_TASK = $resolvedTask; $env:DFX_OFFLINE_SCRIPT = $resolvedScript
+                $env:DFX_OFFLINE_WORK = $offlineWork; $env:DFX_OFFLINE_RESUME = if ($Resume) { '1' } else { '0' }
+            } elseif ($OfflineTaskPath -or $OfflineScriptPath -or $OfflineWorkId -or $Resume) {
+                throw 'Offline parameters require -Task offline'
+            }
             $job = [DfxLocal.BoundedJob]::new($effective.cpu_percent, $effective.memory_bytes, $effective.max_processes)
             $exe = (Get-Process -Id $PID).Path
             if (-not [IO.File]::Exists($exe)) { throw 'PowerShell executable identity unavailable' }
-            $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } else { 'local_synthetic.ps1' }
+            $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } elseif ($taskKind -eq 'offline') { 'local_agent.ps1' } else { 'local_synthetic.ps1' }
             $workerPath = Join-Path $PSScriptRoot $workerName
             Assert-PathChain $workerPath
             $job.Start($exe, $workerPath, $taskKind, $logPath, $script:Repo, $Seconds,
@@ -495,6 +526,8 @@ try {
                 $job.Dispose()
             }
             $env:TEMP = $savedTemp; $env:TMP = $savedTmp; $env:DFX_TEST_PATH = $savedTestPath
+            $env:DFX_OFFLINE_TASK = $savedOfflineTask; $env:DFX_OFFLINE_SCRIPT = $savedOfflineScript
+            $env:DFX_OFFLINE_WORK = $savedOfflineWork; $env:DFX_OFFLINE_RESUME = $savedOfflineResume
             $logTruncated = $null -ne $job -and $job.LogExceeded
             if ($logTruncated -and $reason -notin @('stop_requested', 'timeout')) {
                 $outcome = 'failed'; $reason = 'log_limit'

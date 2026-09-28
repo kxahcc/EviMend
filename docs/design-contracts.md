@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，首批对象已实现。最后维护：2026-09-23。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。W04 仅实现证据/诊断/义务/候选的基础对象与引用检查，其他仍是待实现规格；文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
+状态：当前规格草案，离线闭环部分已实现。最后维护：2026-09-28。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。证据/诊断/义务/候选基础对象与固定响应离线循环已实现，完整因果/动作/应用验证对象仍是待实现规格；文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -36,7 +36,7 @@ Diagnosis 保存 exception_locations、hypotheses、selected_hypothesis_id、unk
 | missing_evidence | 哪个事实未知，以及为何可能改变修改方向 |
 | distinguishing_check | 至多一个优先检查建议，包含不同结果会导致的决策；可空 |
 
-首批边界对象已用 Pydantic 2 实现严格字段、来源、源码版本、行号和 evidence_id 校验；证据由可信调用方通过 `admit_evidence` 标注来源，模型响应不能自称执行后端。LangGraph 状态保存可序列化数据与产物引用的正式集成仍待 W05。因果链本身的正确性依赖后续检查，不能通过 JSON 校验宣称成立。
+首批边界对象已用 Pydantic 2 实现严格字段、来源、源码版本、行号和 evidence_id 校验；证据由可信调用方通过 `admit_evidence` 标注来源，模型响应不能自称执行后端。W05 的固定响应循环已把假设作为 `unknown` 写入记录，并用 SQLite 保存 SDK 对话检查点；它尚未实现完整因果链或可信根因确认。因果链本身的正确性依赖后续检查，不能通过 JSON 校验宣称成立。
 
 ### 1.2.1 修复义务和动作提案
 
@@ -55,6 +55,8 @@ CandidatePatch 包含 candidate_id、ordinal、parent_snapshot_sha256、diff_sha
 没有生成完整候选的模型失败记录为 generation_failure，计入总成本，但不伪造一个可验证候选。首次候选通过率同时报告“全部任务”为分母的端到端口径，避免把未生成补丁的任务排除后抬高成绩。
 
 W04 的候选工作区从已校验分析快照建立独立草稿；精确文本编辑在临时副本完成后切换，失败不改原草稿。登记时冻结完整 diff、候选源码副本和哈希；仅登记且复核未变的候选可交给后续检查。修订时可以读取前次 diff 和反馈，但新 diff 表达相对该基准的完整修改。该工作区尚不是可构建的运行工程；跨候选诊断中的旧执行证据保留历史版本，只能说明对应旧版本。
+
+W05 的合成执行器只对冻结候选做固定文本检查；先写入含候选/检查/协议 ID 的意图，重启后用同一幂等键重试或读取已有结果。真实远程执行端的幂等保证仍待 W06。`offline_checked` 不是 VerificationResult 中的应用 pass，也不能满足最终共同协议；`application_verification` 始终为 `not_run`。模型工具保留哈希校验日志读取、通用源码浏览、精确编辑和候选登记，关闭 SDK 的任意写文件、shell 和委派工具，以免绕过登记门。
 
 VerificationPlan 中每个 Check 包含 check_id、level、required、hypothesis_or_behavior、oracle_origin、input_class、expected_relation、capability、timeout 和 protocol_sha256。
 
@@ -167,4 +169,4 @@ Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/s
 
 ## 6. 关联与待完成规格
 
-工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。首批字段已有机器可执行 schema，但完整诊断因果链、动作/验证对象和控制器仍是待完成规格。
+工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。首批字段与固定响应离线控制边界已可执行；完整诊断因果链、动作/应用验证对象和远程控制仍是待完成规格。

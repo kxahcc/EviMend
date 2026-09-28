@@ -133,6 +133,34 @@ class CandidateWorkspace:
             shutil.rmtree(self.root)
             raise
 
+    @classmethod
+    def reopen(cls, task_directory: Path, work_directory: Path, run_id: str) -> CandidateWorkspace:
+        """Reopen an owned run only after rechecking its task and frozen baseline."""
+        task_directory = task_directory.resolve(strict=True)
+        task = verify_task(task_directory)
+        root = work_directory.resolve(strict=True)
+        if root.is_relative_to(task_directory) or task_directory.is_relative_to(root):
+            raise ValueError("work directory overlaps the task snapshot")
+        meta = json.loads((root / "workspace.json").read_text(encoding="utf-8"))
+        expected = {
+            "schema_version": 1, "task_id": task["task_id"], "run_id": run_id,
+            "source_snapshot_sha256": task["source_snapshot_sha256"],
+        }
+        if meta != expected:
+            raise ValueError("workspace owner or source snapshot differs")
+        instance = cls.__new__(cls)
+        instance.root, instance.base = root, root / "base"
+        instance.draft, instance.candidates = root / "draft", root / "candidates"
+        instance.task_id, instance.run_id = task["task_id"], run_id
+        instance.source_snapshot_sha256 = task["source_snapshot_sha256"]
+        if snapshot_digest(_manifest(instance.base)) != instance.source_snapshot_sha256:
+            raise ValueError("workspace baseline changed")
+        if not instance.candidates.is_dir() or instance.candidates.is_symlink():
+            raise ValueError("workspace candidates directory is missing or linked")
+        if instance.draft.exists():
+            _files(instance.draft)
+        return instance
+
     def start_draft(self) -> Path:
         if self.draft.exists():
             raise ValueError("draft already exists; register or discard it first")
