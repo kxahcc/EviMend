@@ -22,6 +22,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 
 from .contracts import (
+    IDENTIFIER,
     Diagnosis,
     Hypothesis,
     SourceLocation,
@@ -31,6 +32,14 @@ from .contracts import (
 )
 from .logs import MAX_LOG_BYTES
 from .models import FixedResponseModel, ModelLimit
+from .policies import (
+    Counterexample,
+    ObligationClaim,
+    PolicyFeatures,
+    PolicyInput,
+    choose_action,
+    rule_guidance,
+)
 from .task import digest, verify_task
 from .verification import CheckLedger, OfflineExecutor, _atomic_json
 from .workspace import CandidateWorkspace, TextEdit
@@ -57,8 +66,27 @@ def _current_candidates(workspace: CandidateWorkspace) -> list[str]:
     return [candidate_id for _, candidate_id in sorted(found)]
 
 
+def _known_obligations(workspace: CandidateWorkspace) -> dict[str, ObligationClaim]:
+    folder = workspace.root / "obligations"
+    if not folder.exists():
+        return {}
+    if not folder.is_dir() or folder.is_symlink():
+        raise ValueError("obligation ledger is not a safe directory")
+    claims: dict[str, ObligationClaim] = {}
+    for path in folder.glob("*.json"):
+        if path.is_symlink():
+            raise ValueError("obligation record is linked")
+        claim = ObligationClaim.model_validate_json(path.read_text(encoding="utf-8"))
+        if (path.stem != claim.obligation_id or
+                claim.source_snapshot_sha256 != workspace.source_snapshot_sha256):
+            raise ValueError("obligation record belongs to another snapshot")
+        claims[claim.obligation_id] = claim
+    return claims
+
+
 def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: int,
-           task_directory: Path, crash_log: str, crash_sha256: str) -> list[Any]:
+           task_directory: Path, crash_log: str, crash_sha256: str,
+           policy_features: PolicyFeatures) -> list[Any]:
     @tool
     def read_log(start_line: int = 1, end_line: int = 100) -> str:
         """Read a bounded line range from the hash-checked input crash log."""
@@ -143,15 +171,66 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def register_candidate(diagnosis_id: str = "") -> str:
+    def record_obligation(obligation_id: str, statement: str, evidence_ids: list[str]) -> str:
+        """Record a model-inferred repair obligation tied to registered evidence."""
+        try:
+            if not policy_features.obligation_tracking:
+                raise ValueError("obligation tracking is disabled")
+            if not IDENTIFIER.fullmatch(obligation_id):
+                raise ValueError("invalid obligation identifier")
+            evidence_folder = workspace.root / "diagnoses"
+            known_evidence: set[str] = set()
+            if evidence_folder.exists():
+                if evidence_folder.is_symlink():
+                    raise ValueError("diagnosis directory is linked")
+                for path in evidence_folder.glob("*.json"):
+                    if path.is_symlink():
+                        raise ValueError("diagnosis record is linked")
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                    known_evidence.update(item["record_id"] for item in record["evidence"])
+            if not evidence_ids or any(item not in known_evidence for item in evidence_ids):
+                raise ValueError("obligation evidence is not registered")
+            claim = ObligationClaim(obligation_id=obligation_id,
+                                    source_snapshot_sha256=workspace.source_snapshot_sha256,
+                                    authority="model_inference", evidence_ids=evidence_ids,
+                                    statement=statement)
+            existing = _known_obligations(workspace).get(obligation_id)
+            if existing is not None:
+                if existing != claim:
+                    raise ValueError("obligation identity changed")
+                return claim.model_dump_json()
+            folder = workspace.root / "obligations"
+            folder.mkdir(exist_ok=True)
+            if folder.is_symlink():
+                raise ValueError("obligation directory is linked")
+            _atomic_json(folder / f"{obligation_id}.json", claim.model_dump())
+            return claim.model_dump_json()
+        except (OSError, ValueError, ValidationError, KeyError) as exc:
+            return f"rejected: {exc}"
+
+    @tool
+    def register_candidate(diagnosis_id: str = "", restores: list[str] | None = None,
+                           preserves: list[str] | None = None) -> str:
         """Freeze a complete draft diff and return its immutable candidate ID."""
         try:
             candidates = _current_candidates(workspace)
             if len(candidates) >= max_candidates:
                 return "rejected: candidate budget exhausted"
-            if diagnosis_id and not (workspace.root / "diagnoses" / f"{diagnosis_id}.json").is_file():
-                return "rejected: diagnosis is not registered"
-            candidate = workspace.register_candidate(len(candidates) + 1, diagnosis_id or None)
+            if diagnosis_id:
+                if not IDENTIFIER.fullmatch(diagnosis_id):
+                    raise ValueError("invalid diagnosis identifier")
+                path = workspace.root / "diagnoses" / f"{diagnosis_id}.json"
+                if not path.is_file() or path.is_symlink():
+                    raise ValueError("diagnosis is not registered")
+            restores, preserves = restores or [], preserves or []
+            if restores or preserves:
+                if not policy_features.obligation_tracking:
+                    raise ValueError("obligation tracking is disabled")
+                known = _known_obligations(workspace)
+                if any(item not in known for item in (*restores, *preserves)):
+                    raise ValueError("candidate refers to an unknown obligation")
+            candidate = workspace.register_candidate(len(candidates) + 1, diagnosis_id or None,
+                                                     restores=restores, preserves=preserves)
             return json.dumps({"candidate_id": candidate.candidate_id, "ordinal": candidate.ordinal})
         except (OSError, ValueError, ValidationError) as exc:
             return f"rejected: {exc}"
@@ -165,16 +244,75 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
         except (OSError, ValueError, ValidationError) as exc:
             return f"rejected: {exc}"
 
-    return [read_log, list_source, read_source, record_diagnosis, edit_source, register_candidate, run_check]
+    @tool
+    def link_failed_check(candidate_id: str, violated_obligation_ids: list[str]) -> str:
+        """Link an actual failed synthetic check to model-inferred obligations."""
+        try:
+            if not policy_features.obligation_tracking:
+                raise ValueError("obligation tracking is disabled")
+            result = ledger.completed(candidate_id)
+            if result is None or result.status != "fail":
+                raise ValueError("no failed registered check exists")
+            record = json.loads((workspace.candidates / candidate_id / "candidate.json").read_text(encoding="utf-8"))
+            allowed = set(record["restores"] + record["preserves"])
+            if (not violated_obligation_ids or len(set(violated_obligation_ids)) != len(violated_obligation_ids) or
+                    any(item not in allowed for item in violated_obligation_ids)):
+                raise ValueError("feedback obligation was not linked to this candidate")
+            feedback = Counterexample(candidate_id=candidate_id,
+                                      candidate_snapshot_sha256=record["candidate_snapshot_sha256"],
+                                      execution_id=result.idempotency_key, evidence_kind="local_execution",
+                                      scope="synthetic", link_authority="model_inference",
+                                      violated_obligation_ids=violated_obligation_ids,
+                                      observation=result.detail)
+            folder = workspace.root / "feedback"
+            folder.mkdir(exist_ok=True)
+            if folder.is_symlink():
+                raise ValueError("feedback directory is linked")
+            key = digest((result.idempotency_key + ":" + ",".join(sorted(violated_obligation_ids))).encode())
+            path = folder / f"{key}.json"
+            if path.exists():
+                if path.is_symlink() or Counterexample.model_validate_json(path.read_text(encoding="utf-8")) != feedback:
+                    raise ValueError("feedback identity changed")
+            else:
+                _atomic_json(path, feedback.model_dump())
+            return feedback.model_dump_json()
+        except (OSError, ValueError, ValidationError, KeyError) as exc:
+            return f"rejected: {exc}"
+
+    @tool
+    def consult_rule(family: str) -> str:
+        """Read optional generic fault-family guidance; unknown families stay generic."""
+        card = rule_guidance(family, policy_features)
+        return card.model_dump_json() if card is not None else json.dumps({"family": family, "guidance": "generic"})
+
+    @tool
+    def plan_repair_action(plan_json: str) -> str:
+        """Get version-bound advice on direct repair versus a distinguishing check."""
+        try:
+            plan = PolicyInput.model_validate_json(plan_json)
+            if plan.source_snapshot_sha256 != workspace.source_snapshot_sha256:
+                raise ValueError("policy plan refers to another source snapshot")
+            # The model may propose a check, but capabilities and budget come from the host.
+            plan = plan.model_copy(update={"available_capabilities": {"read_source", "read_log"},
+                                           "remaining_probe_budget": 0})
+            return choose_action(plan, policy_features).model_dump_json()
+        except (ValueError, ValidationError) as exc:
+            return f"rejected: {exc}"
+
+    return [read_log, list_source, read_source, record_diagnosis, edit_source,
+            register_candidate, run_check, consult_rule, plan_repair_action,
+            record_obligation, link_failed_check]
 
 
 def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     executor: OfflineExecutor, *, resume: bool = False, max_calls: int = 20,
                     max_known_tokens: int = 4000, max_seconds: float = 60,
-                    max_candidates: int = 3) -> dict[str, Any]:
+                    max_candidates: int = 3,
+                    policy_features: PolicyFeatures | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1:
         raise ValueError("budgets must be positive")
+    policy_features = policy_features or PolicyFeatures()
     task_info = verify_task(task)
     workspace = (CandidateWorkspace.reopen(task, work, run_id) if resume
                  else CandidateWorkspace(task, work, run_id))
@@ -185,7 +323,8 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         if session != {"schema_version": 1, "run_id": run_id, "started_at": session.get("started_at"),
                        "max_calls": max_calls, "max_known_tokens": max_known_tokens,
                        "max_seconds": max_seconds, "max_candidates": max_candidates,
-                       "protocol_sha256": executor.protocol_sha256}:
+                       "protocol_sha256": executor.protocol_sha256,
+                       "policy_features": policy_features.model_dump()}:
             raise ValueError("resume budget or session identity differs")
         started_at = datetime.fromisoformat(session["started_at"])
         if started_at.tzinfo is None:
@@ -196,7 +335,8 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
                                     "started_at": started_at.isoformat(), "max_calls": max_calls,
                                     "max_known_tokens": max_known_tokens, "max_seconds": max_seconds,
                                     "max_candidates": max_candidates,
-                                    "protocol_sha256": executor.protocol_sha256})
+                                    "protocol_sha256": executor.protocol_sha256,
+                                    "policy_features": policy_features.model_dump()})
     remaining_seconds = (started_at + timedelta(seconds=max_seconds) - datetime.now(UTC)).total_seconds()
     model = FixedResponseModel(responses=responses, max_calls=max_calls,
                                max_known_tokens=max_known_tokens,
@@ -211,7 +351,8 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
     with SqliteSaver.from_conn_string(str(workspace.root / "checkpoints.sqlite")) as saver:
         graph = create_deep_agent(
             model=model, tools=_tools(workspace, ledger, max_candidates,
-                                      task, task_info["crash_log"], task_info["crash_sha256"]),
+                                      task, task_info["crash_log"], task_info["crash_sha256"],
+                                      policy_features),
             backend=FilesystemBackend(root_dir=workspace.base, virtual_mode=True),
             checkpointer=saver, subagents=[],
         )
@@ -252,6 +393,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         "model_calls_this_turn": model.calls - prior_calls,
         "known_tokens_this_turn": model.known_tokens - prior_tokens,
         "missing_usage_calls_this_turn": model.missing_usage_calls - prior_missing,
+        "policy_features": policy_features.model_dump(),
         "offered_tools": sorted(set(model.offered_tools)),
         "stopped_reason": error,
     }

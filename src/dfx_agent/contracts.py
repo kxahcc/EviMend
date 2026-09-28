@@ -151,6 +151,10 @@ class CandidatePatch(Record):
             require_path(path)
         if set(self.restores) & set(self.preserves):
             raise ValueError("same obligation listed as restore and preserve")
+        if any(not IDENTIFIER.fullmatch(value) for value in (*self.restores, *self.preserves)):
+            raise ValueError("invalid candidate obligation identifier")
+        if len(set(self.restores)) != len(self.restores) or len(set(self.preserves)) != len(self.preserves):
+            raise ValueError("duplicate candidate obligation")
         return self
 
 

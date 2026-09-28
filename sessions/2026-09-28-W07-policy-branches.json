@@ -1,0 +1,31 @@
+{
+  "session_id": "session-2026-09-28-W07-policy-branches",
+  "date": "2026-09-28",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "W07",
+  "user_request_summary": "继续实施当前 STATUS 指定的下一工作包。",
+  "changes": [
+    "policies.py 登记四类通用规则卡、修复方向/验收等价判断、区分检查建议、义务权威层级及候选版本绑定的反例分支。",
+    "固定响应 Agent 对所有配置保留同一组通用读码、编辑与检查工具；受管固定脚本可指定策略开关，开关写入会话身份，恢复时不能更换。主机只授予已有源码/日志读取能力，不接受模型自报的探针能力或预算。",
+    "模型创建的义务固定为 model_inference 且引用已登记证据，候选记录 restores/preserves；合成检查失败后可登记观察文本与模型推断的义务关联，不能用它硬拒补丁或报告应用成功。",
+    "更新开发导览、设计、模块规格、原型说明与 STATUS；未改竞赛提交模板。"
+  ],
+  "validation": {
+    "policy_tests_passed": 10,
+    "workspace_regression": "passed, symlink case skipped by account permissions",
+    "contracts_regression": "passed",
+    "agent_loop_regression": "10 passed",
+    "ruff": "passed",
+    "pyright": "0 errors",
+    "docs": "14 documents, 0 errors",
+    "real_model_repair_runs": 0,
+    "application_replays": 0
+  },
+  "limitations": [
+    "规则卡与策略测试只证明合成分支行为，不证明模型会提出正确修法或提高竞赛成绩。",
+    "实际诊断执行探针、可信业务验收与应用反馈尚未接入；合成失败到义务的关联仍是模型推断。",
+    "下一批先闭合 P0 剩余动作与业务判据规格，W08 真实运行仍待用户安排及远程资源。"
+  ],
+  "next_work_package": "P0 action and business-oracle design closure"
+}

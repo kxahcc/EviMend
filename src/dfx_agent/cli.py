@@ -6,6 +6,8 @@ import os
 import zipfile
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from .analysis import analyze_task
 from .runtime import doctor
 from .task import prepare_task
@@ -51,6 +53,7 @@ def main() -> None:
             from langchain_core.messages import AIMessage
 
             from .agent import run_fixed_agent
+            from .policies import PolicyFeatures
             from .verification import FixedTextExecutor
 
             if os.environ.get("DFX_MANAGED_AGENT") != "offline-v1":
@@ -58,8 +61,11 @@ def main() -> None:
             if args.fixed_script.stat().st_size > 1_048_576:
                 raise ValueError("fixed-response script exceeds 1 MiB")
             script = json.loads(args.fixed_script.read_text(encoding="utf-8"))
-            if script.get("schema_version") != 1 or set(script) != {"schema_version", "responses", "expected"}:
+            required = {"schema_version", "responses", "expected"}
+            if (script.get("schema_version") != 1 or not required <= set(script) or
+                    set(script) - required - {"policy_features"}):
                 raise ValueError("invalid fixed-response script")
+            policy_features = PolicyFeatures.model_validate(script.get("policy_features", {}))
             responses = []
             for index, item in enumerate(script["responses"], start=1):
                 if set(item) != {"tool", "args", "usage"}:
@@ -72,12 +78,12 @@ def main() -> None:
                 raise ValueError("invalid synthetic expectation")
             result = run_fixed_agent(args.task, args.work, args.run_id, responses,
                                      FixedTextExecutor(expected["path"], expected["text"]),
-                                     resume=args.command == "resume")
+                                     resume=args.command == "resume", policy_features=policy_features)
         if args.command in ("doctor", "analyze") and args.output:
             if args.output.exists():
                 raise ValueError("Output already exists; choose a new report path")
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(result, ensure_ascii=True, indent=2))
-    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile) as exc:
+    except (OSError, ValueError, KeyError, TypeError, ValidationError, zipfile.BadZipFile) as exc:
         parser.error(str(exc))
