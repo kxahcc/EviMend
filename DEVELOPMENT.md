@@ -47,6 +47,8 @@ flowchart LR
 
 **大模型负责理解与修改，程序负责执行与判断流程是否完成。** 模型可以提出“应该修好了”，但只有实际验证记录满足协议，控制器才接受补丁。远程机器提供构建和设备执行能力，本地系统收集结果并继续决策。
 
+共同验收协议在看候选结果之前按故障变体和源码版本固定：原版必须在目标操作触发指定故障，候选须完成构建、目标、业务和回归检查。分析源码与最终运行工程分别绑定，缺检查或只有合成结果时只报告未验证。具体字段和拒绝条件在 [模块规格](docs/design-contracts.md#13-补丁验证和尝试)；当前代码只有隔离合成接受门，尚无应用结果。
+
 ## 4. 工作重点与自己的贡献在哪里
 
 | 工作点 | 我们具体要设计/实现什么 | 在项目中的作用 |
@@ -143,7 +145,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
 | `tests/test_offline_evidence.py`、`tests/test_sdk_compat.py` | 原型合成输入与固定响应 SDK 接入自检；最近结果由 STATUS 记录 |
 | `tests/test_contracts.py`、`tests/test_workspace.py` | 领域对象的拒绝条件与候选隔离、登记、回退的合成反例 |
-| `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py` | 固定响应闭环、模拟 HTTP 协议与领域策略分支的合成验收 |
+| `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py` | 固定响应闭环、模拟 HTTP、领域策略及动作/应用接受契约的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
@@ -168,11 +170,12 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `logs.py` | 编码、错误字段与栈帧解析；不推理业务根因 |
 | `sources.py` | 源码路径匹配、歧义和邻近片段；不是 ArkTS 数据流分析器 |
 | `analysis.py` | 汇总栈证据；源码命中不能当作根因预测 |
-| `contracts.py` | 首批 Pydantic 领域记录、可信入口的证据来源标注、引用与行号校验；完整控制器对象仍待补 |
+| `contracts.py` | 首批 Pydantic 领域记录、可信入口的证据来源标注、引用与行号校验，以及独立动作授权契约；尚未逐调用接入 Agent |
 | `workspace.py` | 从已校验分析快照建立独立草稿、原子文本编辑、冻结完整 diff 与候选哈希，并校验恢复归属；不执行应用检查 |
 | `models.py` | 固定响应模型和调用/已知 Token/时间预算；真实提供方适配待实现 |
 | `agent.py` | Deep Agents 离线循环，提供通用读改查、未确认诊断、候选门控、可关闭策略工具和停止报告 |
 | `policies.py` | 四类可迁移规则提示、义务/合成反例引用及按修法区分力选择查证的建议；不执行探针或证明应用效果 |
+| `acceptance.py` | 候选无关的共同协议、原版/候选执行记录及保守接受门；仅合成契约，不产生应用证据 |
 | `verification.py` | 冻结候选专属的离线检查意图、幂等键和合成执行器；无应用成功判定 |
 | `backends.py` | 版本绑定的 HTTP 请求/作业对象、客户端意图与查询/取消/产物校验；真实设备执行尚未接入 |
 | `remote_service.py` | SQLite 持久化的 FastAPI 模拟作业服务和显式测试工作者状态；不运行 SDK 或设备 |

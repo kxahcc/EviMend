@@ -1,7 +1,7 @@
 """Candidate-bound offline checks and crash-reconcilable execution intents.
 
-This module deliberately cannot certify application behavior. W06 will add a
-separate remote execution backend and its own protocol evidence.
+This module deliberately cannot certify application behavior. The separate
+remote simulation and acceptance gate also require real execution evidence.
 """
 
 from __future__ import annotations

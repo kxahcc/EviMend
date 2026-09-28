@@ -158,6 +158,88 @@ class CandidatePatch(Record):
         return self
 
 
+class ActionProposal(Record):
+    """Model-authored intent; validation never implies that an action was executed."""
+
+    action: Literal["inspect_existing", "diagnostic_probe", "edit_draft",
+                    "register_candidate", "run_verification", "finish"]
+    target_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    candidate_id: str | None = None
+    reason: str = Field(min_length=1)
+    required_capability: Literal["read_source", "read_log", "diagnostic_execution",
+                                 "edit_source", "register_candidate", "verify_candidate", "finish"]
+    observation_routes: dict[str, str] = Field(default_factory=dict)
+    unknown_route: Literal["retain_unknown"] | None = None
+    estimated_cost_basis: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def valid_action(self) -> ActionProposal:
+        if any(not IDENTIFIER.fullmatch(value) for value in (*self.target_ids, *self.evidence_ids)):
+            raise ValueError("invalid proposal reference")
+        if self.candidate_id is not None:
+            require_hash(self.candidate_id)
+        required = {
+            "diagnostic_probe": {"diagnostic_execution"},
+            "edit_draft": {"edit_source"},
+            "register_candidate": {"register_candidate"},
+            "run_verification": {"verify_candidate"},
+            "finish": {"finish"},
+            "inspect_existing": {"read_source", "read_log"},
+        }
+        if self.required_capability not in required[self.action]:
+            raise ValueError("action and capability disagree")
+        if self.action in ("run_verification", "finish") and self.candidate_id is None:
+            raise ValueError("action needs a registered candidate")
+        if self.action == "diagnostic_probe":
+            if (len(self.target_ids) < 2 or len(self.observation_routes) < 2 or
+                    len(set(self.observation_routes.values())) < 2 or
+                    any(value not in self.target_ids for value in self.observation_routes.values()) or
+                    self.unknown_route != "retain_unknown"):
+                raise ValueError("probe has no complete distinguishing routes")
+        elif self.observation_routes or self.unknown_route is not None:
+            raise ValueError("only a diagnostic probe may predict observation routes")
+        return self
+
+
+AuthorizationReason = Literal["allowed", "wrong_task_or_version", "unknown_reference", "capability_unavailable",
+                              "candidate_not_registered", "acceptance_not_verified", "budget_exhausted"]
+
+
+class ActionAuthorization(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    proposal_id: str
+    allowed: bool
+    reason: AuthorizationReason
+
+
+def authorize_action(proposal: ActionProposal, *, task_id: str, run_id: str, source_snapshot_sha256: str,
+                     known_evidence_ids: set[str], known_target_ids: set[str],
+                     registered_candidate_ids: set[str], accepted_candidate_ids: set[str],
+                     capabilities: set[str],
+                     remaining_model_calls: int, remaining_probe_budget: int) -> ActionAuthorization:
+    """Host-owned gate for a proposal; the model cannot grant capabilities or budget."""
+    reason: AuthorizationReason
+    if (proposal.task_id != task_id or proposal.run_id != run_id or
+            proposal.source_snapshot_sha256 != source_snapshot_sha256):
+        reason = "wrong_task_or_version"
+    elif (not set(proposal.evidence_ids) <= known_evidence_ids or
+          not set(proposal.target_ids) <= known_target_ids):
+        reason = "unknown_reference"
+    elif proposal.candidate_id is not None and proposal.candidate_id not in registered_candidate_ids:
+        reason = "candidate_not_registered"
+    elif proposal.action == "finish" and proposal.candidate_id not in accepted_candidate_ids:
+        reason = "acceptance_not_verified"
+    elif proposal.required_capability not in capabilities:
+        reason = "capability_unavailable"
+    elif ((proposal.action != "finish" and remaining_model_calls <= 0) or
+          (proposal.action == "diagnostic_probe" and remaining_probe_budget <= 0)):
+        reason = "budget_exhausted"
+    else:
+        reason = "allowed"
+    return ActionAuthorization(proposal_id=proposal.record_id, allowed=reason == "allowed", reason=reason)
+
+
 def require_hash(value: str) -> None:
     if not SHA256.fullmatch(value):
         raise ValueError("expected lowercase SHA-256")

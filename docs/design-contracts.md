@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，离线闭环、模拟远程协议和策略分支部分已实现。最后维护：2026-09-28。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。证据/诊断/义务/候选基础对象、固定响应离线循环、模拟远程协议及 W07 策略分支已有合成实现；完整因果/动作/应用验证对象仍是待实现规格。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
+状态：当前规格草案，动作授权与应用接受门已有隔离合成实现。最后维护：2026-09-28。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。证据/诊断/义务/候选基础对象、固定响应离线循环、模拟远程协议及策略分支已有合成实现；本批新增独立动作/接受契约，但尚未接入真实控制器与应用执行。完整因果链、可信业务判据和真实应用证据仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -44,7 +44,7 @@ RepairObligation 包含 obligation_id、kind（运行条件/业务行为）、st
 
 模型推断的义务只能作为假设，不得仅因某候选违反该推断就机械拒绝它。局部执行只能支持对应输入与路径，不自动证明全局成立。可信语义不足时明确 unknown。
 
-ActionProposal 包含 action、target_ids、reason、required_capabilities、expected_observations、decision_if_observed、estimated_cost_basis。针对探针，target_ids 指向待区分的根因/修法；未知结果分支必须存在。控制器验证引用、权限和预算，不能把模型预期当执行结果。
+`ActionProposal` 是模型意图，不是执行结果。首批对象已绑定 task/run/分析源码版本，保存 action、target_ids、evidence_ids、candidate_id、reason、required_capability、observation_routes、unknown_route 和 estimated_cost_basis。诊断探针至少区分两个修复方向，观测映射须能改变方向，并保留“未命中预测”的 `retain_unknown` 分支。`authorize_action` 只用主机持有的任务版本、已登记引用、候选、能力和剩余预算给出允许/拒绝；模型自报的能力与成本不构成授权。`finish` 还须引用已通过独立接受门的候选。当前这只是独立合成契约，固定响应 Agent 尚未把每次工具调用转换为 ActionProposal；停止请求、资源租约及执行后结果归类仍由后续控制器集成。
 
 反例 Counterexample 保存实际输入或产物引用、执行版本、观察、violated_obligation_ids 及 affected_hypothesis_ids。关联本身也可能是模型推断，必须标记；只反驳观测所覆盖的主张。重试时优先携带有效反例与未知项，不重复携带所有长日志。
 
@@ -58,16 +58,23 @@ W04 的候选工作区从已校验分析快照建立独立草稿；精确文本�
 
 W05 的合成执行器只对冻结候选做固定文本检查；先写入含候选/检查/协议 ID 的意图，重启后用同一幂等键重试或读取已有结果。真实远程工作者尚未接入，模拟 HTTP 服务的幂等性不能代替设备端核验。`offline_checked` 不是 VerificationResult 中的应用 pass，也不能满足最终共同协议；`application_verification` 始终为 `not_run`。模型工具保留哈希校验日志读取、通用源码浏览、精确编辑和候选登记，关闭 SDK 的任意写文件、shell 和委派工具，以免绕过登记门。
 
-VerificationPlan 中每个 Check 包含 check_id、level、required、hypothesis_or_behavior、oracle_origin、input_class、expected_relation、capability、timeout 和 protocol_sha256。
+`AcceptanceProtocol` 是候选无关的共同验收输入：task_id、应用谱系组、故障变体、原始崩溃日志和目标故障签名哈希、原始分析与完整运行源码哈希、环境/初始状态、检查列表和准备者身份。故障签名应由准备者按预先固定的 Error 类型、关键消息和目标业务栈规则从原始日志得到，不能在看到候选结果后换匹配口径。候选提交前固定协议规范化哈希；每个 `ProtocolCheck` 指明 check_id、层次（build/target_replay/behavior/regression）、场景、oracle_origin、依据哈希、可见范围、所需能力、超时、是否必要及预定重复次数。正式必要检查不得使用模型临时推断或构造测试作为唯一 oracle；没有独立依据哈希时不能标成必要验收。
 
-- oracle_origin 区分题目/已核验需求、既有正确行为、独立验收测试、模型临时假设。
-- 模型临时自测可帮助筛选；它本身不能成为“符合业务预期”的唯一证明。
-- 验收协议在观察候选成绩前固定；候选专属诊断探针不能替代共同验收协议。
-- 故障构造测试、要求错误代码形态的断言，先归为构造材料，不能原样充当修复验收。
+`CandidateRuntimeBinding` 把 W04 冻结候选的父分析快照、候选分析快照和完整 diff 重新计算到 candidate_id，再由可信打包器关联共享业务源码清单、打包清单和完整运行源码哈希。仅有两个哈希字符串并不证明分析源码与设备产物一致；真实打包器还须实查文件清单、实际产物及签名。当前只有对象和入口校验，没有真实打包证明。
 
-VerificationResult 必须关联 check_id、candidate_id、execution_id、实际源码/产物哈希、protocol_sha256、environment_id、status、failure_kind、artifact_refs、duration_ms。只有相同版本和协议的结果才可汇总。result 缺失、执行中断或材料不全归为 inconclusive 或 blocked，不补写 pass。
+`VerificationVerdict` 由执行适配器登记，包含 check_id、协议哈希、original/candidate 角色、运行源码哈希、候选 ID、环境/初始状态、重复序号、status、failure_kind、场景是否到达、执行 ID、产物哈希、耗时和 `scope`。`admit_verdict` 不接受模型作为执行证据来源。模型临时自测和候选专属诊断探针可帮助筛选，但不得替代共同验收；故障构造测试中要求错误表达式存在的断言只属构造材料。
 
-W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈希、补丁哈希、环境、共同协议、初始状态、执行层、重复序号和超时。`run_id + 请求规范摘要` 生成幂等键；重复序号改变表示一次新的逻辑回放。客户端提交前保存意图，响应丢失时只能以同一键对账；服务端 SQLite 对该键设唯一约束，查询不能新建作业。`cancel_requested` 不是 `canceled`，服务重启后无法确认仍在运行的模拟作业标记 `inconclusive`。产物引用绑定 job、内容哈希与大小，服务和客户端分别校验。模拟结果显式 `scope=synthetic`、`application_verification=not_run`，不能转为正式应用 pass。当前协议仅由本地模拟服务测试，真实执行进程、设备状态确认与应用级 VerificationResult 仍待接入。
+`evaluate_acceptance` 当前只做隔离的保守接受判定：必要的四类检查都存在；原始版本在目标场景实际触达，观察到与冻结签名匹配的目标故障，原始版本的构建/正常行为/回归场景通过；同一协议下候选版本的构建、目标回放、业务和回归全部通过；每个预定重复都有 `scope=application` 的执行证据，task、运行源码、候选、环境、初始状态和协议哈希一致。缺项、重复记录、版本错配、场景未到达、故障签名不符、模拟结果、阻塞或不确定结果均返回 `not_verified` 及原因，不补写 pass。这一 gate 只校验可信适配器送来的记录，不能通过合成记录证明设备行为。案例尚无独立业务 oracle 时，协议不满足四层覆盖，不能宣称完整应用修复。
+
+### 1.3.1 案例接纳与协议冻结
+
+案例身份不能只用编号或应用目录名。准备者须明确任务 ID、应用谱系组、故障变体、选定日志原字节哈希、分析源码快照、完整运行源码快照、目标操作入口与环境。先只读核对日志与源码/运行版本，再建立候选无关的共同协议；同一谱系的变体作为相关样本划分。目录、报告或 README 的“完整”说法只产生候选，不自动取得可评测资格；已知歧义与缺失见 [数据核查](preparation/data-b-assessment-2026-09-15.md)。
+
+准备流程依次是：分析输入可核对、原始完整工程可打包并绑定、目标动作能触发指定故障、正常/边界/回归行为有独立依据。缺少后两项可以继续离线诊断，但不进入正式应用成功分母的“可执行接受”状态；若评测任务清单已冻结，未就绪任务仍作为 blocked 披露，不因某组失败而临时剔除。正式协议和重复次数在观察候选成绩前冻结，所有比较组共用其哈希。模型提出的候选专属检查另记为诊断探针，不能改写共同协议。
+
+oracle 的实际内容与 hash 由独立准备者管理：已核验需求/接口规则、原版正常行为或独立测试可提供依据；故障构造断言、参考补丁和注入答案只属于评测/分析侧，不能混入求解器输入。`visibility=evaluator_only` 的测试细节不发给 Agent；可公开的场景操作仍由统一适配器提供。测试未覆盖的业务语义标 unknown，不让“没有新崩溃”代替功能正确。
+
+W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈希、补丁哈希、环境、共同协议、初始状态、执行层、重复序号和超时。`run_id + 请求规范摘要` 生成幂等键；重复序号改变表示一次新的逻辑回放。客户端提交前保存意图，响应丢失时只能以同一键对账；服务端 SQLite 对该键设唯一约束，查询不能新建作业。`cancel_requested` 不是 `canceled`，服务重启后无法确认仍在运行的模拟作业标记 `inconclusive`。产物引用绑定 job、内容哈希与大小，服务和客户端分别校验。模拟结果显式 `scope=synthetic`、`application_verification=not_run`，不能转为正式应用 pass。当前 W06 请求尚无 check_id 与场景绑定，真实适配时须在兼容性版本中补齐，逐项产生上述 Verdict；不能按执行层次猜测属于哪个检查。真实执行进程、设备状态确认与应用级结果仍待接入。
 
 Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和本次成本。FinalReport 保存第一次提交验证前的根因预测与最终预测，不能用成功补丁落点覆盖初始定位成绩。
 
