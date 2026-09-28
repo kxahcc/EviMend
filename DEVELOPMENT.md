@@ -78,13 +78,13 @@ Skills 是上述知识和动作的组织方式，例如“容量与元素数怎�
 | 状态与轨迹 | SQLite 检查点、JSONL 事件导出、文件产物 | 本地即可运行和检查，不先部署数据库服务 |
 | 环境管理 | uv + pyproject.toml + uv.lock | 项目内隔离依赖并锁定版本；固定响应 SDK 切片已做合成验证 |
 | 代码工具 | Python、ripgrep、Git CLI | 按需读源码、生成/检查补丁、维护候选目录 |
-| 远程执行 | HTTPX 客户端，FastAPI/Uvicorn 服务及独立作业进程 | 本地 Agent 不必安装设备 SDK，远程执行可查询和恢复 |
+| 远程执行 | HTTPX 客户端，FastAPI/Uvicorn 服务及独立作业进程 | 模拟客户端/服务协议已自检；真实远程执行进程仍待接入 |
 | 应用验证 | 项目匹配的 DevEco/SDK、Hvigor、ohpm、hdc、Hypium | 复用已有构建与场景测试资源，补业务验收 |
 | 开发检查 | pytest、Ruff、Pyright | 合成测试、接口检查、格式和类型检查 |
 
 Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增量仍在修复义务与检查选择。首版不叠加多 Agent 框架、云端追踪平台或消息队列；mini-swe-agent 保留为外部工程参照。我们仍须实现领域工具、候选登记、幂等作业和业务验证，框架不会自动解决这些问题。
 
-这一底座已完成依赖锁、首批领域对象和固定响应离线修复循环；正式模型、可构建工程与远程应用验证尚待实现，进度看 STATUS。
+这一底座已完成依赖锁、首批领域对象、固定响应离线修复循环及模拟 HTTP 作业协议；正式模型、可构建工程与远程应用验证尚待实现，进度看 STATUS。
 
 ### 本机资源怎样集中管理
 
@@ -132,7 +132,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | 位置 | 用途 |
 |---|---|
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
-| `src/dfx_agent/` | Python 离线证据原型、候选工作区和固定响应修复闭环；模块职责见下表 |
+| `src/dfx_agent/` | Python 离线证据原型、候选工作区、固定响应修复闭环及模拟远程协议；模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 repair / resume 入口 |
 | `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init 与受限合成/测试/质量/离线 Agent 任务入口；真实模型/应用任务尚未接入 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
@@ -143,7 +143,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
 | `tests/test_offline_evidence.py`、`tests/test_sdk_compat.py` | 原型合成输入与固定响应 SDK 接入自检；最近结果由 STATUS 记录 |
 | `tests/test_contracts.py`、`tests/test_workspace.py` | 领域对象的拒绝条件与候选隔离、登记、回退的合成反例 |
-| `tests/test_agent_loop.py` | 固定响应闭环、失败修订、停止与恢复的合成验收 |
+| `tests/test_agent_loop.py`、`tests/test_remote_contract.py` | 固定响应闭环与模拟 HTTP 作业幂等、恢复、取消、产物校验的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
@@ -173,6 +173,8 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `models.py` | 固定响应模型和调用/已知 Token/时间预算；真实提供方适配待实现 |
 | `agent.py` | Deep Agents 离线循环，提供哈希校验日志与通用源码工具、未确认诊断、候选门控和停止报告 |
 | `verification.py` | 冻结候选专属的离线检查意图、幂等键和合成执行器；无应用成功判定 |
+| `backends.py` | 版本绑定的 HTTP 请求/作业对象、客户端意图与查询/取消/产物校验；真实设备执行尚未接入 |
+| `remote_service.py` | SQLite 持久化的 FastAPI 模拟作业服务和显式测试工作者状态；不运行 SDK 或设备 |
 | `runtime.py` | 当前仅观察 PATH/模块/环境变量存在性；不启动 SDK/设备 |
 | `cli.py` | 参数与命令分发；repair / resume 只允许受管固定响应离线演示 |
 | `__init__.py` | Python 包入口 |

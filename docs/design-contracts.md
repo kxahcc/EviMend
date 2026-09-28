@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，离线闭环部分已实现。最后维护：2026-09-28。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。证据/诊断/义务/候选基础对象与固定响应离线循环已实现，完整因果/动作/应用验证对象仍是待实现规格；文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
+状态：当前规格草案，离线闭环与模拟远程协议部分已实现。最后维护：2026-09-28。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。证据/诊断/义务/候选基础对象、固定响应离线循环及模拟远程协议已实现；完整因果/动作/应用验证对象仍是待实现规格。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -66,6 +66,8 @@ VerificationPlan 中每个 Check 包含 check_id、level、required、hypothesis
 - 故障构造测试、要求错误代码形态的断言，先归为构造材料，不能原样充当修复验收。
 
 VerificationResult 必须关联 check_id、candidate_id、execution_id、实际源码/产物哈希、protocol_sha256、environment_id、status、failure_kind、artifact_refs、duration_ms。只有相同版本和协议的结果才可汇总。result 缺失、执行中断或材料不全归为 inconclusive 或 blocked，不补写 pass。
+
+W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈希、补丁哈希、环境、共同协议、初始状态、执行层、重复序号和超时。`run_id + 请求规范摘要` 生成幂等键；重复序号改变表示一次新的逻辑回放。客户端提交前保存意图，响应丢失时只能以同一键对账；服务端 SQLite 对该键设唯一约束，查询不能新建作业。`cancel_requested` 不是 `canceled`，服务重启后无法确认仍在运行的模拟作业标记 `inconclusive`。产物引用绑定 job、内容哈希与大小，服务和客户端分别校验。模拟结果显式 `scope=synthetic`、`application_verification=not_run`，不能转为正式应用 pass。当前协议仅由本地模拟服务测试，真实执行进程、设备状态确认与应用级 VerificationResult 仍待接入。
 
 Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和本次成本。FinalReport 保存第一次提交验证前的根因预测与最终预测，不能用成功补丁落点覆盖初始定位成绩。
 
