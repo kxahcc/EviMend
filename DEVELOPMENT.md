@@ -86,7 +86,7 @@ Skills 是上述知识和动作的组织方式，例如“容量与元素数怎�
 
 Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增量仍在修复义务与检查选择。首版不叠加多 Agent 框架、云端追踪平台或消息队列；mini-swe-agent 保留为外部工程参照。我们仍须实现领域工具、候选登记、幂等作业和业务验证，框架不会自动解决这些问题。
 
-这一底座已完成依赖锁、首批领域对象、固定响应离线修复循环、模拟 HTTP 作业协议及可关闭的领域策略分支；正式模型、可构建工程与远程应用验证尚待实现，进度看 STATUS。
+这一底座已完成依赖锁、首批领域对象、固定响应离线修复循环、模拟 HTTP 作业协议、可关闭的领域策略分支及独立的模型调用账本；账本尚未接入 SDK 的真实模型调用。正式模型、可构建工程与远程应用验证尚待实现，进度看 STATUS。
 
 ### 本机资源怎样集中管理
 
@@ -145,7 +145,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
 | `tests/test_offline_evidence.py`、`tests/test_case_identity.py`、`tests/test_sdk_compat.py` | 原型合成输入、显式案例身份与固定响应 SDK 接入自检；最近结果由 STATUS 记录 |
 | `tests/test_contracts.py`、`tests/test_workspace.py` | 领域对象的拒绝条件与候选隔离、登记、回退的合成反例 |
-| `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py` | 固定响应闭环、模拟 HTTP、领域策略及动作/应用接受契约的合成验收 |
+| `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py` | 固定响应闭环、模拟 HTTP、领域策略、动作/应用接受及模型调用恢复契约的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
@@ -173,6 +173,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `contracts.py` | 首批 Pydantic 领域记录、可信入口的证据来源标注、引用与行号校验，以及独立动作授权契约；尚未逐调用接入 Agent |
 | `workspace.py` | 从已校验分析快照建立独立草稿、原子文本编辑、冻结完整 diff 与候选哈希，并校验恢复归属；不执行应用检查 |
 | `models.py` | 固定响应模型和调用/已知 Token/时间预算；真实提供方适配待实现 |
+| `model_calls.py` | 独立的持久模型请求账本、响应回放、格式/usage 分类及崩溃窗口拒绝重发；尚未包装 SDK 调用 |
 | `agent.py` | Deep Agents 离线循环，提供通用读改查、未确认诊断、候选门控、可关闭策略工具和停止报告 |
 | `policies.py` | 四类可迁移规则提示、义务/合成反例引用及按修法区分力选择查证的建议；不执行探针或证明应用效果 |
 | `acceptance.py` | 候选无关的共同协议、原版/候选执行记录及保守接受门；仅合成契约，不产生应用证据 |
