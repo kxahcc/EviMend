@@ -1,0 +1,29 @@
+{
+  "session_id": "session-2026-09-29-P0-fixed-model-ledger",
+  "date": "2026-09-29",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "P0 fixed-response SDK model-call ledger integration",
+  "user_request_summary": "继续推进 P0 合成实现，不启动真实模型或应用实验。",
+  "changes": [
+    "固定响应模型从实际传入的消息、绑定工具定义和参数形成请求指纹，每次 Deep Agents 模型调用在项目受管 SQLite 账本登记、计数并保存完成响应。",
+    "恢复时先与 Graph 检查点对账：响应已经保存但 Graph 尚未记录时回放；已发出而结果未保存时停止为 model_result_unknown，不以同一调用 ID 重发。",
+    "离线报告增加 uncertain_model_calls，调用和已知 Token 总数从账本恢复；动作逐工具调用授权与真实提供方仍待接入。"
+  ],
+  "validation": {
+    "agent_loop_synthetic_tests": "12 passed; .dfx-local/artifacts/571b7b55-7150-4cce-99ba-c08fb74344e1.log",
+    "policy_regression": "10 passed; .dfx-local/artifacts/41801c5d-4537-4736-9a83-4eb182661093.log",
+    "managed_offline_smoke": "repair and resume exited zero; .dfx-local/artifacts/b0d8588e-d9c4-4207-ab90-1c5425c6b9c1.log and 1de8e6b5-8cdd-4223-881d-1531dc69ce5b.log",
+    "ruff": "passed; .dfx-local/artifacts/e4757be6-2ccc-4546-9157-2d01a13c5adb.log",
+    "pyright": "0 errors; .dfx-local/artifacts/b9f7966b-b4bb-4449-ade7-a0a04400c9eb.log",
+    "docs": "14 documents, 0 errors; .dfx-local/artifacts/cf794691-f5e6-4f0a-88e6-367518b05cda.log",
+    "real_model_repair_runs": 0,
+    "application_replays": 0
+  },
+  "limitations": [
+    "固定响应模型只用于合成测试；真实提供方、内部重试、Token 硬限额和真实成本尚未验证。",
+    "账本已经守住模型调用边界，但工具调用尚未统一使用 ActionProposal/authorize_action。",
+    "当提供方结果可能存在但本地缺响应时保留 unknown，不能保证 exactly-once。"
+  ],
+  "next_work_package": "P0 synthetic host authorization at every SDK tool invocation"
+}

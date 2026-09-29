@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 from langchain_core.messages import AIMessage
 
+from dfx_agent import models
 from dfx_agent.agent import run_fixed_agent
+from dfx_agent.model_calls import ModelCallStore
+from dfx_agent.model_calls import invoke_accounted as real_invoke
 from dfx_agent.task import PROFILE, digest, snapshot_digest
 from dfx_agent.verification import CheckLedger, FixedTextExecutor
 from dfx_agent.workspace import CandidateWorkspace, TextEdit
@@ -69,6 +72,9 @@ def test_direct_candidate_is_only_offline_checked(tmp_path: Path) -> None:
     assert not {"execute", "write_file", "edit_file", "task"} & set(report["offered_tools"])
     assert len(executor.calls) == 1
     assert json.loads((tmp_path / "run/diagnoses/diagnosis-1.json").read_text())["diagnosis"]["hypotheses"][0]["support_status"] == "unknown"
+    summary = ModelCallStore(tmp_path / "run/model-calls.sqlite").usage_summary("task1", "run1")
+    assert summary["reserved_calls"] == summary["completed_calls"] == 6
+    assert summary["known_total_tokens"] == 90
 
 
 def test_failed_first_candidate_revised_from_base(tmp_path: Path) -> None:
@@ -181,3 +187,60 @@ def test_pending_check_reconciles_with_same_key(tmp_path: Path) -> None:
     assert CheckLedger(reopened, executor).run(candidate.candidate_id) == result
     assert executor.calls == [key]
     assert executor.requests == [key, key]
+
+
+def test_completed_model_response_replays_after_graph_checkpoint_crash(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    task = task_snapshot(tmp_path)
+    work = tmp_path / "run"
+    executor = FixedTextExecutor("src/main.ets", "value=good\n")
+    original = models.invoke_accounted
+
+    class SyntheticCrash(RuntimeError):
+        pass
+
+    def crash_after_completion(*args, **kwargs):
+        original(*args, **kwargs)
+        raise SyntheticCrash("after durable response")
+
+    monkeypatch.setattr(models, "invoke_accounted", crash_after_completion)
+    with pytest.raises(SyntheticCrash, match="after durable response"):
+        run_fixed_agent(task, work, "run1", [response(1)], executor)
+    assert ModelCallStore(work / "model-calls.sqlite").usage_summary("task1", "run1")["completed_calls"] == 1
+    replayed = 0
+
+    def observe_replay(*args, **kwargs):
+        nonlocal replayed
+        replayed += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(models, "invoke_accounted", observe_replay)
+    report = run_fixed_agent(task, work, "run1", [response(1)], executor, resume=True)
+    assert replayed == 1
+    assert report["model_calls"] == 1 and report["model_calls_this_turn"] == 0
+    assert report["known_tokens"] == 15 and report["known_tokens_this_turn"] == 0
+    assert report["uncertain_model_calls"] == 0
+
+
+def test_dispatched_model_call_stops_resume_without_resend(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    task = task_snapshot(tmp_path)
+    work = tmp_path / "run"
+    executor = FixedTextExecutor("src/main.ets", "value=good\n")
+
+    class SyntheticCrash(RuntimeError):
+        pass
+
+    def crash_after_dispatch(store, intent, provider, *, max_calls):
+        store.reserve(intent, max_calls=max_calls)
+        store.dispatch(intent.call_id)
+        raise SyntheticCrash("after dispatch")
+
+    monkeypatch.setattr(models, "invoke_accounted", crash_after_dispatch)
+    with pytest.raises(SyntheticCrash, match="after dispatch"):
+        run_fixed_agent(task, work, "run1", [response(1)], executor)
+    monkeypatch.setattr(models, "invoke_accounted", real_invoke)
+    report = run_fixed_agent(task, work, "run1", [response(1)], executor, resume=True)
+    assert report["status"] == "unresolved" and report["stopped_reason"] == "model_result_unknown"
+    assert report["model_calls"] == 1 and report["uncertain_model_calls"] == 1
+    assert report["model_calls_this_turn"] == 0
