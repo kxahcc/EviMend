@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
 状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-09-30。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。证据/诊断/义务/候选、动作授权和应用接受门已有独立合成实现；模型调用账本已接入固定响应离线循环，模拟 HTTP 协议及策略分支也已有合成实现。完整因果链、动作授权逐调用接入、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。证据/诊断/义务/候选和应用接受门已有独立合成实现；模型账本、逐工具调用授权与动作结果账本已接入固定响应离线循环，模拟 HTTP 协议及策略分支也已有合成实现。完整因果链、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -44,7 +44,11 @@ RepairObligation 包含 obligation_id、kind（运行条件/业务行为）、st
 
 模型推断的义务只能作为假设，不得仅因某候选违反该推断就机械拒绝它。局部执行只能支持对应输入与路径，不自动证明全局成立。可信语义不足时明确 unknown。
 
-`ActionProposal` 是模型意图，不是执行结果。首批对象已绑定 task/run/分析源码版本，保存 action、target_ids、evidence_ids、candidate_id、reason、required_capability、observation_routes、unknown_route 和 estimated_cost_basis。诊断探针至少区分两个修复方向，观测映射须能改变方向，并保留“未命中预测”的 `retain_unknown` 分支。`authorize_action` 只用主机持有的任务版本、已登记引用、候选、能力和剩余预算给出允许/拒绝；模型自报的能力与成本不构成授权。`finish` 还须引用已通过独立接受门的候选。当前这只是独立合成契约，固定响应 Agent 尚未把每次工具调用转换为 ActionProposal；停止请求、资源租约及执行后结果归类仍由后续控制器集成。
+`ActionProposal` 是模型意图，不是执行结果。对象绑定 task/run/分析源码版本，保存 action、target_ids、evidence_ids、candidate_id、reason、required_capability、observation_routes、unknown_route 和 estimated_cost_basis。`record_analysis` 单独表示写入诊断、义务或反馈记录，不冒充观察或源码编辑。诊断探针至少区分两个修复方向，观测映射须能改变方向，并保留“未命中预测”的 `retain_unknown` 分支。`authorize_action` 只用主机持有的任务版本、已登记引用、候选、能力和剩余预算给出允许/拒绝；模型自报的能力与成本不构成授权。`finish` 还须引用已通过独立接受门的候选。
+
+固定响应 SDK 的同步工具调用已通过 `ToolAuthorizationMiddleware`：主机把工具名与参数映射成动作，校验参数、版本、已登记引用、候选和实际能力；可选 `proposal_json` 只能补充模型的理由与引用，不能改变工具对应的动作/能力或候选，工具实际引用也不能被省略。主机根据已记账的模型响应生成稳定 action_id；模型响应内的 call ID 元数据由适配器覆盖，不接受模型自授身份。已付费且保存的当前响应可在没有下一次模型调用额度时完成合法工具动作，但仍受独立工具调用预算、候选预算和截止时间限制。实际探针、停止请求、资源租约及应用结果归类仍待真实控制器集成。
+
+`ToolActionStore` 在工具产生效果前记录授权与 `dispatched`，工具返回后保存完整 `ToolMessage` 及哈希再交给 Graph。`completed` 仅表示工具结果已保存，授权通过也不表示工具执行成功。相同模型调用与工具调用身份、相同参数的完成结果恢复时只回放；身份对应的参数改变则拒绝。已派发但无结果记录时保留未知，停止为 `action_result_unknown`，不盲目再次编辑。拒绝本身只有工具错误消息，不生成源码修改、候选或检查事实。原始工具结果只留受管 SQLite，报告只列授权、状态和结果哈希；这不是应用成功证据。
 
 反例 Counterexample 保存实际输入或产物引用、执行版本、观察、violated_obligation_ids 及 affected_hypothesis_ids。关联本身也可能是模型推断，必须标记；只反驳观测所覆盖的主张。重试时优先携带有效反例与未知项，不重复携带所有长日志。
 
@@ -54,7 +58,7 @@ RepairObligation 包含 obligation_id、kind（运行条件/业务行为）、st
 
 `ModelCallStore` 用项目受管目录内的 SQLite 保存 `reserved → dispatched → completed` 或 `dispatched → unknown`。先持久化意图，紧邻外部调用前标记 dispatched；重启后已完成的同一请求回放已保存的 `AIMessage`，不再发请求。已发出但无完整本地响应时，同一 call ID 禁止重发，结果与费用维持 unknown；确需另试须显式建新 call ID 并另占次数。标记 dispatched 与网络实际送达之间的崩溃窗口也保守算 unknown。提供方通常不保证以 call ID 查询或幂等，不能承诺 exactly-once。异常捕获后的原因只记录类别，不把异常文本中的凭据写进账本。
 
-收到响应后保存规范化消息及哈希、提供方消息 ID（如可得）、工具调用名称/ID/参数摘要、格式问题与 `usage_metadata` 的真实 input/output/total。原始消息仅保留在本机受管状态用于检查点落盘前恢复，不进入 Git 或默认汇总导出。格式错误也算已完成的一次调用，不能丢掉它的 usage；缺失或无效 usage 单独标记 `missing`/`invalid`，统计只有已知 Token 和未知调用数，不从文本长度补估。`text_only`、模型自称成功、工具参数或模型推断都不产生执行证据；后续控制器仍须校验动作对象、主机授权及应用接受门。固定响应 Deep Agents 模型入口已通过账本；Graph 检查点之前的完成响应可回放，已发出且未保存的响应停止为 unknown。真实 LangChain 提供方、其底层重试的逐次计费、实际 Token 硬限额和动作逐调用授权仍待完成。
+收到响应后保存规范化消息及哈希、提供方消息 ID（如可得）、工具调用名称/ID/参数摘要、格式问题与 `usage_metadata` 的真实 input/output/total。原始消息仅保留在本机受管状态用于检查点落盘前恢复，不进入 Git 或默认汇总导出。格式错误也算已完成的一次调用，不能丢掉它的 usage；缺失或无效 usage 单独标记 `missing`/`invalid`，统计只有已知 Token 和未知调用数，不从文本长度补估。`text_only`、模型自称成功、工具参数或模型推断都不产生执行证据。固定响应 Deep Agents 模型入口已通过账本并把主机调用身份绑定到工具授权；Graph 检查点之前的完成响应可回放，已发出且未保存的响应停止为 unknown。真实 LangChain 提供方、其底层重试的逐次计费、实际 Token 硬限额和应用接受门接入仍待完成。
 
 ### 1.3 补丁、验证和尝试
 

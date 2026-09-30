@@ -89,8 +89,12 @@ class FixedResponseModel(BaseChatModel):
         if (existing is None or existing.state == "reserved") and self.turn_calls >= len(self.responses):
             raise ModelLimit("fixed_responses_exhausted")
         try:
-            message, _ = invoke_accounted(self.call_store, intent,
-                                          lambda: self.responses[self.turn_calls], max_calls=self.max_calls)
+            def provide() -> AIMessage:
+                response = self.responses[self.turn_calls].model_copy(deep=True)
+                response.response_metadata = {**response.response_metadata, "dfx_model_call_id": intent.call_id}
+                return response
+
+            message, _ = invoke_accounted(self.call_store, intent, provide, max_calls=self.max_calls)
         except ModelCallBudget as exc:
             raise ModelLimit("model_budget") from exc
         finally:

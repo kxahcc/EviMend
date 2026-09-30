@@ -1,0 +1,32 @@
+{
+  "session_id": "session-2026-09-30-tool-authorization",
+  "date": "2026-09-30",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "P0 fixed-response SDK tool authorization and durable receipts",
+  "user_request_summary": "继续推进已授权的离线原型，使用本机受管入口；不启动真实模型或 HarmonyOS 应用实验。",
+  "changes": [
+    "新增同步 SDK 工具授权中间件：11 个项目工具执行前检查参数、动作与能力、任务和源码版本、引用、候选及预算；关闭未纳入项目授权的默认 delete/write_todos 工具。",
+    "固定响应适配器覆盖模型返回的调用身份元数据，动作绑定已持久记账的模型响应；相同响应内多个工具串行共享预算。",
+    "SQLite 工具账本先登记授权再产生效果，工具结果保存后再交给 Graph；检查点中断时回放已保存结果，不重复编辑；缺结果时保留未知并停止。",
+    "session/report 升级为 schema 2，恢复冻结能力、工具预算和已有会话预算；旧 schema 1 会话保留证据但不由新控制器续跑。",
+    "维护已有开发导览、设计、规格、实施计划、模块说明和 STATUS，下一包转为因果诊断与修复义务的结构化交接；未改竞赛提交模板。"
+  ],
+  "validation": {
+    "tool_authorization_synthetic": "15 passed; .dfx-local/artifacts/162f9246-085c-4f8d-bf55-eb747eec1f72.log",
+    "agent_loop_regression": "12 passed; .dfx-local/artifacts/c1921da5-cb6f-4495-9d10-b1e935d62cb3.log",
+    "policy_regression": "10 passed; .dfx-local/artifacts/dc68c115-d928-4716-89d3-d9d5bea967d8.log",
+    "action_acceptance_contracts": "13 passed; .dfx-local/artifacts/e4e38a39-3446-45a1-bdc8-119f3e17dad4.log",
+    "ruff": "passed; .dfx-local/artifacts/d1d16cfc-8dd1-493c-8001-d62bbbe626c6.log",
+    "pyright": "0 errors; .dfx-local/artifacts/d9ccbe2d-8f9e-4aec-b443-5182404e7b80.log",
+    "docs": "14 documents, 0 errors; .dfx-local/artifacts/25206511-4768-4b82-8663-83598a5a7a6f.log",
+    "real_model_repair_runs": 0,
+    "application_replays": 0
+  },
+  "limitations": [
+    "仅覆盖同步固定响应 SDK 循环；真实模型提供方、底层重试与 Token 硬限额、设备动作及异步入口仍待接入。",
+    "授权 allowed 表示可派发，账本 completed 表示结果已保存；两者均不证明工具执行成功，更不证明根因定位或应用修复成功。",
+    "已派发而缺结果的崩溃窗口保守视为未知，不承诺 exactly-once；完整因果记录、业务判据及真实接受门仍待集成。"
+  ],
+  "next_work_package": "P0 structured causal diagnosis and repair-obligation exchange"
+}

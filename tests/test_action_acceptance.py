@@ -169,6 +169,8 @@ def test_action_proposal_requires_distinguishing_routes_and_host_permission() ->
     assert authorize(proposal()).allowed
     assert authorize(proposal(), capabilities=set()).reason == "capability_unavailable"
     assert authorize(proposal(), remaining_probe_budget=0).reason == "budget_exhausted"
+    assert authorize(proposal(), remaining_model_calls=0).reason == "budget_exhausted"
+    assert authorize(proposal(), remaining_model_calls=0, model_response_reserved=True).allowed
     assert authorize(proposal(), source_snapshot_sha256=sha("old-source")).reason == "wrong_task_or_version"
     assert authorize(proposal(), run_id="other_run").reason == "wrong_task_or_version"
     assert authorize(proposal(), known_evidence_ids=set()).reason == "unknown_reference"

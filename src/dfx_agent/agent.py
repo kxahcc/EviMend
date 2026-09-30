@@ -21,6 +21,12 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 
+from .actions import (
+    OFFLINE_CAPABILITIES,
+    ToolActionStore,
+    ToolActionUncertain,
+    ToolAuthorizationMiddleware,
+)
 from .contracts import (
     IDENTIFIER,
     Diagnosis,
@@ -89,7 +95,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
            task_directory: Path, crash_log: str, crash_sha256: str,
            policy_features: PolicyFeatures) -> list[Any]:
     @tool
-    def read_log(start_line: int = 1, end_line: int = 100) -> str:
+    def read_log(start_line: int = 1, end_line: int = 100, proposal_json: str | None = None) -> str:
         """Read a bounded line range from the hash-checked input crash log."""
         try:
             if start_line < 1 or end_line < start_line or end_line - start_line > 199:
@@ -107,12 +113,13 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def list_source() -> str:
+    def list_source(proposal_json: str | None = None) -> str:
         """List source files in the task snapshot (not the original dataset)."""
         return json.dumps(sorted(p.relative_to(workspace.base).as_posix() for p in workspace.base.rglob("*") if p.is_file()))
 
     @tool
-    def read_source(path: str, start_line: int = 1, end_line: int = 100, draft: bool = False) -> str:
+    def read_source(path: str, start_line: int = 1, end_line: int = 100, draft: bool = False,
+                    proposal_json: str | None = None) -> str:
         """Read a bounded line range from the fixed source or current draft."""
         try:
             if start_line < 1 or end_line < start_line or end_line - start_line > 199:
@@ -125,7 +132,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def record_diagnosis(path: str, line: int, reason: str) -> str:
+    def record_diagnosis(path: str, line: int, reason: str, proposal_json: str | None = None) -> str:
         """Record a model hypothesis about one source line; it remains unconfirmed."""
         try:
             lines = _safe_file(workspace.base, path).read_text(encoding="utf-8").splitlines()
@@ -161,7 +168,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def edit_source(path: str, old: str, new: str) -> str:
+    def edit_source(path: str, old: str, new: str, proposal_json: str | None = None) -> str:
         """Apply one exact text replacement to the independent draft."""
         try:
             if not workspace.draft.exists():
@@ -172,7 +179,8 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def record_obligation(obligation_id: str, statement: str, evidence_ids: list[str]) -> str:
+    def record_obligation(obligation_id: str, statement: str, evidence_ids: list[str],
+                          proposal_json: str | None = None) -> str:
         """Record a model-inferred repair obligation tied to registered evidence."""
         try:
             if not policy_features.obligation_tracking:
@@ -211,7 +219,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
 
     @tool
     def register_candidate(diagnosis_id: str = "", restores: list[str] | None = None,
-                           preserves: list[str] | None = None) -> str:
+                           preserves: list[str] | None = None, proposal_json: str | None = None) -> str:
         """Freeze a complete draft diff and return its immutable candidate ID."""
         try:
             candidates = _current_candidates(workspace)
@@ -237,7 +245,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def run_check(candidate_id: str) -> str:
+    def run_check(candidate_id: str, proposal_json: str | None = None) -> str:
         """Run a synthetic offline check only for a registered frozen candidate."""
         try:
             result = ledger.run(candidate_id)
@@ -246,7 +254,8 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def link_failed_check(candidate_id: str, violated_obligation_ids: list[str]) -> str:
+    def link_failed_check(candidate_id: str, violated_obligation_ids: list[str],
+                          proposal_json: str | None = None) -> str:
         """Link an actual failed synthetic check to model-inferred obligations."""
         try:
             if not policy_features.obligation_tracking:
@@ -281,13 +290,13 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def consult_rule(family: str) -> str:
+    def consult_rule(family: str, proposal_json: str | None = None) -> str:
         """Read optional generic fault-family guidance; unknown families stay generic."""
         card = rule_guidance(family, policy_features)
         return card.model_dump_json() if card is not None else json.dumps({"family": family, "guidance": "generic"})
 
     @tool
-    def plan_repair_action(plan_json: str) -> str:
+    def plan_repair_action(plan_json: str, proposal_json: str | None = None) -> str:
         """Get version-bound advice on direct repair versus a distinguishing check."""
         try:
             plan = PolicyInput.model_validate_json(plan_json)
@@ -308,11 +317,15 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
 def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     executor: OfflineExecutor, *, resume: bool = False, max_calls: int = 20,
                     max_known_tokens: int = 4000, max_seconds: float = 60,
-                    max_candidates: int = 3,
+                    max_candidates: int = 3, max_tool_calls: int = 60,
+                    capabilities: frozenset[str] | None = None,
                     policy_features: PolicyFeatures | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
-    if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1:
+    if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
         raise ValueError("budgets must be positive")
+    capabilities = OFFLINE_CAPABILITIES if capabilities is None else capabilities
+    if not capabilities <= OFFLINE_CAPABILITIES:
+        raise ValueError("unsupported offline capability")
     policy_features = policy_features or PolicyFeatures()
     task_info = verify_task(task)
     workspace = (CandidateWorkspace.reopen(task, work, run_id) if resume
@@ -321,9 +334,10 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
     session_path = workspace.root / "session.json"
     if resume:
         session = json.loads(session_path.read_text(encoding="utf-8"))
-        if session != {"schema_version": 1, "run_id": run_id, "started_at": session.get("started_at"),
+        if session != {"schema_version": 2, "run_id": run_id, "started_at": session.get("started_at"),
                        "max_calls": max_calls, "max_known_tokens": max_known_tokens,
                        "max_seconds": max_seconds, "max_candidates": max_candidates,
+                       "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
                        "protocol_sha256": executor.protocol_sha256,
                        "policy_features": policy_features.model_dump()}:
             raise ValueError("resume budget or session identity differs")
@@ -332,23 +346,27 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
             raise ValueError("session start time has no timezone")
     else:
         started_at = datetime.now(UTC)
-        _atomic_json(session_path, {"schema_version": 1, "run_id": run_id,
+        _atomic_json(session_path, {"schema_version": 2, "run_id": run_id,
                                     "started_at": started_at.isoformat(), "max_calls": max_calls,
                                     "max_known_tokens": max_known_tokens, "max_seconds": max_seconds,
                                     "max_candidates": max_candidates,
+                                    "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
                                     "protocol_sha256": executor.protocol_sha256,
                                     "policy_features": policy_features.model_dump()})
     remaining_seconds = (started_at + timedelta(seconds=max_seconds) - datetime.now(UTC)).total_seconds()
     model_calls = ModelCallStore(workspace.root / "model-calls.sqlite")
+    actions = ToolActionStore(workspace.root / "tool-actions.sqlite")
     model = FixedResponseModel(responses=responses, max_calls=max_calls,
                                max_known_tokens=max_known_tokens,
                                deadline=time.monotonic() + max(0, remaining_seconds),
                                call_store=model_calls, task_id=workspace.task_id, run_id=run_id)
     register_harness_profile("dfxfixed", HarnessProfile(
-        excluded_tools=frozenset({"ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute", "task"}),
+        excluded_tools=frozenset({"ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute", "task",
+                                 "write_todos", "delete"}),
         general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
     ))
-    config: RunnableConfig = {"configurable": {"thread_id": run_id}, "recursion_limit": max(30, max_calls * 3 + 5)}
+    config: RunnableConfig = {"configurable": {"thread_id": run_id}, "max_concurrency": 1,
+                              "recursion_limit": max(30, max_calls * 3 + 5)}
     error: str | None = None
     status = "unresolved"
     with SqliteSaver.from_conn_string(str(workspace.root / "checkpoints.sqlite")) as saver:
@@ -358,13 +376,19 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
                                       policy_features),
             backend=FilesystemBackend(root_dir=workspace.base, virtual_mode=True),
             checkpointer=saver, subagents=[],
+            middleware=[ToolAuthorizationMiddleware(
+                workspace, model_calls, actions, capabilities=capabilities, max_calls=max_calls,
+                max_candidates=max_candidates, max_tool_calls=max_tool_calls, deadline=model.deadline)],
         )
         if resume:
-            previous = [message for message in graph.get_state(config).values.get("messages", [])
+            checkpoint = graph.get_state(config)
+            pending_graph = bool(checkpoint.next)
+            previous = [message for message in checkpoint.values.get("messages", [])
                         if isinstance(message, AIMessage)]
             previous_count = len(previous)
         else:
             previous_count = 0
+            pending_graph = False
         summary = model_calls.usage_summary(workspace.task_id, run_id)
         if previous_count > summary["completed_calls"]:
             raise ValueError("model ledger is missing checkpointed responses")
@@ -375,7 +399,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         pending_model_call = summary["reserved_calls"] > previous_count
         prior_calls, prior_tokens, prior_missing = model.calls, model.known_tokens, model.missing_usage_calls
         try:
-            if resume and pending_model_call:
+            if resume and (pending_model_call or pending_graph):
                 graph.invoke(None, config)
             else:
                 graph.invoke({"messages": [{"role": "user", "content":
@@ -389,22 +413,35 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         except ModelCallUncertain:
             error = "model_result_unknown"
             status = "unresolved"
+        except ToolActionUncertain:
+            error = "action_result_unknown"
+            status = "unresolved"
     candidates = _current_candidates(workspace)
     checks = []
     for candidate_id in candidates:
         completed = ledger.completed(candidate_id)
         if completed is not None:
             checks.append(completed.model_dump())
-    if status != "budget_exhausted" and any(item["status"] == "pass" for item in checks):
+    action_records = actions.records()
+    uncertain_actions = sum(item["state"] != "completed" for item in action_records)
+    if uncertain_actions:
+        status, error = "unresolved", "action_result_unknown"
+    elif any(item["rejection"] == "budget_exhausted" for item in action_records):
+        status, error = "budget_exhausted", error or "action_budget"
+    if (status != "budget_exhausted" and error not in ("model_result_unknown", "action_result_unknown") and
+            any(item["status"] == "pass" for item in checks)):
         status = "offline_checked"
     report: dict[str, Any] = {
-        "schema_version": 1, "task_id": workspace.task_id, "run_id": run_id,
+        "schema_version": 2, "task_id": workspace.task_id, "run_id": run_id,
         "source_snapshot_sha256": workspace.source_snapshot_sha256,
         "status": status, "application_verification": "not_run",
         "candidates": candidates, "checks": checks,
         "model_calls": model.calls, "known_tokens": model.known_tokens,
         "missing_usage_calls": model.missing_usage_calls,
         "uncertain_model_calls": model_calls.usage_summary(workspace.task_id, run_id)["uncertain_calls"],
+        "actions": action_records, "tool_calls": len(action_records),
+        "rejected_tool_calls": sum(item["rejection"] is not None for item in action_records),
+        "uncertain_tool_calls": uncertain_actions,
         "model_calls_this_turn": model.calls - prior_calls,
         "known_tokens_this_turn": model.known_tokens - prior_tokens,
         "missing_usage_calls_this_turn": model.missing_usage_calls - prior_missing,

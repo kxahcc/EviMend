@@ -161,13 +161,13 @@ class CandidatePatch(Record):
 class ActionProposal(Record):
     """Model-authored intent; validation never implies that an action was executed."""
 
-    action: Literal["inspect_existing", "diagnostic_probe", "edit_draft",
+    action: Literal["inspect_existing", "record_analysis", "diagnostic_probe", "edit_draft",
                     "register_candidate", "run_verification", "finish"]
     target_ids: list[str] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
     candidate_id: str | None = None
     reason: str = Field(min_length=1)
-    required_capability: Literal["read_source", "read_log", "diagnostic_execution",
+    required_capability: Literal["read_source", "read_log", "record_analysis", "diagnostic_execution",
                                  "edit_source", "register_candidate", "verify_candidate", "finish"]
     observation_routes: dict[str, str] = Field(default_factory=dict)
     unknown_route: Literal["retain_unknown"] | None = None
@@ -186,6 +186,7 @@ class ActionProposal(Record):
             "run_verification": {"verify_candidate"},
             "finish": {"finish"},
             "inspect_existing": {"read_source", "read_log"},
+            "record_analysis": {"record_analysis"},
         }
         if self.required_capability not in required[self.action]:
             raise ValueError("action and capability disagree")
@@ -217,7 +218,8 @@ def authorize_action(proposal: ActionProposal, *, task_id: str, run_id: str, sou
                      known_evidence_ids: set[str], known_target_ids: set[str],
                      registered_candidate_ids: set[str], accepted_candidate_ids: set[str],
                      capabilities: set[str],
-                     remaining_model_calls: int, remaining_probe_budget: int) -> ActionAuthorization:
+                     remaining_model_calls: int, remaining_probe_budget: int,
+                     model_response_reserved: bool = False) -> ActionAuthorization:
     """Host-owned gate for a proposal; the model cannot grant capabilities or budget."""
     reason: AuthorizationReason
     if (proposal.task_id != task_id or proposal.run_id != run_id or
@@ -232,7 +234,7 @@ def authorize_action(proposal: ActionProposal, *, task_id: str, run_id: str, sou
         reason = "acceptance_not_verified"
     elif proposal.required_capability not in capabilities:
         reason = "capability_unavailable"
-    elif ((proposal.action != "finish" and remaining_model_calls <= 0) or
+    elif ((proposal.action != "finish" and remaining_model_calls <= 0 and not model_response_reserved) or
           (proposal.action == "diagnostic_probe" and remaining_probe_budget <= 0)):
         reason = "budget_exhausted"
     else:
