@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 from test_agent_loop import candidate_id, response, task_snapshot
+from test_condition_handoff import inputs
 
 from dfx_agent.actions import ToolActionStore
 from dfx_agent.agent import run_fixed_agent
@@ -102,31 +103,34 @@ def test_candidate_budget_gate_precedes_second_registration(tmp_path: Path) -> N
 def test_all_offline_tools_pass_through_authorization(tmp_path: Path) -> None:
     task = task_snapshot(tmp_path)
     almost = candidate_id(task, tmp_path / "derive", "almost")
+    submission, condition, _ = inputs(task, obligations=False)
     plan = PolicyInput(source_snapshot_sha256=verify_task(task)["source_snapshot_sha256"],
                        directions=[RepairDirection(direction_id="direction1", repair_key="repair1",
-                                                   acceptance_key="accept1", hypothesis_ids=["hypothesis-1"],
-                                                   support_evidence_ids=["inference-1"])], remaining_probe_budget=0)
-    request = DecisionRequest(task_id="task1", run_id="run1", diagnosis_id="diagnosis-1", plan=plan)
+                                                   acceptance_key="accept1", hypothesis_ids=["h1"],
+                                                   support_evidence_ids=["infer1"])], remaining_probe_budget=0)
+    request = DecisionRequest(task_id="task1", run_id="run1", diagnosis_id="diagnosis1", plan=plan)
     calls = [("read_log", {}), ("list_source", {}), ("read_source", {"path": "src/main.ets"}),
-             ("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "bad value"}),
+             ("record_diagnosis", {"diagnosis_json": json.dumps(submission)}),
              ("record_obligation", {"obligation_id": "preserve_value", "statement": "Keep the expected value",
-                                    "evidence_ids": ["inference-1"]}),
+                                    "evidence_ids": ["infer1"]}),
              ("edit_source", {**EDIT, "new": "almost"}),
-             ("register_candidate", {"diagnosis_id": "diagnosis-1", "restores": ["preserve_value"]}),
+             ("register_candidate", {"diagnosis_id": "diagnosis1", "restores": ["preserve_value"]}),
              ("run_check", {"candidate_id": almost}),
              ("link_failed_check", {"candidate_id": almost, "violated_obligation_ids": ["preserve_value"]}),
              ("consult_rule", {"family": "bounds"}), ("plan_repair_action", {"plan_json": request.model_dump_json()}),
-             ("inspect_analysis", {"diagnosis_id": "diagnosis-1", "include_schema": True})]
-    scripted = [response(index, name, args) for index, (name, args) in enumerate(calls, start=1)] + [response(13)]
+             ("inspect_analysis", {"diagnosis_id": "diagnosis1", "include_schema": True}),
+             ("evaluate_condition", {"request_json": condition.model_dump_json()})]
+    scripted = [response(index, name, args) for index, (name, args) in enumerate(calls, start=1)] + [response(14)]
     report = run_fixed_agent(task, tmp_path / "run", "run1", scripted,
                              FixedTextExecutor("src/main.ets", "value=good\n"),
                              policy_features=PolicyFeatures(rule_guidance=True, obligation_tracking=True,
                                                             decision_checks=True))
-    assert report["tool_calls"] == 12 and report["rejected_tool_calls"] == report["uncertain_tool_calls"] == 0
+    assert report["tool_calls"] == 13 and report["rejected_tool_calls"] == report["uncertain_tool_calls"] == 0
     assert {item["tool_name"] for item in report["actions"]} == set(report["offered_tools"])
     assert report["checks"][0]["status"] == "fail" and report["application_verification"] == "not_run"
     feedback = json.loads(next((tmp_path / "run/feedback").glob("*.json")).read_text())
     assert feedback["scope"] == "synthetic" and feedback["link_authority"] == "model_inference"
+    assert report["condition_results"][0]["result"]["status"] == "unknown"
 
 
 @pytest.mark.parametrize("receipt_saved", [True, False])

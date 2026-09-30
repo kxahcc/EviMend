@@ -145,7 +145,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
 | `tests/test_offline_evidence.py`、`tests/test_case_identity.py`、`tests/test_sdk_compat.py` | 原型合成输入、显式案例身份与固定响应 SDK 接入自检；最近结果由 STATUS 记录 |
 | `tests/test_contracts.py`、`tests/test_workspace.py` | 领域对象的拒绝条件与候选隔离、登记、回退的合成反例 |
-| `tests/test_conditions.py` | 有限条件的边界计算、单位/范围/来源反例与源码版本核验；不是应用评测 |
+| `tests/test_conditions.py`、`tests/test_condition_store.py`、`tests/test_condition_handoff.py` | 有限条件计算、不可改写结果及固定响应 Agent 交接，含单位/范围/来源、版本、恢复和开关反例；不是应用评测 |
 | `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`、`tests/test_decisions.py` | 固定响应闭环、模拟 HTTP、领域策略、动作/应用接受、模型与工具恢复、因果诊断及修复决策交接的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
@@ -173,8 +173,8 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `analysis.py` | 汇总栈证据；源码命中不能当作根因预测 |
 | `contracts.py` | Pydantic 证据、因果诊断、修复义务、候选及动作对象；来源、版本、绑定与引用校验不证明因果正确 |
 | `diagnostics.py` | 主机读取引用事实、接纳模型因果提案、核对失败候选版本、保存不可改写的诊断包；不自动推理或执行运行条件检查 |
-| `decisions.py` | 将修复方向与已登记诊断、义务和实际合成失败绑定，保存可回读建议及候选方向引用；不执行检查或确认因果、业务正确性 |
-| `conditions.py` | 对主机固定的合成输入计算索引、字节/元素和使用时就绪条件，绑定诊断、源码版本及采样范围；独立接口，尚未接入 Agent，不证明源码产生这些值 |
+| `decisions.py` | 将修复方向与已登记诊断、义务、实际合成失败及同范围条件结果绑定，保存可回读建议及候选方向引用；不执行检查或确认因果、业务正确性 |
+| `conditions.py` | 对主机固定合成输入计算索引、字节/元素和使用时就绪条件，保存并重新核验版本/范围绑定结果，供 Agent 回读引用；不证明源码产生这些值 |
 | `actions.py` | SDK 工具中间件、主机能力/引用/预算检查及 SQLite 动作结果账本；不提供真实应用执行 |
 | `workspace.py` | 从已校验分析快照建立独立草稿、原子文本编辑、冻结完整 diff 与候选哈希，并校验恢复归属；不执行应用检查 |
 | `models.py` | 固定响应模型经账本接入 Deep Agents 循环，并实施调用/已知 Token/时间预算；真实提供方适配待实现 |

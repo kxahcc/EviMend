@@ -27,6 +27,7 @@ from .actions import (
     ToolActionUncertain,
     ToolAuthorizationMiddleware,
 )
+from .conditions import ConditionRequest, ConditionStore, SyntheticObservations
 from .contracts import (
     IDENTIFIER,
     Diagnosis,
@@ -78,15 +79,19 @@ def _known_obligations(workspace: CandidateWorkspace) -> dict[str, RepairObligat
 
 def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: int,
            task_directory: Path, crash_log: str, crash_sha256: str,
-           policy_features: PolicyFeatures, host_capabilities: frozenset[str] | None = None) -> list[Any]:
+           policy_features: PolicyFeatures, host_capabilities: frozenset[str] | None = None,
+           condition_store: ConditionStore | None = None) -> list[Any]:
     analysis = AnalysisStore(workspace)
     decisions = DecisionStore(workspace)
+    conditions = condition_store or (ConditionStore(workspace) if (workspace.root / "condition-inputs.json").exists()
+                                    else ConditionStore(workspace, SyntheticObservations([])))
     host_capabilities = OFFLINE_CAPABILITIES if host_capabilities is None else host_capabilities
 
     @tool
     def inspect_analysis(diagnosis_id: str | None = None, include_schema: bool = False, decision_id: str | None = None,
+                         condition_result_id: str | None = None,
                          proposal_json: str | None = None) -> str:
-        """Read task/run identity, registered diagnoses/decisions, or diagnosis and decision request schemas."""
+        """Read registered analysis, scoped synthetic condition results, host fixtures and request schemas."""
         try:
             bundles = analysis.bundles()
             value: dict[str, Any] = {"task_id": workspace.task_id, "run_id": workspace.run_id,
@@ -95,6 +100,8 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
                                      "obligation_ids": sorted(analysis.obligations()),
                                      "decision_ids": sorted(decisions.records()),
                                      "feedback_ids": decisions.feedback_ids(),
+                                     "condition_result_ids": sorted(conditions.records()),
+                                     "synthetic_observations": conditions.registry.descriptions(),
                                      "obligation_tracking": policy_features.obligation_tracking}
             if diagnosis_id is not None:
                 if diagnosis_id not in bundles:
@@ -106,14 +113,21 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             if include_schema:
                 value["submission_schema"] = DiagnosisSubmission.model_json_schema()
                 value["decision_request_schema"] = DecisionRequest.model_json_schema()
+                value["condition_request_schema"] = ConditionRequest.model_json_schema()
                 value["admission_rules"] = ["All model hypotheses and obligations retain unknown status.",
                     "All model causal relations and obligations retain model_inference authority.",
-                    "Source/log citations are read by the host; feedback must match a saved failed check."]
+                    "Source/log citations are read by the host; feedback must match a saved failed check.",
+                    "Condition inputs are host-fixed synthetic fixtures; calculations cannot confirm root cause or application success."]
             if decision_id is not None:
                 records = decisions.records()
                 if decision_id not in records:
                     raise ValueError("decision is not registered")
                 value["decision"] = records[decision_id].model_dump(mode="json")
+            if condition_result_id is not None:
+                records = conditions.records()
+                if condition_result_id not in records:
+                    raise ValueError("condition result is not registered")
+                value["condition_result"] = records[condition_result_id].model_dump(mode="json")
             return json.dumps(value)
         except (OSError, ValueError, ValidationError, KeyError) as exc:
             return f"rejected: {exc}"
@@ -327,9 +341,19 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
         except (OSError, ValueError, ValidationError, KeyError) as exc:
             return f"rejected: {exc}"
 
+    @tool
+    def evaluate_condition(request_json: str, observation_id: str | None = None,
+                           proposal_json: str | None = None) -> str:
+        """Calculate a registered finite condition using a host fixture ID; never accept model-supplied values."""
+        try:
+            request = ConditionRequest.model_validate_json(request_json)
+            return conditions.evaluate(request, observation_id).model_dump_json()
+        except (OSError, ValueError, ValidationError, KeyError) as exc:
+            return f"rejected: {exc}"
+
     return [read_log, list_source, read_source, inspect_analysis, record_diagnosis, edit_source,
             register_candidate, run_check, consult_rule, plan_repair_action,
-            record_obligation, link_failed_check]
+            record_obligation, link_failed_check, evaluate_condition]
 
 
 def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
@@ -337,7 +361,8 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
                     max_known_tokens: int = 4000, max_seconds: float = 60,
                     max_candidates: int = 3, max_tool_calls: int = 60,
                     capabilities: frozenset[str] | None = None,
-                    policy_features: PolicyFeatures | None = None) -> dict[str, Any]:
+                    policy_features: PolicyFeatures | None = None,
+                    observations: SyntheticObservations | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
         raise ValueError("budgets must be positive")
@@ -352,24 +377,32 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
     session_path = workspace.root / "session.json"
     if resume:
         session = json.loads(session_path.read_text(encoding="utf-8"))
-        if session != {"schema_version": 4, "run_id": run_id, "started_at": session.get("started_at"),
+        if session.get("schema_version") != 5:
+            raise ValueError("resume budget or session identity differs")
+        conditions = ConditionStore(workspace)
+        if observations is not None and observations.fingerprint() != conditions.observations_sha256:
+            raise ValueError("resume condition inputs differ")
+        if session != {"schema_version": 5, "run_id": run_id, "started_at": session.get("started_at"),
                        "max_calls": max_calls, "max_known_tokens": max_known_tokens,
                        "max_seconds": max_seconds, "max_candidates": max_candidates,
                        "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
                        "protocol_sha256": executor.protocol_sha256,
+                       "observations_sha256": conditions.observations_sha256,
                        "policy_features": policy_features.model_dump()}:
             raise ValueError("resume budget or session identity differs")
         started_at = datetime.fromisoformat(session["started_at"])
         if started_at.tzinfo is None:
             raise ValueError("session start time has no timezone")
     else:
+        conditions = ConditionStore(workspace, observations or SyntheticObservations([]))
         started_at = datetime.now(UTC)
-        _atomic_json(session_path, {"schema_version": 4, "run_id": run_id,
+        _atomic_json(session_path, {"schema_version": 5, "run_id": run_id,
                                     "started_at": started_at.isoformat(), "max_calls": max_calls,
                                     "max_known_tokens": max_known_tokens, "max_seconds": max_seconds,
                                     "max_candidates": max_candidates,
                                     "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
                                     "protocol_sha256": executor.protocol_sha256,
+                                    "observations_sha256": conditions.observations_sha256,
                                     "policy_features": policy_features.model_dump()})
     remaining_seconds = (started_at + timedelta(seconds=max_seconds) - datetime.now(UTC)).total_seconds()
     model_calls = ModelCallStore(workspace.root / "model-calls.sqlite")
@@ -391,7 +424,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         graph = create_deep_agent(
             model=model, tools=_tools(workspace, ledger, max_candidates,
                                       task, task_info["crash_log"], task_info["crash_sha256"],
-                                      policy_features, capabilities),
+                                      policy_features, capabilities, conditions),
             backend=FilesystemBackend(root_dir=workspace.base, virtual_mode=True),
             checkpointer=saver, subagents=[],
             middleware=[ToolAuthorizationMiddleware(
@@ -450,7 +483,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
             any(item["status"] == "pass" for item in checks)):
         status = "offline_checked"
     report: dict[str, Any] = {
-        "schema_version": 2, "task_id": workspace.task_id, "run_id": run_id,
+        "schema_version": 3, "task_id": workspace.task_id, "run_id": run_id,
         "source_snapshot_sha256": workspace.source_snapshot_sha256,
         "status": status, "application_verification": "not_run",
         "candidates": candidates, "checks": checks,
@@ -459,6 +492,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         "uncertain_model_calls": model_calls.usage_summary(workspace.task_id, run_id)["uncertain_calls"],
         "actions": action_records, "tool_calls": len(action_records),
         "decisions": [record.model_dump(mode="json") for record in DecisionStore(workspace).records().values()],
+        "condition_results": [record.model_dump(mode="json") for record in conditions.records().values()],
         "rejected_tool_calls": sum(item["rejection"] is not None for item in action_records),
         "uncertain_tool_calls": uncertain_actions,
         "model_calls_this_turn": model.calls - prior_calls,

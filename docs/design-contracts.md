@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
 状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-01。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、修复决策与候选的结构化交接、模型账本、逐工具授权和动作恢复已接入固定响应离线循环；有限条件计算、应用接受门、模拟 HTTP 协议及策略分支已有独立合成实现。条件计算结果尚未接入 Agent，因果关系的实际检验、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选的交接、模型账本、逐工具授权和动作恢复已接入固定响应离线循环；应用接受门、模拟 HTTP 协议及策略分支已有合成实现。可信采值、算子适用性和因果关系的实际检验、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -9,7 +9,7 @@
 
 ### 1.1 版本与来源
 
-所有记录包含 schema、task_id、run_id、record_id 和 created_at。所有涉及源码的记录绑定 source_snapshot_sha256；分析源码和完整运行源码分别使用 analysis_snapshot_sha256、runtime_snapshot_sha256，不要求二者相等。二者之间通过文件清单、共享业务源码哈希及打包记录建立关联。
+Evidence、Diagnosis、RepairObligation 和 DecisionRecord 等 Record 派生对象包含 schema_version、task_id、run_id、record_id 和 created_at；ConditionRecord 的任务/运行/源码身份位于嵌套请求范围，内容身份使用 result_id，见第 3.0 节。涉及源码的记录绑定 source_snapshot_sha256；分析源码和完整运行源码分别使用 analysis_snapshot_sha256、runtime_snapshot_sha256，不要求二者相等。二者之间通过文件清单、共享业务源码哈希及打包记录建立关联。
 
 SourceLocation 包含 snapshot_sha256、相对 path、1 起始的 start_line/end_line 和可空 symbol；修改前与修改后的坐标必须分开。禁止使用单一的 confidence 浮点数替代证据。
 
@@ -47,7 +47,7 @@ RepairObligation 用 record_id 作为 obligation_id，包含 kind（runtime_cond
 
 模型推断的义务只能作为假设，不得仅因某候选违反该推断就机械拒绝它。局部执行只能支持对应输入与路径，不自动证明全局成立。可信语义不足时明确 unknown。
 
-`ActionProposal` 是模型意图，不是执行结果。对象绑定 task/run/分析源码版本，保存 action、target_ids、evidence_ids、candidate_id、reason、required_capability、observation_routes、unknown_route 和 estimated_cost_basis。`record_analysis` 单独表示写入诊断、义务或反馈记录，不冒充观察或源码编辑。诊断探针至少区分两个修复方向，观测映射须能改变方向，并保留“未命中预测”的 `retain_unknown` 分支。`authorize_action` 只用主机持有的任务版本、已登记引用、候选、能力和剩余预算给出允许/拒绝；模型自报的能力与成本不构成授权。`finish` 还须引用已通过独立接受门的候选。
+`ActionProposal` 是模型意图，不是执行结果。对象绑定 task/run/分析源码版本，保存 action、target_ids、evidence_ids、candidate_id、reason、required_capability、observation_routes、unknown_route 和 estimated_cost_basis。`record_analysis` 表示登记诊断、义务、建议、有限条件计算或反馈，不冒充执行观察或源码编辑。诊断探针至少区分两个修复方向，观测映射须能改变方向，并保留“未命中预测”的 `retain_unknown` 分支。`authorize_action` 只用主机持有的任务版本、已登记引用、候选、能力和剩余预算给出允许/拒绝；模型自报的能力与成本不构成授权。`finish` 还须引用已通过独立接受门的候选。
 
 固定响应 SDK 的同步工具调用已通过 `ToolAuthorizationMiddleware`：主机把工具名与参数映射成动作，校验参数、版本、已登记引用、候选和实际能力；可选 `proposal_json` 只能补充模型的理由与引用，不能改变工具对应的动作/能力或候选，工具实际引用也不能被省略。主机根据已记账的模型响应生成稳定 action_id；模型响应内的 call ID 元数据由适配器覆盖，不接受模型自授身份。已付费且保存的当前响应可在没有下一次模型调用额度时完成合法工具动作，但仍受独立工具调用预算、候选预算和截止时间限制。实际探针、停止请求、资源租约及应用结果归类仍待真实控制器集成。
 
@@ -67,15 +67,19 @@ RepairObligation 用 record_id 作为 obligation_id，包含 kind（runtime_cond
 
 `plan_repair_action(plan_json=...)` 接收 `DecisionRequest`，由 `inspect_analysis(include_schema=True)` 提供 schema。请求绑定 task_id、run_id、diagnosis_id 和含源码版本的 PolicyInput；失败后再决策须成对传 candidate_id 与已保存的 feedback_id，不接受模型自填失败观察。旧的独立 PolicyInput 仍可供纯策略函数使用，已不作为 SDK 工具输入。
 
+引用有限条件结果时须同时传 condition_result_ids 和完整 condition_scope；不允许仅凭结果 ID 猜测用途。主机重新核验已保存结果，要求同诊断、同分析版本、完全相同的候选/操作/场景/路径/对象/采样点，且结果对应的假设属于提议方向。若同时使用候选失败反馈，条件范围须属于该反馈候选。原版结果可用于原版范围下提出新修法，但不得作为新候选的条件结果；候选条件无需伪造 feedback_id，直接在 condition_scope 中指定候选。
+
 每个 RepairDirection 包含 direction_id、hypothesis_ids、support_evidence_ids、obligation_ids、repair_key 和 acceptance_key。方向须引用本诊断的假设和证据，包含相关假设已关联的义务；义务须与方向假设或同包依据有关。检查的 outcome→方向映射须对应已登记 DiagnosticQuestion 的 outcome→假设映射；类型和能力须匹配。这里只核对引用，不能证明证据足以支持方向。repair_key/acceptance_key 相等是模型声明的修法/验收等价，未通过补丁或业务行为验证。
 
 主机覆盖模型填写的可用能力和探针预算：离线路径仅保留主机实际提供的 read_source/read_log，执行探针预算为零。同修法且同验收直接建议候选；不同修法须有区分力、能力和预算才建议补查；否则允许带 unknown 尝试或 unresolved。建议本身不读取源码或执行探针，实际读改查仍经过共享工具授权与预算。
 
 有效反馈必须来自同任务已冻结候选的已保存失败合成检查，匹配候选源码哈希、execution_id 和原观察。引用另一诊断时该诊断须明确 feedback_candidate_id。失败关联的义务必须已由原候选声明；scope=synthetic、evidence_kind=local_execution、link_authority=model_inference。只重新考虑相关方向，不硬拒绝推断义务，不把失败解释升级为已证实的因果关系；关闭增强时保持一般未知路径。
 
-`decisions.py` 保存不可改写的 DecisionRecord：规范化请求、诊断/义务/反馈上下文哈希、策略开关、原始策略建议、反馈建议、最终 next_action 及推断层级。身份摘要排除接纳时间等审计元数据，但保留语义输入；相同请求和上下文回读原结果。inspect_analysis 可列出决策/反馈 ID 并按 decision_id 回读；报告包含这些决策。保存决策属于 record_analysis，不冒充执行检查。
+有限条件关联单独保存为 condition_review，不使用失败执行 Counterexample 的来源语义。开启 obligation_tracking 且引用结果为 violated 时，只建议重审同假设的方向；satisfied、unknown 或关闭关联时保留未知。原版条件被违反不等于某个修法已失败；算子/绑定适用性仍是推断，不自动确认根因、满足业务义务或硬拒绝候选。基础与增强均可计算、保存和回读相同条件，增强开关只控制关联建议。
 
-候选可选成对引用 decision_id/direction_id；主机核对同诊断、已提议方向和候选声明义务。决策是建议，允许模型选择其他已提议方向；未知建议本身不阻止合法候选登记。此入口尚未接纳条件计算结果，也没有自动确认根因或真实应用反馈接入。
+`decisions.py` 保存不可改写的 DecisionRecord：规范化请求、诊断/义务/反馈/条件上下文哈希、策略开关、原始策略建议、反馈建议、condition_review、最终 next_action 及推断层级。身份摘要排除接纳时间等审计元数据，但保留语义输入；相同请求和上下文回读原结果。回读重核条件引用和建议，不接纳改写的关联方向或动作。inspect_analysis 可列出决策/反馈/条件 ID 并按 ID 回读；报告包含这些记录。保存决策属于 record_analysis，不冒充执行检查。
+
+候选可选成对引用 decision_id/direction_id；主机核对同诊断、已提议方向和候选声明义务。决策是建议，允许模型选择其他已提议方向；未知建议本身不阻止合法候选登记。自动根因确认和真实应用反馈尚未接入。
 
 ### 1.3 补丁、验证和尝试
 
@@ -131,13 +135,13 @@ Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和�
 
 规则卡是后续 Skill 的知识来源，不包含案例编号到答案的映射。未知语义进入 missing_evidence，不能由通用模板代替业务判断。
 
-W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，通过 `consult_rule` 访问；未知类别或关闭规则开关时返回通用路径。修复方向、义务、区分问题与实际失败的绑定统一见第 1.2.3 节；Agent 当前只授权已有日志/源码读取，没有诊断执行探针。R1/R2 的部分有限条件已有第 3.0 节的独立计算接口，R3/R4 和业务语义仍是规则知识；提示命中不能解释为条件已满足或根因正确。
+W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，通过 `consult_rule` 访问；未知类别或关闭规则开关时返回通用路径。修复方向、义务、区分问题与实际失败的绑定统一见第 1.2.3 节；Agent 当前没有诊断执行探针。R1/R2 的部分有限条件已有第 3.0 节的合成计算工具，R3/R4 和业务语义仍是规则知识；提示命中不能解释为条件已满足或根因正确。
 
 义务记录由模型工具创建时固定为 `model_inference`，须引用已登记诊断证据；候选的 restores/preserves 只能引用本次运行、本源码版本已登记的义务。合成检查实际失败后，模型可把失败与候选义务关联为 `scope=synthetic`、`link_authority=model_inference` 的反例；观察文本来自执行器，违反哪项义务仍是模型解释，不构成硬拒绝或应用行为证据。反例只关联原候选哈希及源码版本。可信需求、独立业务判据和应用反馈接入后，才能提高证据层级。
 
 ### 3.0 首批有限条件检查
 
-`conditions.py` 是独立程序接口，尚未作为 SDK 工具或 CheckLedger 执行器接入。它回答“这组有界输入是否满足指定条件”，不回答“源码一定产生这些值”或“业务已经修好”。不解析或求值 RuntimeConstraint.condition、ValueBinding.expression；只使用已登记绑定 ID 和有限枚举算子。
+`conditions.py` 提供独立程序接口及固定响应 SDK 的 evaluate_condition 工具。它回答“这组有界输入是否满足指定条件”，不回答“源码一定产生这些值”或“业务已经修好”。不解析或求值 RuntimeConstraint.condition、ValueBinding.expression；只使用已登记绑定 ID 和有限枚举算子，不作为 CheckLedger 执行器。
 
 ConditionRequest 包含 check_id、diagnosis_id、hypothesis_id、kind、binding_ids、length_mode、profile 和 ConditionScope。范围绑定 task/run、分析源码哈希、实际计算版本、可选候选 ID、该版本的 operation 位置、scenario_id、path_id、subject_id 和 sample_id。主机核对诊断及假设的规则类别、绑定存在性、原版操作位置、基准实际字节和冻结候选实际字节。候选位置校验路径/行范围，尚不自动证明原版与候选行映射；模型选错算子或绑定含义也不会被此校验自动纠正。
 
@@ -152,7 +156,11 @@ finite_condition_v1 仅接纳已归一化的安全整数，非 index 数值非�
 
 ObservationBatch 包含 observation_id、上述完整范围、origin、值/单位和明确的归一化、buffer、采样前提。SyntheticObservations 只由主机测试/准备代码注入，复制规范化 fixture；模型不能通过 origin 标签、同 ID 改值或自填哈希取得来源资格。当前 registry 固定的是测试输入，不是运行观察；没有源码值提取器、实际运行采样器或应用来源接纳接口。输入范围不一致、值缺失、单位错配或前提未知返回 unknown；非法请求、诊断引用、规则绑定或已变源码直接拒绝。
 
-ConditionResult 保存请求和输入摘要、每个子条件及操作数、satisfied/violated/unknown 和 synthetic/unknown 支持层级。状态只描述该组 fixture 输入的计算；root_cause_confirmation 固定 unknown，application_verification 固定 not_run。结果不会改写诊断、义务、决策或共同接受协议，不自动产生 CheckLedger pass/fail，也不把局部条件满足当作业务正确。真实采样、不可改写结果保存及受控反馈交接仍须后续实现。
+ConditionResult 保存请求和输入摘要、每个子条件及操作数、satisfied/violated/unknown 和 synthetic/unknown 支持层级。状态只描述该组 fixture 输入的计算；applicability_authority 固定 model_inference，root_cause_confirmation 固定 unknown，application_verification 固定 not_run。结果不会改写诊断、义务或共同接受协议，不产生 CheckLedger pass/fail，也不把局部条件满足当作业务正确；后续决策只按第 1.2.3 节受控引用。
+
+ConditionStore 将主机输入保存到工作目录的 condition-inputs.json，将 ConditionRecord 保存到 conditions/<result_id>.json。记录绑定结果内容、输入 registry 指纹和去除接纳时间后的诊断包哈希，result_id 为内容摘要；相同输入回读原记录，不覆盖旧结果。回读校验归属、文件类型及链接，重新核对诊断、源码版本和完整计算；即使刷新文件名/摘要，也不能把不满足的谓词改成满足。持久 fixture 可支持恢复，仍不证明实际运行来源。
+
+evaluate_condition 只收序列化 request_json、可选 observation_id 和动作提案；不接受模型自填值、fixture 或结果。主机可通过程序接口注入合成 registry；当前 CLI 默认空 registry，未提供 ID 时保存 missing_observations 的 unknown，未知 ID 拒绝。inspect_analysis 可列出输入 ID/范围和结果 ID，按 condition_result_id 回读，并按需返回请求 schema。计算登记属于 record_analysis，引用与候选纳入相同工具授权和总工具预算，不消耗一个虚构的执行探针额度。session schema 5 固定 registry 指纹；恢复不能替换输入，已保存工具回执则回放，不重复登记动作，回执未存时保持动作结果未知。报告 schema 3 增加 condition_results；旧会话 schema 1–4 不续跑。可信值采集、目标版本适用性和真实应用验证尚待实现。
 
 ### R1 初始化与生命周期
 
@@ -230,4 +238,4 @@ Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/s
 
 ## 6. 关联与待完成规格
 
-工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录到修复决策及候选的固定响应交接、首批独立有限条件计算已可执行；条件结果到 Agent 的交接、真实值采集、其余规则检查、可信应用验证对象接纳与本机执行控制仍待闭合和实测。
+工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录、有限条件结果到修复决策及候选的固定响应交接已可执行；真实值采集、其余规则检查、可信应用验证对象接纳与本机执行控制仍待闭合和实测。

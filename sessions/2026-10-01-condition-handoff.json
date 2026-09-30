@@ -1,0 +1,51 @@
+{
+  "session_id": "session-2026-10-01-condition-handoff",
+  "date": "2026-10-01",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "P0 controlled exchange of finite condition results with repair decisions",
+  "user_request_summary": "继续实施 STATUS 的下一工作包，保持本机受管合成自检，不启动真实模型或应用实验。",
+  "changes": [
+    "SyntheticObservations 增加复制读取、摘要和稳定指纹；ConditionStore 不可改写保存主机输入和内容寻址的 ConditionRecord。",
+    "结果回读重新核验完整计算、诊断语义摘要、原版/冻结候选实际字节、输入和范围，并拒绝链接及来源升格。",
+    "evaluate_condition 只接纳请求与主机 observation_id，inspect_analysis 可回读 schema、输入范围和结果；模型不能登记 fixture 或自填值/结果。",
+    "13 个项目工具共享主机授权、能力和工具预算，实际嵌套诊断/假设/证据/义务/候选/结果引用进入动作提案；未知额外参数拒绝。",
+    "DecisionRequest 以 condition_result_ids 和完整 condition_scope 引用同诊断/同范围/相关假设结果，condition_review 与执行失败反馈独立。violated 只建议重审相关方向，关闭关联或 satisfied/unknown 保留未知。",
+    "session schema 5 固定输入 registry 指纹，完成工具回执恢复时不重复登记动作，回执未存保持动作未知；报告 schema 3 增加 condition_results。",
+    "同步已有开发入口、设计、规格、计划、使用说明和状态；没有新增常驻 Markdown，没有改竞赛模板或 data_B。"
+  ],
+  "validation": {
+    "entry": "scripts/local.ps1 Run; sequential managed tasks",
+    "condition_store": "23 passed; .dfx-local/artifacts/76ffc657-06c2-402e-9195-9490588b4144.log",
+    "condition_handoff": "30 passed; .dfx-local/artifacts/4e5a98b3-75b5-48a7-a1a2-1958692d63be.log",
+    "finite_condition_regression": "51 passed; .dfx-local/artifacts/9c50adb4-b111-4186-b995-631422d844ef.log",
+    "tool_authorization_regression": "15 passed; .dfx-local/artifacts/f348a31c-ec17-4c4d-adfd-626aeb409cc8.log",
+    "decision_regression": "21 passed; .dfx-local/artifacts/97333b39-c620-43e7-a80a-bb8fa79474ee.log",
+    "agent_loop_regression": "12 passed; .dfx-local/artifacts/2b73c782-8014-4b93-ba39-bbd53b09b257.log",
+    "causal_diagnosis_regression": "21 passed; .dfx-local/artifacts/23497083-6b5d-41bd-9129-e4dfd6247a5d.log",
+    "total_final_software_tests_passed": 173,
+    "ruff": "passed; .dfx-local/artifacts/156451cc-e6ca-40c9-8ecf-b88c521dc09f.log",
+    "pyright": "0 errors, 0 warnings; .dfx-local/artifacts/18a8e851-f6f8-4f44-baa6-bd63fabbbd6f.log",
+    "docs": "14 registered documents, 0 errors; .dfx-local/artifacts/e1316434-6cff-4e4b-9b91-9b5030d70a9e.log",
+    "real_model_repair_runs": 0,
+    "application_replays": 0
+  },
+  "development_failures_and_resolution": [
+    "首次保存测试 22 通过、1 失败：测试 fixture 与请求共享 scope 对象，构造错范围时同时改了请求。改为独立深拷贝后 23 项通过，未放宽生产校验。失败日志为 .dfx-local/artifacts/70fb0fb9-97af-4bdb-a1b1-0a97713196d9.log。",
+    "首次 Ruff 检出 4 个导入排序/分行问题，按诊断修正后通过。"
+  ],
+  "environment": {
+    "new_dependencies_or_toolchains": false,
+    "active_managed_task_after_quality_snapshot": false,
+    "tmp_bytes_after_quality_snapshot": 0,
+    "resource_limits_changed": false,
+    "environment_cache_and_logs_preserved": true
+  },
+  "limitations": [
+    "只登记主机固定合成输入，CLI 默认空 registry，程序测试可注入；没有源码值提取、真实采样或应用来源接纳。",
+    "算子选择、同单位角色含义与候选坐标适用性仍是 model_inference；完整性重算不证明源码产生 fixture 值。",
+    "条件结果不是 local_execution 或应用证据，不改写诊断/义务、不产生 CheckLedger pass/fail、不满足共同接受门。",
+    "旧 session schema 1–4 拒绝续跑，须保留历史证据并另建工作 ID；已有旧演示目录未自动迁移。"
+  ],
+  "next_work_package": "P0 trusted value collection and operator binding contract design"
+}

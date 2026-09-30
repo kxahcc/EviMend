@@ -3,7 +3,7 @@
 状态：当前使用说明。最后维护：2026-10-01。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
-当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。固定响应 `repair/resume` 已把 Deep Agents SDK、因果诊断与修复义务、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实模型、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。
+当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。固定响应 `repair/resume` 已把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实模型、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。
 
 从项目根目录查看命令：
 
@@ -60,15 +60,19 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 失败后 `link_failed_check` 返回反馈及 feedback_id，再决策时成对传该 feedback_id 与原 candidate_id；主机重新核对已保存失败检查、候选源码哈希和原观察。`decisions/<ID>.json` 保存建议及上下文摘要；`inspect_analysis(decision_id=...)` 可回读，默认列出决策和反馈 ID。`register_candidate` 可选成对传 decision_id/direction_id，核对同诊断、所选提议方向及声明义务；建议不强迫模型采用某一修法。失败与义务的关联仍是推断，只建议重审相关方向。
 
-`agent-report.json` 的 schema 2 记录候选、离线检查、已保存决策、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态；`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但结果未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力和策略开关；`session.json` 使用 schema 4，对应当前工具定义和决策格式，旧 schema 1/2/3 会话拒绝续跑，须保留旧证据并另建工作 ID。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+`agent-report.json` 的 schema 3 记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态；`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关和条件输入指纹；`session.json` 使用 schema 5，对应当前工具定义和条件引用格式，旧 schema 1–4 会话拒绝续跑，须保留旧证据并另建工作 ID。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
 
 合成输入自检位于 `tests/test_offline_evidence.py`，显式案例身份与哈希拒绝反例位于 `tests/test_case_identity.py`；领域对象和候选目录反例位于 `tests/test_contracts.py`、`tests/test_workspace.py`，固定响应闭环、HTTP 模拟协议、策略分支、接受契约、模型请求账本、逐工具授权/恢复、因果记录和修复决策交接分别位于 `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`、`tests/test_decisions.py`。这些检查不读取或运行 data_B 中的应用，不调用真实模型或设备。当前设计与待实现功能见 [技术设计](../../docs/development/system-design-draft.md) 和 [模块契约](../../docs/design-contracts.md)。
 
 模型账本的程序接口是 `ModelCallIntent`、`ModelCallStore` 和 `invoke_accounted`：调用前持久登记并占用次数，发出后若丢失响应则保留未知状态，同一 ID 不重发；收到的 `AIMessage` 保存为可恢复响应，格式错误与 Token usage 分开记账。固定响应模型根据实际传给 SDK 的消息、工具定义和参数生成哈希，完成响应在 Graph 未落检查点时可回放；请求已发出但无响应时报告 `model_result_unknown` 并停止。真实提供方适配器仍须核对实际发送请求、禁用或逐次登记内部重试；当前 CLI 不具备真实模型计费能力。
 
-`conditions.py` 同样只供独立程序调用：先登记含 RuntimeConstraint 的诊断，再由可信测试代码建立 SyntheticObservations fixture registry，调用 `ConditionEvaluator(workspace, registry).evaluate(request, batch)`。ConditionRequest 引用该诊断的假设和绑定，声明有限算子及含候选/版本/操作点/对象/路径的范围。接口支持 array_index、data_view_access、typed_array_view 和 ready_at_use；不求值诊断表达式，不自动提取源码值或采集真实运行值。输入自报标签或改值无法匹配已固定 fixture；缺值、单位/范围/前提不符返回 unknown，非法目标或诊断引用拒绝。
+有限条件使用顺序是：登记含 RuntimeConstraint 的诊断，查看主机输入 ID 和范围，调用 evaluate_condition，再按结果 ID 回读或提交修复决策。工具接收 request_json 和可选 observation_id，不接受模型自填的值或结果；schema 可从 inspect_analysis(include_schema=True) 获取。ConditionRequest 引用诊断的假设和绑定，声明有限算子及完整范围。当前支持 array_index、data_view_access、typed_array_view 和 ready_at_use；不求值诊断表达式，不自动提取源码值或采集真实运行值。缺值、单位/范围/前提不符返回 unknown，非法目标或诊断引用拒绝。
 
-条件结果的 satisfied/violated 只表示固定合成输入的计算，包含子条件与输入摘要；不写回诊断、决策、义务或应用接受门，不生成 CheckLedger 结果。它尚未接入 SDK 工具和报告，session schema 仍为 4。详细前提见 [模块规格第 3.0 节](../../docs/design-contracts.md#30-首批有限条件检查)。自检命令为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_conditions.py`，不运行 data_B 应用。
+主机合成测试可先建立 SyntheticObservations，再通过 `ConditionStore(workspace, registry).evaluate(request, observation_id)` 或 `run_fixed_agent(..., observations=registry)` 接入。registry 只由测试代码提供，保存为 condition-inputs.json；CLI 暂不开放注入文件参数，默认空 registry。省略 observation_id 得到 missing_observations 的 unknown，未登记 ID 拒绝。inspect_analysis 默认列出主机 fixture ID/范围和 condition_result_ids，传 condition_result_id 可回读完整记录。原有 ConditionEvaluator 的不保存接口仍可使用。
+
+conditions/<result_id>.json 的 ConditionRecord 绑定结果内容、输入 registry 指纹及诊断包哈希；相同输入回读原记录。回读会重新核对源码/候选实际字节、诊断、输入和完整计算，拒绝改写结果、换输入或提高来源层级。恢复不重复计算登记动作；完整性核对仍会重算有限谓词。结果的 satisfied/violated 只表示固定合成输入的计算，applicability_authority 为 model_inference，根因确认保持 unknown、应用验证保持 not_run，不生成 CheckLedger 结果。
+
+DecisionRequest 可增加 condition_result_ids 与完整 condition_scope，主机要求结果来自同诊断、同假设方向和完全相同范围。开启 obligation_tracking 后，violated 只产生 condition_review 的相关方向重审建议；satisfied/unknown 或关闭关联不确认修复、不消除未知，也不硬拒绝义务。基础/增强共享同一计算工具和总预算。详细前提见 [模块规格第 3.0 节](../../docs/design-contracts.md#30-首批有限条件检查)。边界、保存和交接分别自检 tests/test_conditions.py、tests/test_condition_store.py、tests/test_condition_handoff.py，均通过受管 Run -Task test -TestPath 执行，不运行 data_B 应用。
 
 `acceptance.py` 当前只供独立程序调用：准备者冻结与候选无关的共同协议，可信打包器绑定完整运行源码，执行端按检查 ID 回传原版和候选的结果，接受门对缺失、模拟、版本错配和行为失败返回 `not_verified`。这些适配器及业务 oracle 尚未接入；该模块的合成 `verified_under_protocol` 测试值不是本项目已修复应用的成绩。
 

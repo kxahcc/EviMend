@@ -17,8 +17,9 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 from pydantic import BaseModel, ValidationError
 
+from .conditions import ConditionRequest, ConditionStore
 from .contracts import ActionProposal, authorize_action
-from .decisions import DecisionStore
+from .decisions import DecisionRequest, DecisionStore
 from .diagnostics import AnalysisStore
 from .model_calls import ModelCallStore, canonical, sha256
 from .workspace import CandidateWorkspace
@@ -33,6 +34,7 @@ TOOL_ACTIONS: dict[str, tuple[str, str]] = {
     "link_failed_check": ("record_analysis", "record_analysis"),
     "consult_rule": ("inspect_existing", "read_source"),
     "plan_repair_action": ("record_analysis", "record_analysis"),
+    "evaluate_condition": ("record_analysis", "record_analysis"),
     "edit_source": ("edit_draft", "edit_source"),
     "register_candidate": ("register_candidate", "register_candidate"),
     "run_check": ("run_verification", "verify_candidate"),
@@ -120,6 +122,7 @@ class ToolActionStore:
 def _registered_references(workspace: CandidateWorkspace) -> tuple[set[str], set[str], set[str]]:
     evidence_ids, target_ids = AnalysisStore(workspace).reference_ids()
     target_ids.update(DecisionStore(workspace).records())
+    target_ids.update(ConditionStore(workspace).records())
     candidates: set[str] = set()
     for path in workspace.candidates.iterdir():
         if not path.is_dir() or path.is_symlink():
@@ -164,16 +167,35 @@ class ToolAuthorizationMiddleware(AgentMiddleware):
         target_ids = ([args["diagnosis_id"]] if args.get("diagnosis_id") else [])
         if args.get("decision_id"):
             target_ids.append(args["decision_id"])
+        if args.get("condition_result_id"):
+            target_ids.append(args["condition_result_id"])
         for field in ("restores", "preserves", "violated_obligation_ids"):
             target_ids.extend(args.get(field) or [])
         evidence_ids = args.get("evidence_ids") or []
         candidate_id = args.get("candidate_id")
+        if name == "evaluate_condition":
+            condition = ConditionRequest.model_validate_json(args["request_json"])
+            target_ids.extend([condition.diagnosis_id, condition.hypothesis_id])
+            candidate_id = condition.scope.candidate_id
+            if (condition.scope.task_id != self.workspace.task_id or condition.scope.run_id != self.workspace.run_id or
+                    condition.scope.source_snapshot_sha256 != self.workspace.source_snapshot_sha256):
+                raise ValueError("condition belongs to another tool owner or version")
+        if name == "plan_repair_action":
+            decision = DecisionRequest.model_validate_json(args["plan_json"])
+            target_ids.extend([decision.diagnosis_id, *decision.condition_result_ids])
+            for direction in decision.plan.directions:
+                target_ids.extend(direction.hypothesis_ids + direction.obligation_ids)
+                evidence_ids.extend(direction.support_evidence_ids)
+            candidate_id = decision.candidate_id or (decision.condition_scope.candidate_id if decision.condition_scope else None)
+            if (decision.task_id != self.workspace.task_id or decision.run_id != self.workspace.run_id or
+                    decision.plan.source_snapshot_sha256 != self.workspace.source_snapshot_sha256):
+                raise ValueError("decision belongs to another tool owner or version")
         payload = {"record_id": action_id, "created_at": datetime.now(UTC),
                    "task_id": self.workspace.task_id, "run_id": self.workspace.run_id,
                    "source_snapshot_sha256": self.workspace.source_snapshot_sha256,
                    "action": action, "required_capability": capability,
                    "reason": f"Model selected {name}", "estimated_cost_basis": "host-owned offline budget",
-                   "target_ids": target_ids, "evidence_ids": evidence_ids, "candidate_id": candidate_id}
+                   "target_ids": sorted(set(target_ids)), "evidence_ids": sorted(set(evidence_ids)), "candidate_id": candidate_id}
         if args.get("proposal_json") is not None:
             proposed = ActionProposal.model_validate_json(args["proposal_json"])
             if (proposed.action != action or proposed.required_capability != capability or
@@ -204,6 +226,8 @@ class ToolAuthorizationMiddleware(AgentMiddleware):
                     schema = request.tool.args_schema
                     if not isinstance(schema, type) or not issubclass(schema, BaseModel):
                         raise ValueError("tool has no validated argument schema")
+                    if set(request.tool_call["args"]) - set(schema.model_fields):
+                        raise ValueError("tool arguments contain unsupported fields")
                     schema.model_validate(request.tool_call["args"])
                     proposal = self._proposal(action_id, request)
                     evidence, targets, candidates = _registered_references(self.workspace)

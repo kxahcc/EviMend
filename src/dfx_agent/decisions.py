@@ -9,7 +9,14 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
-from .contracts import Contract, Record, require_hash, require_identifiers
+from .conditions import ConditionRecord, ConditionScope, ConditionStore
+from .contracts import (
+    Contract,
+    Record,
+    require_hash,
+    require_identifiers,
+    require_unique,
+)
 from .diagnostics import AnalysisStore
 from .model_calls import canonical, sha256
 from .policies import (
@@ -34,10 +41,16 @@ class DecisionRequest(Contract):
     plan: PolicyInput
     candidate_id: str | None = None
     feedback_id: str | None = None
+    condition_scope: ConditionScope | None = None
+    condition_result_ids: list[str] = Field(default_factory=list, max_length=16)
 
     @model_validator(mode="after")
     def valid_request(self) -> DecisionRequest:
         require_identifiers([self.task_id, self.run_id, self.diagnosis_id])
+        require_identifiers(self.condition_result_ids)
+        require_unique(self.condition_result_ids)
+        if bool(self.condition_result_ids) != (self.condition_scope is not None):
+            raise ValueError("condition references need an explicit expected scope")
         if (self.candidate_id is None) != (self.feedback_id is None):
             raise ValueError("feedback needs both candidate and saved feedback identity")
         for value in (self.candidate_id, self.feedback_id):
@@ -52,6 +65,7 @@ class DecisionRecord(Record):
     features: PolicyFeatures
     decision: PolicyDecision
     feedback: FeedbackDecision | None = None
+    condition_review: FeedbackDecision | None = None
     next_action: Literal["direct_candidate", "read_existing", "run_probe", "attempt_with_unknown", "unresolved",
                          "reconsider_repair", "retain_uncertainty", "ignore_stale"]
     advisory_obligation_ids: list[str] = Field(default_factory=list)
@@ -76,6 +90,7 @@ def feedback_key(feedback: Counterexample) -> str:
 def _request_value(request: DecisionRequest) -> dict:
     value = request.model_dump(mode="json")
     value["plan"]["available_capabilities"] = sorted(request.plan.available_capabilities)
+    value["condition_result_ids"] = sorted(request.condition_result_ids)
     return value
 
 
@@ -104,6 +119,12 @@ class DecisionStore:
                 "context_sha256": record.context_sha256, "features": record.features.model_dump()}))
             if record.record_id != expected:
                 raise ValueError("decision request identity changed")
+            review = self._condition_review(record.request, self._conditions(record.request), record.features)
+            next_action = ("reconsider_repair" if ((record.feedback and record.feedback.action == "reconsider_repair") or
+                           (review and review.action == "reconsider_repair")) else record.decision.action)
+            if (record.condition_review != review or record.next_action != next_action or
+                    record.decision != choose_action(record.request.plan, record.features)):
+                raise ValueError("saved decision or condition review changed")
             found[record.record_id] = record
         return found
 
@@ -172,6 +193,44 @@ class DecisionStore:
                 for outcome, hypothesis_id in question.observation_routes.items()) for question in questions):
             raise ValueError("check routes do not match a registered diagnosis question")
 
+    def _conditions(self, request: DecisionRequest) -> list[ConditionRecord]:
+        if request.condition_scope is None:
+            return []
+        scope = request.condition_scope
+        if (scope.task_id != request.task_id or scope.run_id != request.run_id or
+                scope.source_snapshot_sha256 != request.plan.source_snapshot_sha256 or
+                (request.candidate_id is not None and scope.candidate_id != request.candidate_id)):
+            raise ValueError("condition scope belongs to another decision owner or feedback candidate")
+        records = ConditionStore(self.workspace).records()
+        hypotheses = {identifier for direction in request.plan.directions for identifier in direction.hypothesis_ids}
+        selected: list[ConditionRecord] = []
+        for identifier in sorted(request.condition_result_ids):
+            record = records.get(identifier)
+            if record is None:
+                raise ValueError("condition result is not registered")
+            checked = record.result.request
+            if (checked.scope != scope or checked.diagnosis_id != request.diagnosis_id or
+                    checked.hypothesis_id not in hypotheses):
+                raise ValueError("condition result has another scope, diagnosis or direction hypothesis")
+            selected.append(record)
+        return selected
+
+    @staticmethod
+    def _condition_review(request: DecisionRequest, records: list[ConditionRecord],
+                          features: PolicyFeatures) -> FeedbackDecision | None:
+        if not records:
+            return None
+        if not features.obligation_tracking:
+            return FeedbackDecision(action="retain_uncertainty", reason="condition association is disabled")
+        violated = {record.result.request.hypothesis_id for record in records if record.result.status == "violated"}
+        affected = [direction.direction_id for direction in request.plan.directions
+                    if violated.intersection(direction.hypothesis_ids)]
+        if not affected:
+            return FeedbackDecision(action="retain_uncertainty",
+                reason="scoped synthetic calculations do not confirm a root cause or successful repair")
+        return FeedbackDecision(action="reconsider_repair", affected_direction_ids=affected,
+            reason="a scoped synthetic condition is violated; inspect related directions, applicability remains inferred")
+
     def decide(self, request: DecisionRequest, *, ledger: CheckLedger, features: PolicyFeatures,
                capabilities: frozenset[str]) -> DecisionRecord:
         if (request.task_id != self.workspace.task_id or request.run_id != self.workspace.run_id or
@@ -183,10 +242,12 @@ class DecisionStore:
         bundle = bundles[request.diagnosis_id]
         self._bind(request, bundle)
         feedback = self._feedback(request, bundle, ledger)
+        conditions = self._conditions(request)
         plan = request.plan.model_copy(update={"available_capabilities": set(capabilities) & {"read_source", "read_log"},
                                               "remaining_probe_budget": 0})
         request = request.model_copy(update={"plan": plan})
         decision = choose_action(plan, features)
+        condition_review = self._condition_review(request, conditions, features)
         reconsideration = None
         hard: list[str] = []
         advisory: list[str] = []
@@ -205,17 +266,20 @@ class DecisionStore:
                     "evidence": [item.model_dump(mode="json", exclude={"created_at"}) for item in bundle["evidence"]],
                     "obligations": [item.model_dump(mode="json", exclude={"created_at"}) for item in bundle["obligations"]]},
                    "feedback": feedback.model_dump() if feedback else None,
+                   "conditions": [record.model_dump(mode="json") for record in conditions],
                    "referenced_obligations": {identifier: item.model_dump(mode="json", exclude={"created_at"}) for identifier, item in
                        self.analysis.obligations().items() if any(identifier in direction.obligation_ids
                                                                 for direction in plan.directions)}}
         context_hash = sha256(canonical(context))
         identifier = "decision-" + sha256(canonical({"request": _request_value(request),
                                                     "context_sha256": context_hash, "features": features.model_dump()}))
-        next_action = ("reconsider_repair" if reconsideration and reconsideration.action == "reconsider_repair"
+        next_action = ("reconsider_repair" if ((reconsideration and reconsideration.action == "reconsider_repair") or
+                       (condition_review and condition_review.action == "reconsider_repair"))
                        else decision.action)
         record = DecisionRecord(task_id=self.workspace.task_id, run_id=self.workspace.run_id, record_id=identifier,
             created_at=datetime.now(UTC), source_snapshot_sha256=self.workspace.source_snapshot_sha256,
             request=request, context_sha256=context_hash, features=features, decision=decision, feedback=reconsideration,
+            condition_review=condition_review,
             next_action=next_action, advisory_obligation_ids=advisory, hard_rejected_obligation_ids=hard)
         existing = self.records().get(identifier)
         if existing is not None:

@@ -7,6 +7,8 @@ Expressions in the diagnosis are references only; this module never evaluates th
 from __future__ import annotations
 
 import json
+import stat
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, model_validator
@@ -20,6 +22,7 @@ from .contracts import (
 )
 from .diagnostics import AnalysisStore, safe_source
 from .task import digest, snapshot_digest
+from .verification import _atomic_json
 from .workspace import CandidateWorkspace, _manifest
 
 ConditionKind = Literal["array_index", "data_view_access", "typed_array_view", "ready_at_use"]
@@ -132,6 +135,22 @@ class SyntheticObservations:
         return (proposed.origin == "synthetic_fixture" and
                 self._payloads.get(proposed.observation_id) == _payload(proposed))
 
+    def get(self, observation_id: str) -> ObservationBatch:
+        require_identifiers([observation_id])
+        if observation_id not in self._payloads:
+            raise ValueError("observation is not registered")
+        return ObservationBatch.model_validate_json(self._payloads[observation_id])
+
+    def value(self) -> list[dict]:
+        return [self.get(identifier).model_dump(mode="json") for identifier in sorted(self._payloads)]
+
+    def fingerprint(self) -> str:
+        return digest(json.dumps(self.value(), sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode())
+
+    def descriptions(self) -> list[dict]:
+        return [{"observation_id": item.observation_id, "scope": item.scope.model_dump(mode="json"),
+                 "origin": item.origin} for item in (self.get(identifier) for identifier in sorted(self._payloads))]
+
 
 class PredicateFinding(Contract):
     predicate: str
@@ -148,8 +167,67 @@ class ConditionResult(Contract):
     support_level: Literal["synthetic", "unknown"]
     findings: list[PredicateFinding] = Field(default_factory=list)
     unknown_reasons: list[str] = Field(default_factory=list)
+    applicability_authority: Literal["model_inference"] = "model_inference"
     root_cause_confirmation: Literal["unknown"] = "unknown"
     application_verification: Literal["not_run"] = "not_run"
+
+    @model_validator(mode="after")
+    def valid_result(self) -> ConditionResult:
+        require_hash(self.request_sha256)
+        if self.request_sha256 != digest(_payload(self.request).encode()):
+            raise ValueError("condition request hash changed")
+        if (self.observation_id is None) != (self.observation_sha256 is None):
+            raise ValueError("condition observation requires both identity and hash")
+        if self.observation_id is not None:
+            require_identifiers([self.observation_id])
+            require_hash(self.observation_sha256 or "")
+        if self.status == "unknown":
+            if self.support_level != "unknown" or self.findings or not self.unknown_reasons:
+                raise ValueError("unknown condition cannot contain a resolved finding")
+        else:
+            if (self.support_level != "synthetic" or not self.findings or self.unknown_reasons or
+                    self.observation_id is None):
+                raise ValueError("resolved condition requires synthetic findings")
+            violated = any(item.status == "violated" for item in self.findings)
+            if (self.status == "violated") != violated:
+                raise ValueError("condition status disagrees with its findings")
+        return self
+
+
+class ConditionInputs(Contract):
+    task_id: str
+    run_id: str
+    source_snapshot_sha256: str
+    observations: list[ObservationBatch]
+
+    @model_validator(mode="after")
+    def valid_inputs(self) -> ConditionInputs:
+        require_identifiers([self.task_id, self.run_id])
+        require_hash(self.source_snapshot_sha256)
+        SyntheticObservations(self.observations)
+        return self
+
+
+class ConditionRecord(Contract):
+    result_id: str
+    observations_sha256: str
+    diagnosis_sha256: str
+    result: ConditionResult
+
+    @model_validator(mode="after")
+    def valid_record(self) -> ConditionRecord:
+        require_identifiers([self.result_id])
+        require_hash(self.observations_sha256)
+        require_hash(self.diagnosis_sha256)
+        if self.result_id != _result_id(self.result, self.observations_sha256, self.diagnosis_sha256):
+            raise ValueError("condition result identity changed")
+        return self
+
+
+def _result_id(result: ConditionResult, observations_sha256: str, diagnosis_sha256: str) -> str:
+    semantic = {"result": result.model_dump(mode="json"), "observations_sha256": observations_sha256,
+                "diagnosis_sha256": diagnosis_sha256}
+    return "condition-" + digest(json.dumps(semantic, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode())
 
 
 class ConditionEvaluator:
@@ -261,3 +339,132 @@ class ConditionEvaluator:
                         finding("whole_remaining_elements", (capacity - offset) % width == 0, **numbers)
         status: Status = "violated" if any(item.status == "violated" for item in findings) else "satisfied"
         return ConditionResult(**common, status=status, support_level="synthetic", findings=findings)
+
+
+class ConditionStore:
+    """Save host inputs and deterministically revalidate each immutable calculation.
+
+    The stored fixtures remain synthetic. Readback checks input, diagnosis and
+    source bindings again; it does not turn a previously calculated predicate
+    into execution evidence or confirm its model-proposed applicability.
+    """
+
+    def __init__(self, workspace: CandidateWorkspace, observations: SyntheticObservations | None = None):
+        self.workspace = workspace
+        self._registered_sha256: str | None = None
+        path = self._safe_path(workspace.root / "condition-inputs.json")
+        if observations is not None:
+            proposed = SyntheticObservations([ObservationBatch.model_validate_json(json.dumps(value))
+                                              for value in observations.value()])
+            if path.exists():
+                if self._read_registry().fingerprint() != proposed.fingerprint():
+                    raise ValueError("registered condition inputs changed")
+            else:
+                inputs = ConditionInputs(task_id=workspace.task_id, run_id=workspace.run_id,
+                    source_snapshot_sha256=workspace.source_snapshot_sha256,
+                    observations=[proposed.get(item["observation_id"]) for item in proposed.descriptions()])
+                self._safe_path(path.with_name(path.name + ".new"))
+                _atomic_json(path, inputs.model_dump(mode="json"))
+        if path.exists():
+            self._registered_sha256 = self._read_registry().fingerprint()
+
+    def _safe_path(self, path: Path, *, directory: bool = False) -> Path:
+        if not path.is_relative_to(self.workspace.root):
+            raise ValueError("condition path is outside its workspace")
+        components = [self.workspace.root]
+        for part in path.relative_to(self.workspace.root).parts:
+            components.append(components[-1] / part)
+        for index, component in enumerate(components):
+            try:
+                info = component.lstat()
+            except FileNotFoundError:
+                continue
+            if (stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) &
+                    getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                raise ValueError("condition input or result path is linked")
+            expected_directory = index < len(components) - 1 or directory
+            if ((expected_directory and not stat.S_ISDIR(info.st_mode)) or
+                    (not expected_directory and not stat.S_ISREG(info.st_mode))):
+                raise ValueError("condition input or result path has the wrong type")
+            if not expected_directory and info.st_nlink > 1:
+                raise ValueError("condition input or result file is linked")
+        return path
+
+    def _read_registry(self) -> SyntheticObservations:
+        path = self._safe_path(self.workspace.root / "condition-inputs.json")
+        if not path.is_file():
+            raise ValueError("condition input registry is missing")
+        inputs = ConditionInputs.model_validate_json(path.read_text(encoding="utf-8"))
+        if (inputs.task_id != self.workspace.task_id or inputs.run_id != self.workspace.run_id or
+                inputs.source_snapshot_sha256 != self.workspace.source_snapshot_sha256):
+            raise ValueError("condition inputs belong to another task, run or snapshot")
+        registry = SyntheticObservations(inputs.observations)
+        if self._registered_sha256 is not None and registry.fingerprint() != self._registered_sha256:
+            raise ValueError("registered condition inputs changed")
+        return registry
+
+    @property
+    def registry(self) -> SyntheticObservations:
+        return self._read_registry()
+
+    @property
+    def observations_sha256(self) -> str:
+        return self.registry.fingerprint()
+
+    def _diagnosis_hash(self, diagnosis_id: str) -> str:
+        bundles = AnalysisStore(self.workspace).bundles()
+        if diagnosis_id not in bundles:
+            raise ValueError("condition diagnosis is not registered")
+        bundle = bundles[diagnosis_id]
+        semantic = {"diagnosis": bundle["diagnosis"].model_dump(mode="json", exclude={"created_at"}),
+                    "evidence": [item.model_dump(mode="json", exclude={"created_at"})
+                                 for item in sorted(bundle["evidence"], key=lambda item: item.record_id)],
+                    "obligations": [item.model_dump(mode="json", exclude={"created_at"})
+                                    for item in sorted(bundle["obligations"], key=lambda item: item.record_id)]}
+        return digest(json.dumps(semantic, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode())
+
+    def records(self) -> dict[str, ConditionRecord]:
+        folder = self._safe_path(self.workspace.root / "conditions", directory=True)
+        paths = sorted(folder.glob("*.json"))
+        if not paths:
+            return {}
+        registry = self.registry
+        fingerprint = registry.fingerprint()
+        found: dict[str, ConditionRecord] = {}
+        evaluator = ConditionEvaluator(self.workspace, registry)
+        for path in paths:
+            self._safe_path(path)
+            record = ConditionRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            if path.stem != record.result_id or record.observations_sha256 != fingerprint:
+                raise ValueError("condition result has another identity or input registry")
+            request = record.result.request
+            if record.diagnosis_sha256 != self._diagnosis_hash(request.diagnosis_id):
+                raise ValueError("condition diagnosis changed")
+            batch = registry.get(record.result.observation_id) if record.result.observation_id is not None else None
+            current = evaluator.evaluate(request, batch)
+            if current != record.result:
+                raise ValueError("condition calculation result changed")
+            found[record.result_id] = record
+        return found
+
+    def evaluate(self, request: ConditionRequest, observation_id: str | None = None) -> ConditionRecord:
+        # JSON validation breaks aliases and catches mutations made after model construction.
+        request = ConditionRequest.model_validate_json(request.model_dump_json())
+        registry = self.registry
+        batch = registry.get(observation_id) if observation_id is not None else None
+        result = ConditionEvaluator(self.workspace, registry).evaluate(request, batch)
+        fingerprint = registry.fingerprint()
+        diagnosis_hash = self._diagnosis_hash(request.diagnosis_id)
+        record = ConditionRecord(result_id=_result_id(result, fingerprint, diagnosis_hash),
+            observations_sha256=fingerprint, diagnosis_sha256=diagnosis_hash, result=result)
+        existing = self.records().get(record.result_id)
+        if existing is not None:
+            if existing != record:
+                raise ValueError("condition result changed")
+            return existing
+        folder = self._safe_path(self.workspace.root / "conditions", directory=True)
+        folder.mkdir(exist_ok=True)
+        path = self._safe_path(folder / f"{record.result_id}.json")
+        self._safe_path(path.with_name(path.name + ".new"))
+        _atomic_json(path, record.model_dump(mode="json"))
+        return record
