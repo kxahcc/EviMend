@@ -1,0 +1,43 @@
+{
+  "session_id": "session-2026-09-30-registered-decisions",
+  "date": "2026-09-30",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "P0 registered diagnosis and candidate-bound counterexamples to repair-decision exchange",
+  "user_request_summary": "继续实施下一工作包，仅做本机受管合成软件自检。",
+  "changes": [
+    "新增 decisions.py：DecisionRequest 绑定任务、运行、源码、诊断及 PolicyInput，方向须引用已登记假设、证据和相关义务，检查映射对应已登记区分问题。",
+    "plan_repair_action 核对实际主机能力并将离线探针预算固定为零；同修法直接、有效已有证据补查、未知和相关失败重审均保留。",
+    "失败后只接纳已保存反馈，重新核对原候选版本、检查执行 ID、原观察及 synthetic/local_execution/model_inference 范围，不接受模型自报检查。",
+    "不可改写决策记录保存规范化请求、语义上下文哈希、策略开关及建议；身份摘要不含接纳时间。inspect_analysis 可读取 schema 和决策；报告包含决策。",
+    "候选可成对引用 decision_id/direction_id；核对诊断、方向和声明义务，不把建议或推断义务作为强制修法或硬拒绝。",
+    "保存决策纳入 record_analysis 工具授权；session schema 4 冻结新工具格式，旧会话保留证据而不续跑。同步已有开发文档，不改竞赛模板或原数据。"
+  ],
+  "validation": {
+    "entry": "scripts/local.ps1 Run with Task=test/docs/ruff/pyright; sequential managed tasks",
+    "registered_decisions": "21 passed; .dfx-local/artifacts/3cb6824b-9b7f-4e7d-84fe-1c255920185f.log",
+    "policy_regression": "10 passed; .dfx-local/artifacts/a548049f-1e5d-4793-b268-af8c1d57eedd.log",
+    "tool_authorization_regression": "15 passed; .dfx-local/artifacts/f8641396-a144-48c7-bfbe-0b7d417810d1.log",
+    "causal_diagnosis_regression": "21 passed; .dfx-local/artifacts/7bed80f3-0b49-4131-90e9-210e323839cd.log",
+    "agent_loop_regression": "12 passed; .dfx-local/artifacts/12f0c561-7ce0-4968-9149-f6a72193cb19.log",
+    "contract_regression": "5 passed; .dfx-local/artifacts/9ce7504d-2d09-46e4-8a85-7ca643d3b790.log",
+    "workspace_regression": "4 passed, 1 skipped (Windows account cannot create symlink); .dfx-local/artifacts/cdcff98e-2822-4a1c-b775-17f649002a79.log",
+    "ruff": "passed; .dfx-local/artifacts/fd903f9c-5af3-41f4-8f61-c0f211a2a07c.log",
+    "pyright": "0 errors, 0 warnings; .dfx-local/artifacts/5e2c713a-f54c-456b-8eda-6f2172300904.log",
+    "docs": "14 documents, 0 errors; .dfx-local/artifacts/d94eeb61-4ea5-4c86-8f01-07d741a3d7fe.log",
+    "real_model_repair_runs": 0,
+    "application_replays": 0
+  },
+  "environment": {
+    "new_dependencies_or_toolchains": false,
+    "active_managed_task_after_checks": false,
+    "managed_bytes_status_snapshot": 316530938,
+    "size_scope": "Existing project environment plus caches, temporary work and logs; not all newly created in this batch"
+  },
+  "limitations": [
+    "引用和区分映射合法不证明因果、修法等价、业务义务或模型判断正确；关联保持推断层级。",
+    "决策工具只返回建议，不执行条件检查或诊断探针，固定响应 SDK 路径不证明真实模型效果。",
+    "反馈仅来自合成检查；可信运行条件、共同业务验收及本机真实执行尚未接入，应用验证仍为 not_run。"
+  ],
+  "next_work_package": "P0 first typed runtime-condition contracts and synthetic checkers (bounds/units and initialization/lifecycle)"
+}

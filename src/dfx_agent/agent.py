@@ -36,6 +36,7 @@ from .contracts import (
     admit_evidence,
     require_path,
 )
+from .decisions import DecisionRequest, DecisionStore, feedback_key
 from .diagnostics import AnalysisStore, DiagnosisSubmission
 from .logs import MAX_LOG_BYTES
 from .model_calls import ModelCallStore, ModelCallUncertain
@@ -43,8 +44,6 @@ from .models import FixedResponseModel, ModelLimit
 from .policies import (
     Counterexample,
     PolicyFeatures,
-    PolicyInput,
-    choose_action,
     rule_guidance,
 )
 from .task import digest, verify_task
@@ -79,19 +78,23 @@ def _known_obligations(workspace: CandidateWorkspace) -> dict[str, RepairObligat
 
 def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: int,
            task_directory: Path, crash_log: str, crash_sha256: str,
-           policy_features: PolicyFeatures) -> list[Any]:
+           policy_features: PolicyFeatures, host_capabilities: frozenset[str] | None = None) -> list[Any]:
     analysis = AnalysisStore(workspace)
+    decisions = DecisionStore(workspace)
+    host_capabilities = OFFLINE_CAPABILITIES if host_capabilities is None else host_capabilities
 
     @tool
-    def inspect_analysis(diagnosis_id: str | None = None, include_schema: bool = False,
+    def inspect_analysis(diagnosis_id: str | None = None, include_schema: bool = False, decision_id: str | None = None,
                          proposal_json: str | None = None) -> str:
-        """Read task/run identity, recorded diagnoses, or the schema for record_diagnosis's diagnosis_json."""
+        """Read task/run identity, registered diagnoses/decisions, or diagnosis and decision request schemas."""
         try:
             bundles = analysis.bundles()
             value: dict[str, Any] = {"task_id": workspace.task_id, "run_id": workspace.run_id,
                                      "source_snapshot_sha256": workspace.source_snapshot_sha256,
                                      "diagnosis_ids": sorted(bundles),
                                      "obligation_ids": sorted(analysis.obligations()),
+                                     "decision_ids": sorted(decisions.records()),
+                                     "feedback_ids": decisions.feedback_ids(),
                                      "obligation_tracking": policy_features.obligation_tracking}
             if diagnosis_id is not None:
                 if diagnosis_id not in bundles:
@@ -102,9 +105,15 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
                                    "obligations": [item.model_dump(mode="json") for item in bundle["obligations"]]}
             if include_schema:
                 value["submission_schema"] = DiagnosisSubmission.model_json_schema()
+                value["decision_request_schema"] = DecisionRequest.model_json_schema()
                 value["admission_rules"] = ["All model hypotheses and obligations retain unknown status.",
                     "All model causal relations and obligations retain model_inference authority.",
                     "Source/log citations are read by the host; feedback must match a saved failed check."]
+            if decision_id is not None:
+                records = decisions.records()
+                if decision_id not in records:
+                    raise ValueError("decision is not registered")
+                value["decision"] = records[decision_id].model_dump(mode="json")
             return json.dumps(value)
         except (OSError, ValueError, ValidationError, KeyError) as exc:
             return f"rejected: {exc}"
@@ -226,7 +235,8 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
 
     @tool
     def register_candidate(diagnosis_id: str = "", restores: list[str] | None = None,
-                           preserves: list[str] | None = None, proposal_json: str | None = None) -> str:
+                           preserves: list[str] | None = None, decision_id: str | None = None,
+                           direction_id: str | None = None, proposal_json: str | None = None) -> str:
         """Freeze a complete draft diff and return its immutable candidate ID."""
         try:
             candidates = _current_candidates(workspace)
@@ -239,6 +249,10 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
                 if not path.is_file() or path.is_symlink():
                     raise ValueError("diagnosis is not registered")
             restores, preserves = restores or [], preserves or []
+            if (decision_id is None) != (direction_id is None):
+                raise ValueError("candidate decision and direction must be supplied together")
+            if decision_id is not None and direction_id is not None:
+                decisions.candidate_link(decision_id, direction_id, diagnosis_id, restores + preserves)
             if restores or preserves:
                 if not policy_features.obligation_tracking:
                     raise ValueError("obligation tracking is disabled")
@@ -246,7 +260,8 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
                 if any(item not in known for item in (*restores, *preserves)):
                     raise ValueError("candidate refers to an unknown obligation")
             candidate = workspace.register_candidate(len(candidates) + 1, diagnosis_id or None,
-                                                     restores=restores, preserves=preserves)
+                                                     restores=restores, preserves=preserves,
+                                                     decision_id=decision_id, direction_id=direction_id)
             return json.dumps({"candidate_id": candidate.candidate_id, "ordinal": candidate.ordinal})
         except (OSError, ValueError, ValidationError) as exc:
             return f"rejected: {exc}"
@@ -285,14 +300,14 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             folder.mkdir(exist_ok=True)
             if folder.is_symlink():
                 raise ValueError("feedback directory is linked")
-            key = digest((result.idempotency_key + ":" + ",".join(sorted(violated_obligation_ids))).encode())
+            key = feedback_key(feedback)
             path = folder / f"{key}.json"
             if path.exists():
                 if path.is_symlink() or Counterexample.model_validate_json(path.read_text(encoding="utf-8")) != feedback:
                     raise ValueError("feedback identity changed")
             else:
                 _atomic_json(path, feedback.model_dump())
-            return feedback.model_dump_json()
+            return json.dumps({**feedback.model_dump(), "feedback_id": key})
         except (OSError, ValueError, ValidationError, KeyError) as exc:
             return f"rejected: {exc}"
 
@@ -304,16 +319,12 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
 
     @tool
     def plan_repair_action(plan_json: str, proposal_json: str | None = None) -> str:
-        """Get version-bound advice on direct repair versus a distinguishing check."""
+        """Submit DecisionRequest bound to a diagnosis; inspect_analysis(include_schema=True) provides the schema."""
         try:
-            plan = PolicyInput.model_validate_json(plan_json)
-            if plan.source_snapshot_sha256 != workspace.source_snapshot_sha256:
-                raise ValueError("policy plan refers to another source snapshot")
-            # The model may propose a check, but capabilities and budget come from the host.
-            plan = plan.model_copy(update={"available_capabilities": {"read_source", "read_log"},
-                                           "remaining_probe_budget": 0})
-            return choose_action(plan, policy_features).model_dump_json()
-        except (ValueError, ValidationError) as exc:
+            request = DecisionRequest.model_validate_json(plan_json)
+            return decisions.decide(request, ledger=ledger, features=policy_features,
+                                    capabilities=host_capabilities).model_dump_json()
+        except (OSError, ValueError, ValidationError, KeyError) as exc:
             return f"rejected: {exc}"
 
     return [read_log, list_source, read_source, inspect_analysis, record_diagnosis, edit_source,
@@ -341,7 +352,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
     session_path = workspace.root / "session.json"
     if resume:
         session = json.loads(session_path.read_text(encoding="utf-8"))
-        if session != {"schema_version": 3, "run_id": run_id, "started_at": session.get("started_at"),
+        if session != {"schema_version": 4, "run_id": run_id, "started_at": session.get("started_at"),
                        "max_calls": max_calls, "max_known_tokens": max_known_tokens,
                        "max_seconds": max_seconds, "max_candidates": max_candidates,
                        "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
@@ -353,7 +364,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
             raise ValueError("session start time has no timezone")
     else:
         started_at = datetime.now(UTC)
-        _atomic_json(session_path, {"schema_version": 3, "run_id": run_id,
+        _atomic_json(session_path, {"schema_version": 4, "run_id": run_id,
                                     "started_at": started_at.isoformat(), "max_calls": max_calls,
                                     "max_known_tokens": max_known_tokens, "max_seconds": max_seconds,
                                     "max_candidates": max_candidates,
@@ -380,7 +391,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         graph = create_deep_agent(
             model=model, tools=_tools(workspace, ledger, max_candidates,
                                       task, task_info["crash_log"], task_info["crash_sha256"],
-                                      policy_features),
+                                      policy_features, capabilities),
             backend=FilesystemBackend(root_dir=workspace.base, virtual_mode=True),
             checkpointer=saver, subagents=[],
             middleware=[ToolAuthorizationMiddleware(
@@ -447,6 +458,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         "missing_usage_calls": model.missing_usage_calls,
         "uncertain_model_calls": model_calls.usage_summary(workspace.task_id, run_id)["uncertain_calls"],
         "actions": action_records, "tool_calls": len(action_records),
+        "decisions": [record.model_dump(mode="json") for record in DecisionStore(workspace).records().values()],
         "rejected_tool_calls": sum(item["rejection"] is not None for item in action_records),
         "uncertain_tool_calls": uncertain_actions,
         "model_calls_this_turn": model.calls - prior_calls,

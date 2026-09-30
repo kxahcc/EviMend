@@ -232,12 +232,17 @@ class CandidatePatch(Record):
     candidate_snapshot_sha256: str
     diff_sha256: str
     diagnosis_id: str | None = None
+    decision_id: str | None = None
+    direction_id: str | None = None
     changed_paths: list[str] = Field(min_length=1)
     restores: list[str] = Field(default_factory=list)
     preserves: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def valid_candidate(self) -> CandidatePatch:
+        if (self.decision_id is None) != (self.direction_id is None):
+            raise ValueError("candidate decision and direction must be supplied together")
+        require_identifiers([value for value in (self.diagnosis_id, self.decision_id, self.direction_id) if value is not None])
         for value in (self.candidate_id, self.parent_snapshot_sha256, self.candidate_snapshot_sha256, self.diff_sha256):
             require_hash(value)
         if self.parent_snapshot_sha256 != self.source_snapshot_sha256:

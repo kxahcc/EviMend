@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from test_agent_loop import response, task_snapshot
+from test_decisions import decision_request, registered_context
 
 from dfx_agent.agent import _tools, run_fixed_agent
 from dfx_agent.cli import main as cli_main
@@ -150,13 +151,10 @@ def test_agent_keeps_common_tools_and_resume_freezes_policy_features(tmp_path: P
 
 def test_model_cannot_grant_itself_probe_capability(tmp_path: Path) -> None:
     task = task_snapshot(tmp_path)
-    workspace = CandidateWorkspace(task, tmp_path / "policy-run", "run1")
-    ledger = CheckLedger(workspace, FixedTextExecutor("src/main.ets", "value=good\n"))
-    tools = {item.name: item for item in _tools(workspace, ledger, 3, task,
-             "crash.log", digest(b"synthetic crash"), FULL)}
-    requested = plan([FIRST, SECOND], PROBE, capabilities={"diagnostic_execution"})
-    requested.source_snapshot_sha256 = workspace.source_snapshot_sha256
-    answer = tools["plan_repair_action"].invoke({"plan_json": requested.model_dump_json()})
+    _, _, tools = registered_context(task, tmp_path / "policy-run")
+    requested = decision_request(task, check=True)
+    requested["plan"]["check"].update(kind="execution_probe", capability="diagnostic_execution")
+    answer = tools["plan_repair_action"].invoke({"plan_json": json.dumps(requested)})
     assert '"action":"attempt_with_unknown"' in answer
 
 

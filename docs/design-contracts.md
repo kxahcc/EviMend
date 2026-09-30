@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
 状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-09-30。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务与候选的结构化交接、模型账本、逐工具授权和动作恢复已接入固定响应离线循环；应用接受门、模拟 HTTP 协议及策略分支也已有合成实现。因果关系的实际检验、诊断到决策的完整映射、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、修复决策与候选的结构化交接、模型账本、逐工具授权和动作恢复已接入固定响应离线循环；应用接受门、模拟 HTTP 协议及策略分支也已有合成实现。因果关系的实际检验、运行条件计算、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -63,9 +63,23 @@ RepairObligation 用 record_id 作为 obligation_id，包含 kind（runtime_cond
 
 收到响应后保存规范化消息及哈希、提供方消息 ID（如可得）、工具调用名称/ID/参数摘要、格式问题与 `usage_metadata` 的真实 input/output/total。原始消息仅保留在本机受管状态用于检查点落盘前恢复，不进入 Git 或默认汇总导出。格式错误也算已完成的一次调用，不能丢掉它的 usage；缺失或无效 usage 单独标记 `missing`/`invalid`，统计只有已知 Token 和未知调用数，不从文本长度补估。`text_only`、模型自称成功、工具参数或模型推断都不产生执行证据。固定响应 Deep Agents 模型入口已通过账本并把主机调用身份绑定到工具授权；Graph 检查点之前的完成响应可回放，已发出且未保存的响应停止为 unknown。真实 LangChain 提供方、其底层重试的逐次计费、实际 Token 硬限额和应用接受门接入仍待完成。
 
+### 1.2.3 已登记诊断到修复决策
+
+`plan_repair_action(plan_json=...)` 接收 `DecisionRequest`，由 `inspect_analysis(include_schema=True)` 提供 schema。请求绑定 task_id、run_id、diagnosis_id 和含源码版本的 PolicyInput；失败后再决策须成对传 candidate_id 与已保存的 feedback_id，不接受模型自填失败观察。旧的独立 PolicyInput 仍可供纯策略函数使用，已不作为 SDK 工具输入。
+
+每个 RepairDirection 包含 direction_id、hypothesis_ids、support_evidence_ids、obligation_ids、repair_key 和 acceptance_key。方向须引用本诊断的假设和证据，包含相关假设已关联的义务；义务须与方向假设或同包依据有关。检查的 outcome→方向映射须对应已登记 DiagnosticQuestion 的 outcome→假设映射；类型和能力须匹配。这里只核对引用，不能证明证据足以支持方向。repair_key/acceptance_key 相等是模型声明的修法/验收等价，未通过补丁或业务行为验证。
+
+主机覆盖模型填写的可用能力和探针预算：离线路径仅保留主机实际提供的 read_source/read_log，执行探针预算为零。同修法且同验收直接建议候选；不同修法须有区分力、能力和预算才建议补查；否则允许带 unknown 尝试或 unresolved。建议本身不读取源码或执行探针，实际读改查仍经过共享工具授权与预算。
+
+有效反馈必须来自同任务已冻结候选的已保存失败合成检查，匹配候选源码哈希、execution_id 和原观察。引用另一诊断时该诊断须明确 feedback_candidate_id。失败关联的义务必须已由原候选声明；scope=synthetic、evidence_kind=local_execution、link_authority=model_inference。只重新考虑相关方向，不硬拒绝推断义务，不把失败解释升级为已证实的因果关系；关闭增强时保持一般未知路径。
+
+`decisions.py` 保存不可改写的 DecisionRecord：规范化请求、诊断/义务/反馈上下文哈希、策略开关、原始策略建议、反馈建议、最终 next_action 及推断层级。身份摘要排除接纳时间等审计元数据，但保留语义输入；相同请求和上下文回读原结果。inspect_analysis 可列出决策/反馈 ID 并按 decision_id 回读；报告包含这些决策。保存决策属于 record_analysis，不冒充执行检查。
+
+候选可选成对引用 decision_id/direction_id；主机核对同诊断、已提议方向和候选声明义务。决策是建议，允许模型选择其他已提议方向；未知建议本身不阻止合法候选登记。当前还没有运行条件计算、自动确认根因或真实应用反馈接入。
+
 ### 1.3 补丁、验证和尝试
 
-CandidatePatch 包含 candidate_id、ordinal、parent_snapshot_sha256、diff_sha256、diagnosis_id、intended_constraint、restores、preserves、preserved_behaviors、changed_paths、verification_obligations。完整 diff 登记后才进入任何候选专属检查；格式错误、无法应用和局部检查失败同样记为已产生候选的失败。
+CandidatePatch 当前保存 candidate_id、ordinal、parent_snapshot_sha256、candidate_snapshot_sha256、diff_sha256、diagnosis_id、changed_paths、restores、preserves 及可选成对的 decision_id/direction_id。拟议 intended_constraint、preserved_behaviors、verification_obligations 的信息目前由关联诊断/义务表达，尚未独立实现这些字段。完整 diff 登记后才进入任何候选专属检查；格式错误、无法应用和局部检查失败同样记为已产生候选的失败。
 
 没有生成完整候选的模型失败记录为 generation_failure，计入总成本，但不伪造一个可验证候选。首次候选通过率同时报告“全部任务”为分母的端到端口径，避免把未生成补丁的任务排除后抬高成绩。
 
@@ -117,7 +131,7 @@ Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和�
 
 规则卡是后续 Skill 的知识来源，不包含案例编号到答案的映射。未知语义进入 missing_evidence，不能由通用模板代替业务判断。
 
-W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，通过 `consult_rule` 访问；未知类别或关闭规则开关时返回通用路径。`plan_repair_action` 接受当前源码版本、修复方向及观测到方向的映射；若修法和验收相同，直接建议生成候选。不同修法只有在观测可改变修法且能力/预算允许时才建议查证。当前 Agent 主机只授权已有日志/源码读取，没有诊断执行探针，因此模型自行填入探针能力或预算不会令其运行。建议本身不执行检查，也不判定根因正确。
+W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，通过 `consult_rule` 访问；未知类别或关闭规则开关时返回通用路径。修复方向、义务、区分问题与实际失败的绑定统一见第 1.2.3 节；Agent 当前只授权已有日志/源码读取，没有诊断执行探针。下面条件是规则知识，尚未实现为可执行检查器，不能把提示命中解释为条件已满足或根因正确。
 
 义务记录由模型工具创建时固定为 `model_inference`，须引用已登记诊断证据；候选的 restores/preserves 只能引用本次运行、本源码版本已登记的义务。合成检查实际失败后，模型可把失败与候选义务关联为 `scope=synthetic`、`link_authority=model_inference` 的反例；观察文本来自执行器，违反哪项义务仍是模型解释，不构成硬拒绝或应用行为证据。反例只关联原候选哈希及源码版本。可信需求、独立业务判据和应用反馈接入后，才能提高证据层级。
 
@@ -197,4 +211,4 @@ Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/s
 
 ## 6. 关联与待完成规格
 
-工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录及固定响应交接已可执行；诊断到修复决策的完整映射、运行条件检查、可信应用验证对象与本机执行控制仍待闭合和实测。
+工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录到修复决策及候选的固定响应交接已可执行；运行条件检查、可信应用验证对象接纳与本机执行控制仍待闭合和实测。

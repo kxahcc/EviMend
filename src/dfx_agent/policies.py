@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .contracts import IDENTIFIER, require_hash
+from .contracts import IDENTIFIER, require_hash, require_unique
 
 
 class PolicyFeatures(BaseModel):
@@ -69,13 +69,16 @@ class RepairDirection(BaseModel):
     acceptance_key: str
     support_evidence_ids: list[str] = Field(default_factory=list)
     obligation_ids: list[str] = Field(default_factory=list)
+    hypothesis_ids: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def valid_ids(self) -> RepairDirection:
         for value in (self.direction_id, self.repair_key, self.acceptance_key,
-                      *self.support_evidence_ids, *self.obligation_ids):
+                      *self.support_evidence_ids, *self.obligation_ids, *self.hypothesis_ids):
             if not IDENTIFIER.fullmatch(value):
                 raise ValueError("invalid policy identifier")
+        for values in (self.support_evidence_ids, self.obligation_ids, self.hypothesis_ids):
+            require_unique(values)
         return self
 
 
@@ -206,6 +209,9 @@ class Counterexample(BaseModel):
             require_hash(value)
         if not IDENTIFIER.fullmatch(self.execution_id):
             raise ValueError("invalid execution identifier")
+        if any(not IDENTIFIER.fullmatch(value) for value in self.violated_obligation_ids):
+            raise ValueError("invalid feedback obligation identifier")
+        require_unique(self.violated_obligation_ids)
         return self
 
 

@@ -18,6 +18,7 @@ from langgraph.types import Command
 from pydantic import BaseModel, ValidationError
 
 from .contracts import ActionProposal, authorize_action
+from .decisions import DecisionStore
 from .diagnostics import AnalysisStore
 from .model_calls import ModelCallStore, canonical, sha256
 from .workspace import CandidateWorkspace
@@ -31,7 +32,7 @@ TOOL_ACTIONS: dict[str, tuple[str, str]] = {
     "record_obligation": ("record_analysis", "record_analysis"),
     "link_failed_check": ("record_analysis", "record_analysis"),
     "consult_rule": ("inspect_existing", "read_source"),
-    "plan_repair_action": ("inspect_existing", "read_source"),
+    "plan_repair_action": ("record_analysis", "record_analysis"),
     "edit_source": ("edit_draft", "edit_source"),
     "register_candidate": ("register_candidate", "register_candidate"),
     "run_check": ("run_verification", "verify_candidate"),
@@ -118,6 +119,7 @@ class ToolActionStore:
 
 def _registered_references(workspace: CandidateWorkspace) -> tuple[set[str], set[str], set[str]]:
     evidence_ids, target_ids = AnalysisStore(workspace).reference_ids()
+    target_ids.update(DecisionStore(workspace).records())
     candidates: set[str] = set()
     for path in workspace.candidates.iterdir():
         if not path.is_dir() or path.is_symlink():
@@ -160,6 +162,8 @@ class ToolAuthorizationMiddleware(AgentMiddleware):
         name, args = request.tool_call["name"], request.tool_call["args"]
         action, capability = TOOL_ACTIONS[name]
         target_ids = ([args["diagnosis_id"]] if args.get("diagnosis_id") else [])
+        if args.get("decision_id"):
+            target_ids.append(args["decision_id"])
         for field in ("restores", "preserves", "violated_obligation_ids"):
             target_ids.extend(args.get(field) or [])
         evidence_ids = args.get("evidence_ids") or []

@@ -13,6 +13,7 @@ from test_agent_loop import candidate_id, response, task_snapshot
 from dfx_agent.actions import ToolActionStore
 from dfx_agent.agent import run_fixed_agent
 from dfx_agent.contracts import ActionProposal
+from dfx_agent.decisions import DecisionRequest
 from dfx_agent.policies import PolicyFeatures, PolicyInput, RepairDirection
 from dfx_agent.task import digest, verify_task
 from dfx_agent.verification import FixedTextExecutor
@@ -103,7 +104,9 @@ def test_all_offline_tools_pass_through_authorization(tmp_path: Path) -> None:
     almost = candidate_id(task, tmp_path / "derive", "almost")
     plan = PolicyInput(source_snapshot_sha256=verify_task(task)["source_snapshot_sha256"],
                        directions=[RepairDirection(direction_id="direction1", repair_key="repair1",
-                                                   acceptance_key="accept1")], remaining_probe_budget=0)
+                                                   acceptance_key="accept1", hypothesis_ids=["hypothesis-1"],
+                                                   support_evidence_ids=["inference-1"])], remaining_probe_budget=0)
+    request = DecisionRequest(task_id="task1", run_id="run1", diagnosis_id="diagnosis-1", plan=plan)
     calls = [("read_log", {}), ("list_source", {}), ("read_source", {"path": "src/main.ets"}),
              ("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "bad value"}),
              ("record_obligation", {"obligation_id": "preserve_value", "statement": "Keep the expected value",
@@ -112,7 +115,7 @@ def test_all_offline_tools_pass_through_authorization(tmp_path: Path) -> None:
              ("register_candidate", {"diagnosis_id": "diagnosis-1", "restores": ["preserve_value"]}),
              ("run_check", {"candidate_id": almost}),
              ("link_failed_check", {"candidate_id": almost, "violated_obligation_ids": ["preserve_value"]}),
-             ("consult_rule", {"family": "bounds"}), ("plan_repair_action", {"plan_json": plan.model_dump_json()}),
+             ("consult_rule", {"family": "bounds"}), ("plan_repair_action", {"plan_json": request.model_dump_json()}),
              ("inspect_analysis", {"diagnosis_id": "diagnosis-1", "include_schema": True})]
     scripted = [response(index, name, args) for index, (name, args) in enumerate(calls, start=1)] + [response(13)]
     report = run_fixed_agent(task, tmp_path / "run", "run1", scripted,

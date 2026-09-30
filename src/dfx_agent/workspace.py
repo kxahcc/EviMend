@@ -211,7 +211,8 @@ class CandidateWorkspace:
 
     def register_candidate(self, ordinal: int, diagnosis_id: str | None = None,
                            restores: list[str] | None = None,
-                           preserves: list[str] | None = None) -> CandidatePatch:
+                           preserves: list[str] | None = None, *, decision_id: str | None = None,
+                           direction_id: str | None = None) -> CandidatePatch:
         """Freeze a complete diff and copy before any candidate-specific check."""
         if not self.draft.is_dir() or ordinal < 1:
             raise ValueError("draft and positive ordinal required")
@@ -233,6 +234,7 @@ class CandidateWorkspace:
             candidate_id=candidate_id, ordinal=ordinal, parent_snapshot_sha256=self.source_snapshot_sha256,
             candidate_snapshot_sha256=candidate_snapshot_sha256, diff_sha256=diff_sha256,
             diagnosis_id=diagnosis_id, changed_paths=changed_paths,
+            decision_id=decision_id, direction_id=direction_id,
             restores=restores or [], preserves=preserves or [],
         )
         temp = self.candidates / ("candidate-temp-" + uuid4().hex)
