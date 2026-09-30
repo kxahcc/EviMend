@@ -24,7 +24,8 @@ $script:Policy = Get-Content -LiteralPath $script:PolicyPath -Raw -Encoding UTF8
 if ($script:Policy.schema_version -ne 1 -or $script:Policy.paths.managed_root -cne '.dfx-local' -or $script:Policy.paths.export_root -cne 'runs/exports') {
     throw 'Unsupported local runtime policy or managed path'
 }
-if ($script:Policy.execution.require_windows_job_limits -ne $true -or
+if ($script:Policy.execution.application_target -cne 'local' -or
+    $script:Policy.execution.require_windows_job_limits -ne $true -or
     $script:Policy.cleanup.default_dry_run -ne $true -or
     $script:Policy.cleanup.refuse_external_reparse_points -ne $true) {
     throw 'Local runtime safety settings cannot be disabled'

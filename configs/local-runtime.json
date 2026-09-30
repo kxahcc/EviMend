@@ -25,6 +25,7 @@
     "max_build_concurrency": 1
   },
   "execution": {
+    "application_target": "local",
     "require_windows_job_limits": true,
     "allow_background_services": false,
     "allow_local_model_weights": false,
