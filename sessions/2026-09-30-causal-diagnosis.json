@@ -1,0 +1,33 @@
+{
+  "session_id": "session-2026-09-30-causal-diagnosis",
+  "date": "2026-09-30",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "P0 structured causal diagnosis and repair-obligation exchange",
+  "user_request_summary": "继续实施下一工作包，保持本机受管运行，仅做合成软件自检。",
+  "changes": [
+    "扩展 Hypothesis/RepairObligation：必要条件、值/状态绑定、因果步骤、区分问题、支持/反驳引用及双向义务关联；证据依据禁止缺项和循环。",
+    "新增 diagnostics.py，由主机按范围读取源码和哈希核验日志，执行证据只取自已保存失败检查，并绑定候选、实际执行源码版本和 synthetic 范围。",
+    "record_diagnosis 支持 DiagnosisSubmission；诊断、证据与义务在单个不可改写文件中原子保存，既有证据复用原记录，修订使用新 ID。",
+    "新增 inspect_analysis 工具，按需提供主机身份、提交 schema 和既有诊断；全部 12 个项目工具仍通过主机授权。独立义务记录统一为 RepairObligation。",
+    "session.json 使用 schema 3 冻结当前工具和诊断格式，不续跑旧会话；维护原有开发导览、设计、规格、计划、说明和 STATUS，不改竞赛模板。"
+  ],
+  "validation": {
+    "causal_diagnosis_synthetic": "21 passed; .dfx-local/artifacts/2e4528ea-4b89-4dff-b2e7-3f990b0b7904.log",
+    "references_regression": "5 passed; .dfx-local/artifacts/009777a8-5f79-4490-8cea-8469cabb3459.log",
+    "tool_authorization_regression": "15 passed; .dfx-local/artifacts/a5ba2825-b6cc-472f-8944-4ab9d235936e.log",
+    "policy_regression": "10 passed; .dfx-local/artifacts/a3af561d-d357-44c3-91ab-e1ef4ea96b95.log",
+    "agent_loop_regression": "12 passed; .dfx-local/artifacts/e321ca80-ba32-4c64-b5cf-bd88455264a4.log",
+    "ruff": "passed; .dfx-local/artifacts/c6e8fa65-fa12-40dd-8dbf-091a01a25115.log",
+    "pyright": "0 errors; .dfx-local/artifacts/9fb9cff6-053f-4cbc-bcc3-2c0bac186a95.log",
+    "docs": "14 documents, 0 errors; .dfx-local/artifacts/61701cca-06de-4e98-87b1-a59917accddc.log",
+    "real_model_repair_runs": 0,
+    "application_replays": 0
+  },
+  "limitations": [
+    "JSON/引用校验不证明因果关系或真实需求正确，模型关系和义务保持推断，假设及义务状态保持 unknown。",
+    "checkability 仅表示拟议检查方式；尚未自动计算约束、执行实际诊断探针或完成可信应用验收。",
+    "因果记录已贯穿候选与合成失败反馈；现有修复方向/查证建议仍待与这些记录完整绑定，真实模型及应用效果未测量。"
+  ],
+  "next_work_package": "P0 registered diagnosis and candidate-bound counterexamples to repair-decision exchange"
+}

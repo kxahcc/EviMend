@@ -3,7 +3,7 @@
 状态：当前使用说明。最后维护：2026-09-30。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
-当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。固定响应 `repair/resume` 已把 Deep Agents SDK、领域对象、候选工作区、模型调用账本、合成检查和可关闭策略工具接成受管闭环。策略提供四类规则提示、模型推断义务、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实模型、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。
+当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。固定响应 `repair/resume` 已把 Deep Agents SDK、因果诊断与修复义务、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实模型、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。
 
 从项目根目录查看命令：
 
@@ -52,9 +52,13 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 每次 SDK 工具调用先经 `actions.py` 的主机授权：检查工具对应动作、参数、任务/版本、引用、候选及能力；全部动作串行，并受独立工具预算约束。工具参数可带 `proposal_json`（序列化的 `ActionProposal`），用于显式提交理由和引用；它不能改变工具所需能力或候选，也不能隐藏工具实际引用。模型返回的工具调用并不自动获准；最后一个已记账模型响应仍可完成合法动作，但不能绕过工具、候选和时间预算。
 
-`agent-report.json` 的 schema 2 记录候选、离线检查、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态；`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但结果未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力和策略开关；`session.json` 已升级为 schema 2，旧 schema 1 运行没有动作身份/预算保证，因此拒绝用当前控制器续跑，须保留旧证据并另建工作 ID。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+结构化诊断使用 `inspect_analysis(include_schema=True)` 读取主机身份、提交 schema 和接纳规则，再把序列化的 DiagnosisSubmission 传给 `record_diagnosis(diagnosis_json=...)`。它包含异常/根因位置、条件与绑定、因果步骤、支持/反驳引用、未知项及可选义务；源码和日志事实由主机读取，模型只能提交推断。义务需要开启 `obligation_tracking`，并和假设双向关联。简单 path/line/reason 路径仍可用，不能与 diagnosis_json 同传。
 
-合成输入自检位于 `tests/test_offline_evidence.py`，显式案例身份与哈希拒绝反例位于 `tests/test_case_identity.py`；领域对象和候选目录反例位于 `tests/test_contracts.py`、`tests/test_workspace.py`，固定响应闭环、HTTP 模拟协议、策略分支、接受契约、模型请求账本和逐工具授权/恢复分别位于 `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`。这些检查不读取或运行 data_B 中的应用，不调用真实模型或设备。当前设计与待实现功能见 [技术设计](../../docs/development/system-design-draft.md) 和 [模块契约](../../docs/design-contracts.md)。
+`diagnoses/<ID>.json` 原子保存诊断、证据和关联义务，不能改写；修订用新 ID。已有证据可按 ID 复用，依据闭包保留原来源。`inspect_analysis(diagnosis_id=...)` 回读同一记录，默认不重复返回 schema。独立 `record_obligation` 也使用规范 RepairObligation；候选的 restores/preserves 引用上述义务。模型假设、关系和义务保持 unknown/model_inference；失败执行依据须匹配已保存检查的候选、实际源码哈希和 execution_id，不能把旧候选反馈移到新候选。完整字段与未实现检查见 [模块规格第 1 节](../../docs/design-contracts.md#1-数据契约与不可破坏的条件)。
+
+`agent-report.json` 的 schema 2 记录候选、离线检查、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态；`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但结果未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力和策略开关；`session.json` 使用 schema 3，对应当前工具定义和诊断文件格式，旧 schema 1/2 会话拒绝续跑，须保留旧证据并另建工作 ID。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+
+合成输入自检位于 `tests/test_offline_evidence.py`，显式案例身份与哈希拒绝反例位于 `tests/test_case_identity.py`；领域对象和候选目录反例位于 `tests/test_contracts.py`、`tests/test_workspace.py`，固定响应闭环、HTTP 模拟协议、策略分支、接受契约、模型请求账本、逐工具授权/恢复和因果记录交接分别位于 `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`。这些检查不读取或运行 data_B 中的应用，不调用真实模型或设备。当前设计与待实现功能见 [技术设计](../../docs/development/system-design-draft.md) 和 [模块契约](../../docs/design-contracts.md)。
 
 模型账本的程序接口是 `ModelCallIntent`、`ModelCallStore` 和 `invoke_accounted`：调用前持久登记并占用次数，发出后若丢失响应则保留未知状态，同一 ID 不重发；收到的 `AIMessage` 保存为可恢复响应，格式错误与 Token usage 分开记账。固定响应模型根据实际传给 SDK 的消息、工具定义和参数生成哈希，完成响应在 Graph 未落检查点时可回放；请求已发出但无响应时报告 `model_result_unknown` 并停止。真实提供方适配器仍须核对实际发送请求、禁用或逐次登记内部重试；当前 CLI 不具备真实模型计费能力。
 

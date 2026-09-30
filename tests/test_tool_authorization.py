@@ -112,13 +112,14 @@ def test_all_offline_tools_pass_through_authorization(tmp_path: Path) -> None:
              ("register_candidate", {"diagnosis_id": "diagnosis-1", "restores": ["preserve_value"]}),
              ("run_check", {"candidate_id": almost}),
              ("link_failed_check", {"candidate_id": almost, "violated_obligation_ids": ["preserve_value"]}),
-             ("consult_rule", {"family": "bounds"}), ("plan_repair_action", {"plan_json": plan.model_dump_json()})]
-    scripted = [response(index, name, args) for index, (name, args) in enumerate(calls, start=1)] + [response(12)]
+             ("consult_rule", {"family": "bounds"}), ("plan_repair_action", {"plan_json": plan.model_dump_json()}),
+             ("inspect_analysis", {"diagnosis_id": "diagnosis-1", "include_schema": True})]
+    scripted = [response(index, name, args) for index, (name, args) in enumerate(calls, start=1)] + [response(13)]
     report = run_fixed_agent(task, tmp_path / "run", "run1", scripted,
                              FixedTextExecutor("src/main.ets", "value=good\n"),
                              policy_features=PolicyFeatures(rule_guidance=True, obligation_tracking=True,
                                                             decision_checks=True))
-    assert report["tool_calls"] == 11 and report["rejected_tool_calls"] == report["uncertain_tool_calls"] == 0
+    assert report["tool_calls"] == 12 and report["rejected_tool_calls"] == report["uncertain_tool_calls"] == 0
     assert {item["tool_name"] for item in report["actions"]} == set(report["offered_tools"])
     assert report["checks"][0]["status"] == "fail" and report["application_verification"] == "not_run"
     feedback = json.loads(next((tmp_path / "run/feedback").glob("*.json")).read_text())

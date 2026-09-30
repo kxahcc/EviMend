@@ -1,11 +1,11 @@
 # 模块契约与规则规格
 
 状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-09-30。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。证据/诊断/义务/候选和应用接受门已有独立合成实现；模型账本、逐工具调用授权与动作结果账本已接入固定响应离线循环，模拟 HTTP 协议及策略分支也已有合成实现。完整因果链、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务与候选的结构化交接、模型账本、逐工具授权和动作恢复已接入固定响应离线循环；应用接受门、模拟 HTTP 协议及策略分支也已有合成实现。因果关系的实际检验、诊断到决策的完整映射、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
 
-离线原型的 schema_version=1 覆盖输入和栈证据；W04 对首批领域对象也采用 schema_version=1，但各对象分别校验，不能把现有 evidence_ready 报告直接当作 Diagnosis。下表其余字段仍是后续目标契约。
+离线原型与首批领域对象分别校验，不能把 evidence_ready 报告直接当作 Diagnosis。领域记录 schema_version=1 已包含下述因果字段；有些可空，以容纳尚未查明的内容。诊断提交本身不产生根因确认；应用打包与验收对象仍有独立契约。
 
 ### 1.1 版本与来源
 
@@ -18,29 +18,32 @@ Evidence 至少包含：
 - kind：log_observation / source_fact / model_inference / local_execution / application_execution。
 - artifact_sha256，以及适用的日志行、源码位置或 execution_id。
 - statement、直接引用的依据 evidence_ids、derivation。
-- source_snapshot_sha256；无关源码的纯日志项可空，但日志必须绑定任务输入。
+- source_snapshot_sha256；无关源码的纯日志项可空，但日志必须绑定任务输入。候选执行证据另存 evaluated_candidate_id、execution_snapshot_sha256、execution_scope，分析基准不能冒充实际执行版本。
 
 引用检查器只负责存在性和版本一致性；模型推断不会因为引用合法就变成运行观察。运行产物须由执行适配器登记，不能接受模型自行填入 application_execution。
 
 ### 1.2 诊断对象
 
-Diagnosis 保存 exception_locations、hypotheses、selected_hypothesis_id、unknowns。每个 Hypothesis 包含：
+Diagnosis 保存 exception_locations、hypotheses、selected_hypothesis_id、unknowns 及可空 feedback_candidate_id。异常位置与根因位置分别填写；未知根因可以暂空。每个 Hypothesis 包含：
 
 | 字段 | 内容及约束 |
 |---|---|
 | root_cause_locations | 原始源码位置列表；允许暂空，不用异常位置填满未知根因 |
-| constraint | family、适用操作、变量绑定、需成立的条件、该条件的语义来源 |
-| causal_steps | 从值或状态产生到异常操作的有限关系链；每一步有依据或明确推断标记 |
+| constraint | RuntimeConstraint：family、operation 源码位置、bindings、condition、semantic_source_evidence_ids；绑定含 binding_id、expression、role、可空位置和 evidence_ids |
+| causal_steps | CausalStep：step_id、from_binding_id、to_binding_id、relation、authority 和 evidence_ids；端点须属于本假设的绑定，模型关系保留 model_inference |
 | support_status | supported / contradicted / unknown；这是证据判断，不是正确率概率 |
-| evidence_ids | 支持和反驳分开存储，不能仅保留支持证据 |
+| support_evidence_ids / contradicting_evidence_ids | 支持和反驳分开且不重叠；约束、步骤与绑定也须引用已登记依据 |
+| obligation_ids | 与同一诊断包的修复义务双向关联，引用不能缺失或互相矛盾 |
 | missing_evidence | 哪个事实未知，以及为何可能改变修改方向 |
-| distinguishing_check | 至多一个优先检查建议，包含不同结果会导致的决策；可空 |
+| distinguishing_check | 可空 DiagnosticQuestion：question、至少区分两个已登记假设的 observation_routes 及 retain_unknown；这里只记录问题，尚不执行检查或决定修法 |
 
-首批边界对象已用 Pydantic 2 实现严格字段、来源、源码版本、行号和 evidence_id 校验；证据由可信调用方通过 `admit_evidence` 标注来源，模型响应不能自称执行后端。W05 的固定响应循环已把假设作为 `unknown` 写入记录，并用 SQLite 保存 SDK 对话检查点；它尚未实现完整因果链或可信根因确认。因果链本身的正确性依赖后续检查，不能通过 JSON 校验宣称成立。
+`diagnostics.py` 已将上述对象接入固定响应工具。`inspect_analysis(include_schema=True)` 按需提供主机任务身份、DiagnosisSubmission 的 JSON schema 和接纳规则；按 diagnosis_id 可回读原记录。`record_diagnosis(diagnosis_json=...)` 接收诊断、源码/日志引用、模型推断、已有证据 ID、失败检查引用及义务；旧的 path/line/reason 简单路径仍保留，不能和结构化路径混用。
+
+源码文本由主机按版本和行范围读取，日志核对原字节哈希后读取，模型只能提交推断和引用，不能自填执行事实。执行证据只从已登记候选的已保存失败检查产生，核对候选源码哈希与 execution_id；恢复引用旧执行依据也须明确相同 feedback_candidate_id。所有模型提交的假设保持 unknown、关系保持 model_inference；这不是禁止后续可信检查确认它们，而是防止模型自授确认。引用闭包不得缺项或循环，已有证据 ID 不得改写。诊断、证据和关联义务在同一个不可改写的文件中原子保存；新假设或修订使用新 ID。程序只检查结构、引用和来源，不能证明因果解释正确，也未自动计算运行条件。
 
 ### 1.2.1 修复义务和动作提案
 
-RepairObligation 包含 obligation_id、kind（运行条件/业务行为）、statement、bindings、source_evidence_ids、authority（已核验需求/接口规则/既有行为/模型推断）、checkability、status、scope 与依赖版本。Hypothesis 关联 obligation_ids；CandidatePatch 关联 restores 与 preserves；Check/Result 关联所检验或违反的义务。
+RepairObligation 用 record_id 作为 obligation_id，包含 kind（runtime_condition/business_behavior）、statement、bindings、source_evidence_ids、hypothesis_ids、authority（verified_requirement/interface_rule/existing_behavior/model_inference）、checkability（executable/manual/unknown）、status、scope 和共同任务/版本身份。模型提交只接纳 model_inference/unknown；checkability 只是拟议检查方式，不证明检查已实现。Hypothesis 与义务双向关联；CandidatePatch 关联 restores 与 preserves。结构化义务随诊断包保存，简单 record_obligation 保存相同规范的独立记录；策略辅助对象 ObligationClaim 不作为新的文件格式。当前合成反馈只能关联候选已经声明的义务，关联解释保持模型推断；真实 Check/Result 与可信义务检查的接入仍待实现。
 
 模型推断的义务只能作为假设，不得仅因某候选违反该推断就机械拒绝它。局部执行只能支持对应输入与路径，不自动证明全局成立。可信语义不足时明确 unknown。
 
@@ -194,4 +197,4 @@ Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/s
 
 ## 6. 关联与待完成规格
 
-工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。首批字段与固定响应离线控制边界已可执行；完整诊断因果链、动作/应用验证对象和本机执行控制仍是待完成规格。
+工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录及固定响应交接已可执行；诊断到修复决策的完整映射、运行条件检查、可信应用验证对象与本机执行控制仍待闭合和实测。

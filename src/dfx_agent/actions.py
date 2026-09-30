@@ -17,15 +17,16 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 from pydantic import BaseModel, ValidationError
 
-from .contracts import ActionProposal, Diagnosis, Evidence, authorize_action
+from .contracts import ActionProposal, authorize_action
+from .diagnostics import AnalysisStore
 from .model_calls import ModelCallStore, canonical, sha256
-from .policies import ObligationClaim
 from .workspace import CandidateWorkspace
 
 TOOL_ACTIONS: dict[str, tuple[str, str]] = {
     "read_log": ("inspect_existing", "read_log"),
     "list_source": ("inspect_existing", "read_source"),
     "read_source": ("inspect_existing", "read_source"),
+    "inspect_analysis": ("inspect_existing", "read_source"),
     "record_diagnosis": ("record_analysis", "record_analysis"),
     "record_obligation": ("record_analysis", "record_analysis"),
     "link_failed_check": ("record_analysis", "record_analysis"),
@@ -116,37 +117,7 @@ class ToolActionStore:
 
 
 def _registered_references(workspace: CandidateWorkspace) -> tuple[set[str], set[str], set[str]]:
-    evidence_ids: set[str] = set()
-    target_ids: set[str] = set()
-    for folder_name in ("diagnoses", "obligations"):
-        folder = workspace.root / folder_name
-        if not folder.exists():
-            continue
-        if not folder.is_dir() or folder.is_symlink():
-            raise ValueError("reference folder is linked or missing")
-        for path in folder.glob("*.json"):
-            if path.is_symlink():
-                raise ValueError("reference record is linked")
-            if folder_name == "diagnoses":
-                raw = json.loads(path.read_text(encoding="utf-8"))
-                diagnosis = Diagnosis.model_validate_json(json.dumps(raw["diagnosis"]))
-                if (diagnosis.task_id != workspace.task_id or diagnosis.run_id != workspace.run_id or
-                        diagnosis.source_snapshot_sha256 != workspace.source_snapshot_sha256 or
-                        path.stem != diagnosis.record_id):
-                    raise ValueError("diagnosis reference has another owner or version")
-                target_ids.add(diagnosis.record_id)
-                target_ids.update(item.hypothesis_id for item in diagnosis.hypotheses)
-                for item in raw["evidence"]:
-                    fact = Evidence.model_validate_json(json.dumps(item))
-                    if (fact.task_id != workspace.task_id or fact.run_id != workspace.run_id or
-                            fact.source_snapshot_sha256 != workspace.source_snapshot_sha256):
-                        raise ValueError("evidence reference has another owner")
-                    evidence_ids.add(fact.record_id)
-            else:
-                claim = ObligationClaim.model_validate_json(path.read_text(encoding="utf-8"))
-                if claim.source_snapshot_sha256 != workspace.source_snapshot_sha256 or path.stem != claim.obligation_id:
-                    raise ValueError("obligation reference has another version")
-                target_ids.add(claim.obligation_id)
+    evidence_ids, target_ids = AnalysisStore(workspace).reference_ids()
     candidates: set[str] = set()
     for path in workspace.candidates.iterdir():
         if not path.is_dir() or path.is_symlink():

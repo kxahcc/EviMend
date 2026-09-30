@@ -31,17 +31,17 @@ from .contracts import (
     IDENTIFIER,
     Diagnosis,
     Hypothesis,
+    RepairObligation,
     SourceLocation,
     admit_evidence,
     require_path,
-    validate_references,
 )
+from .diagnostics import AnalysisStore, DiagnosisSubmission
 from .logs import MAX_LOG_BYTES
 from .model_calls import ModelCallStore, ModelCallUncertain
 from .models import FixedResponseModel, ModelLimit
 from .policies import (
     Counterexample,
-    ObligationClaim,
     PolicyFeatures,
     PolicyInput,
     choose_action,
@@ -73,27 +73,42 @@ def _current_candidates(workspace: CandidateWorkspace) -> list[str]:
     return [candidate_id for _, candidate_id in sorted(found)]
 
 
-def _known_obligations(workspace: CandidateWorkspace) -> dict[str, ObligationClaim]:
-    folder = workspace.root / "obligations"
-    if not folder.exists():
-        return {}
-    if not folder.is_dir() or folder.is_symlink():
-        raise ValueError("obligation ledger is not a safe directory")
-    claims: dict[str, ObligationClaim] = {}
-    for path in folder.glob("*.json"):
-        if path.is_symlink():
-            raise ValueError("obligation record is linked")
-        claim = ObligationClaim.model_validate_json(path.read_text(encoding="utf-8"))
-        if (path.stem != claim.obligation_id or
-                claim.source_snapshot_sha256 != workspace.source_snapshot_sha256):
-            raise ValueError("obligation record belongs to another snapshot")
-        claims[claim.obligation_id] = claim
-    return claims
+def _known_obligations(workspace: CandidateWorkspace) -> dict[str, RepairObligation]:
+    return AnalysisStore(workspace).obligations()
 
 
 def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: int,
            task_directory: Path, crash_log: str, crash_sha256: str,
            policy_features: PolicyFeatures) -> list[Any]:
+    analysis = AnalysisStore(workspace)
+
+    @tool
+    def inspect_analysis(diagnosis_id: str | None = None, include_schema: bool = False,
+                         proposal_json: str | None = None) -> str:
+        """Read task/run identity, recorded diagnoses, or the schema for record_diagnosis's diagnosis_json."""
+        try:
+            bundles = analysis.bundles()
+            value: dict[str, Any] = {"task_id": workspace.task_id, "run_id": workspace.run_id,
+                                     "source_snapshot_sha256": workspace.source_snapshot_sha256,
+                                     "diagnosis_ids": sorted(bundles),
+                                     "obligation_ids": sorted(analysis.obligations()),
+                                     "obligation_tracking": policy_features.obligation_tracking}
+            if diagnosis_id is not None:
+                if diagnosis_id not in bundles:
+                    raise ValueError("diagnosis is not registered")
+                bundle = bundles[diagnosis_id]
+                value["record"] = {"diagnosis": bundle["diagnosis"].model_dump(mode="json"),
+                                   "evidence": [item.model_dump(mode="json") for item in bundle["evidence"]],
+                                   "obligations": [item.model_dump(mode="json") for item in bundle["obligations"]]}
+            if include_schema:
+                value["submission_schema"] = DiagnosisSubmission.model_json_schema()
+                value["admission_rules"] = ["All model hypotheses and obligations retain unknown status.",
+                    "All model causal relations and obligations retain model_inference authority.",
+                    "Source/log citations are read by the host; feedback must match a saved failed check."]
+            return json.dumps(value)
+        except (OSError, ValueError, ValidationError, KeyError) as exc:
+            return f"rejected: {exc}"
+
     @tool
     def read_log(start_line: int = 1, end_line: int = 100, proposal_json: str | None = None) -> str:
         """Read a bounded line range from the hash-checked input crash log."""
@@ -132,9 +147,21 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def record_diagnosis(path: str, line: int, reason: str, proposal_json: str | None = None) -> str:
-        """Record a model hypothesis about one source line; it remains unconfirmed."""
+    def record_diagnosis(path: str | None = None, line: int | None = None, reason: str | None = None,
+                         diagnosis_json: str | None = None, proposal_json: str | None = None) -> str:
+        """Record an unknown hypothesis or diagnosis_json; inspect_analysis(include_schema=True) provides its schema."""
         try:
+            if diagnosis_json is not None:
+                if any(value is not None for value in (path, line, reason)):
+                    raise ValueError("choose either a simple location or a structured diagnosis")
+                submission = DiagnosisSubmission.model_validate_json(diagnosis_json)
+                value = analysis.admit(submission, task=task_directory, log_path=crash_log,
+                                       log_sha256=crash_sha256, ledger=ledger,
+                                       allow_obligations=policy_features.obligation_tracking)
+                return json.dumps({"diagnosis_id": value["diagnosis"]["record_id"],
+                                   "support_status": "unknown", "record": value})
+            if path is None or line is None or reason is None:
+                raise ValueError("simple diagnosis needs path, line and reason")
             lines = _safe_file(workspace.base, path).read_text(encoding="utf-8").splitlines()
             if line < 1 or line > len(lines) or not reason.strip():
                 raise ValueError("diagnosis line or reason is invalid")
@@ -157,12 +184,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
                                                          support_status="unknown")],
                                   selected_hypothesis_id=f"hypothesis-{number}",
                                   unknowns=["model hypothesis has no independent root-cause confirmation"])
-            validate_references(diagnosis, [fact, inference], {path: len(lines)})
-            folder = workspace.root / "diagnoses"
-            folder.mkdir(exist_ok=True)
-            _atomic_json(folder / f"{diagnosis.record_id}.json",
-                         {"diagnosis": diagnosis.model_dump(mode="json"),
-                          "evidence": [fact.model_dump(mode="json"), inference.model_dump(mode="json")]})
+            analysis.put_bundle(diagnosis, [fact, inference], [])
             return json.dumps({"diagnosis_id": diagnosis.record_id, "support_status": "unknown"})
         except (OSError, ValueError, ValidationError) as exc:
             return f"rejected: {exc}"
@@ -187,32 +209,17 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
                 raise ValueError("obligation tracking is disabled")
             if not IDENTIFIER.fullmatch(obligation_id):
                 raise ValueError("invalid obligation identifier")
-            evidence_folder = workspace.root / "diagnoses"
-            known_evidence: set[str] = set()
-            if evidence_folder.exists():
-                if evidence_folder.is_symlink():
-                    raise ValueError("diagnosis directory is linked")
-                for path in evidence_folder.glob("*.json"):
-                    if path.is_symlink():
-                        raise ValueError("diagnosis record is linked")
-                    record = json.loads(path.read_text(encoding="utf-8"))
-                    known_evidence.update(item["record_id"] for item in record["evidence"])
-            if not evidence_ids or any(item not in known_evidence for item in evidence_ids):
-                raise ValueError("obligation evidence is not registered")
-            claim = ObligationClaim(obligation_id=obligation_id,
-                                    source_snapshot_sha256=workspace.source_snapshot_sha256,
-                                    authority="model_inference", evidence_ids=evidence_ids,
-                                    statement=statement)
+            claim = RepairObligation(task_id=workspace.task_id, run_id=workspace.run_id,
+                                     record_id=obligation_id, created_at=datetime.now(UTC),
+                                     source_snapshot_sha256=workspace.source_snapshot_sha256,
+                                     kind="business_behavior", authority="model_inference",
+                                     source_evidence_ids=evidence_ids, statement=statement)
             existing = _known_obligations(workspace).get(obligation_id)
             if existing is not None:
-                if existing != claim:
+                if existing.model_dump(exclude={"created_at"}) != claim.model_dump(exclude={"created_at"}):
                     raise ValueError("obligation identity changed")
-                return claim.model_dump_json()
-            folder = workspace.root / "obligations"
-            folder.mkdir(exist_ok=True)
-            if folder.is_symlink():
-                raise ValueError("obligation directory is linked")
-            _atomic_json(folder / f"{obligation_id}.json", claim.model_dump())
+                return existing.model_dump_json()
+            analysis.put_obligation(claim)
             return claim.model_dump_json()
         except (OSError, ValueError, ValidationError, KeyError) as exc:
             return f"rejected: {exc}"
@@ -309,7 +316,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
         except (ValueError, ValidationError) as exc:
             return f"rejected: {exc}"
 
-    return [read_log, list_source, read_source, record_diagnosis, edit_source,
+    return [read_log, list_source, read_source, inspect_analysis, record_diagnosis, edit_source,
             register_candidate, run_check, consult_rule, plan_repair_action,
             record_obligation, link_failed_check]
 
@@ -334,7 +341,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
     session_path = workspace.root / "session.json"
     if resume:
         session = json.loads(session_path.read_text(encoding="utf-8"))
-        if session != {"schema_version": 2, "run_id": run_id, "started_at": session.get("started_at"),
+        if session != {"schema_version": 3, "run_id": run_id, "started_at": session.get("started_at"),
                        "max_calls": max_calls, "max_known_tokens": max_known_tokens,
                        "max_seconds": max_seconds, "max_candidates": max_candidates,
                        "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
@@ -346,7 +353,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
             raise ValueError("session start time has no timezone")
     else:
         started_at = datetime.now(UTC)
-        _atomic_json(session_path, {"schema_version": 2, "run_id": run_id,
+        _atomic_json(session_path, {"schema_version": 3, "run_id": run_id,
                                     "started_at": started_at.isoformat(), "max_calls": max_calls,
                                     "max_known_tokens": max_known_tokens, "max_seconds": max_seconds,
                                     "max_candidates": max_candidates,
