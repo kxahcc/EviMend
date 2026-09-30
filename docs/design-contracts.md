@@ -186,7 +186,7 @@ W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，�
 
 资源中断不得归因成补丁功能错误：result 使用 inconclusive 或 blocked，并记录 failure_kind=resource_limit / timeout / interrupted 及原因；已产生候选和所有成本保留。任务停止归入 budget_exhausted（资源/时间上限）、blocked（保护器不兼容或环境不可用）或 unresolved（用户停止），不新增另一套成功语义。操作系统内存上限触发可能导致分配失败而非自动退出，管理器仍须检测并结束/报告。
 
-Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/state 前要有可核对导出或用户明确丢弃，不能先清证据再补报告。受管 Job 外的既有设备服务或未来本机模型进程须单独核验归属和停止能力，失联保持未知。
+Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/state 前要有可核对导出或用户明确丢弃，不能先清证据再补报告。受管 Job 外的既有设备服务须单独核验归属和停止能力；云端模型请求已发送但本机失联时仍按模型账本保留未知费用与结果，不假定 Stop 能撤销请求。
 
 ## 6. 关联与待完成规格
 
