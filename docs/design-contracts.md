@@ -162,6 +162,104 @@ ConditionStore 将主机输入保存到工作目录的 condition-inputs.json，�
 
 evaluate_condition 只收序列化 request_json、可选 observation_id 和动作提案；不接受模型自填值、fixture 或结果。主机可通过程序接口注入合成 registry；当前 CLI 默认空 registry，未提供 ID 时保存 missing_observations 的 unknown，未知 ID 拒绝。inspect_analysis 可列出输入 ID/范围和结果 ID，按 condition_result_id 回读，并按需返回请求 schema。计算登记属于 record_analysis，引用与候选纳入相同工具授权和总工具预算，不消耗一个虚构的执行探针额度。session schema 5 固定 registry 指纹；恢复不能替换输入，已保存工具回执则回放，不重复登记动作，回执未存时保持动作结果未知。报告 schema 3 增加 condition_results；旧会话 schema 1–4 不续跑。可信值采集、目标版本适用性和真实应用验证尚待实现。
 
+#### 3.0.1 可信采值与算子绑定
+
+本节是**拟议接口与验收契约，尚未实现**；不改变上节已有 schema、工具或证据能力。目标是分别核对“值从哪里取得”和“值属于哪个操作的哪个角色”。系统按已冻结源码建立操作绑定，按该绑定取得凭据，再计算条件；模型提出问题和引用，不能提交主机确认状态、可信值或执行凭据。
+
+##### 来源与结论分层
+
+| 来源 | 接纳依据 | 可支持的结论 | 保持未知的结论 |
+|---|---|---|---|
+| source_literal | 主机读取原字节，核对参数槽的精确 literal span、解析器支持范围及绑定 | 该源码参数槽存在此整数文本；在已声明前提下计算源码输入公式 | 实际取值、分支触达、对象/时序、业务和应用效果 |
+| static_inference | 显式推导规则、前提和 source_fact/model_inference 依据；本包不实现数据流推导器 | 在列明前提下的候选值、区间或缺口 | 未验证的推导不能因由主机保存就成为 source_fact 或运行值 |
+| synthetic_fixture | 主机固定测试输入及指纹 | 合成输入上的确定性计算与恢复测试 | 数据真实分布、目标代码实际取值、运行或修复效果 |
+| execution_sample | 已登记受管作业、实际运行/观察版本、原始产物及可信采样适配器 | 指定操作事件、对象和路径上的局部值/状态 | 所有路径成立、自动确认因果、业务/回归通过、最终修复 |
+
+源文件中的 literal 和一次使用点的值分别记录。源码凭据不得伪造 observed_scope 中的运行事件、对象或场景；请求中的范围只表示查证意图。原日志中缺乏对象/操作事件关联的数值仍是 log_observation，不直接成为运行采值。合成执行替身无论是否提供 execution_id，都保持 synthetic；适配器名称、producer 字符串或自填哈希不产生来源资格。
+
+##### 接口、对象和主机职责
+
+最小调用顺序为 `bind_operation(proposal) → BindingAssessment`、`capture_values(request) → CaptureReceipt`、`calculate_condition(binding_id, receipt_ids) → ScopedConditionResult`。以下是拟议字段职责，不是现有 Python API。
+
+| 对象 | 必需信息与义务 |
+|---|---|
+| BindingProposal | task/run、诊断/假设、已冻结分析或候选版本、拟议算子和源码位置、诊断 binding_id 引用；不含值、主机角色映射或确认状态 |
+| SourceAnchor | 实际源码快照、规范路径、文件原字节哈希、UTF-8 字节 start/end（半开区间）、片段摘要、父操作锚点；展示行号单列。严格解码，不通过换行归一化改变偏移 |
+| BindingAssessment | 主机生成的 binding_id/内容哈希、适配器身份/版本、绑定支持来源、算子/length_mode、父操作和各 operand anchor、role→operand→诊断 binding_id 映射、类型/作用域依据、语义 profile、绑定状态和 unknown_reasons。状态为 verified/unknown；verified 须有适配器实查的操作形状、API/类型依据和角色映射，不能由模型声明。合成替身的 verified 只表示 synthetic 前提下结构一致，不取得源码或实际执行资格 |
+| SemanticProfile | 有限公式版本、规范来源/摘要、支持的 API 与类型、转换/buffer/采样前提、匹配的目标 SDK/语言运行时与核验依据、平台适用状态。数学公式来源与目标版本兼容性分别核对，后者不足时为 unknown |
+| CaptureRequest | 已登记 binding_id/哈希、source_literal 或 execution_sample 采值方式、拟议场景/使用点、执行方式所需的已有作业或探针计划 ID、查证理由；不含观测值、实际事件、来源确认或自报预算 |
+| CaptureReceipt | 主机内容寻址 ID、原请求/绑定哈希、来源、适配器身份/版本、原始产物摘要、采集状态、值/单位/各自 anchor 及前提依据。源码来源仅有源码范围；执行来源另有下述 observed_scope，缺失数据不补默认值 |
+| ScopedConditionResult | 输入 binding/receipt 内容哈希、每个谓词及 calculation_status、输入来源支持、绑定状态、平台适用性和未知理由；root_cause_confirmation 仍 unknown、application_verification 仍 not_run |
+
+CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusive / unknown。只有 collected 且所需角色完整、来源及前提满足才产生该范围的计算支持；状态并不表示条件成立。数学结果 satisfied/violated 与平台适用性可以不同：确定的一组数字可算出谓词，而目标运行语义仍未知。static_inference 不进入已观察值的接纳入口；模型仍可表达假设，但不能用假设填运行凭据。
+
+主机接纳入口须实查原始文件或作业/产物，重新产生摘要和角色映射，再保存不可改写对象；模型 JSON 只能选择已有 ID 或提交 proposal。测试适配器明确属于 synthetic 通道，不允许用伪造作业模拟得到 local/application 来源。既有 Evidence 的 source_reader/execution_backend 只在各自真实依据存在时使用，不通过扩展 ObservationBatch.origin 把旧 fixture 升级。
+
+##### 算子与参数角色
+
+单位校验是必要条件，不能代替结构/对象绑定。角色映射由支持的操作适配器产生，模型再次计算时必须引用这一映射，不得交换同单位的角色或改用另一算子。
+
+下表的“实际对象/同次使用事件”是 execution_sample 的运行核验要求。源码阶段只核对参数槽、API/类型和结构关系，不声称运行对象或状态已知，也不要求为读取 literal 先运行应用。
+
+| 算子 | 必须核对的角色来源 |
+|---|---|
+| array_index | index 为这次索引访问的下标槽；length 为同一集合、同一次使用事件的长度，不绑定另一集合或任意源码数字 |
+| data_view_access | capacity 为实际 DataView 可访问长度；offset 为这次读写的偏移参数；width 来自已确认读写 API/profile，不能拿 backing buffer 长度替代 view 长度 |
+| typed_array_view | capacity 为传入的实际 backing buffer 容量；offset/count 为构造参数槽；显式/省略长度按实际调用形状区分，width 来自已确认的元素类型/profile |
+| ready_at_use | state 来自该消费操作实际使用的对象实例/代次及事件；初始化处、其他变量或调用完成后的状态不支持使用时就绪 |
+
+首版源码提取只接纳已核对参数槽上的直接、安全整数 literal；负值、转换等是否满足有限 profile 分开检查，不自动截断或归一化。`const n = 4`、属性访问、函数结果或计算表达式不自动传播到使用点；字符串、注释和重复片段中的相同数字不属于已绑定 operand。未知解析形状、内置名称遮蔽、包装器和缺类型/作用域依据保留 unknown。不使用 eval 或执行被分析代码来提取值；完整 ArkTS 解析/类型前端不属于第一实现包。
+
+候选重新核对实际字节并生成新绑定。旧 SourceLocation、近似 diff 映射和相同片段只用于查找，不能继承原版绑定资格。重新定位存在多个父操作候选时保存歧义；无法确认参数含义时回通用修复，不为了产生 verified 随机选取。即使唯一新位置已确认，也只证明候选的新操作绑定；原版与候选是否业务等价仍未知。
+
+##### 执行采样与观察扰动
+
+执行 observed_scope 必须包含实际 execution_id/job_id、原版或 candidate_id、分析到完整运行源码的打包依据、runtime_source/运行产物摘要、environment/initial_state、scenario、路径事件、进程/线程或调用上下文、对象实例及代次、operation occurrence、事件阶段与一致性依据。sample_id 由主机按事件身份生成；模型的 subject_id/scenario 标签不能代替这些事实。同名变量、复用地址或不同时刻的值不可拼成一次操作。
+
+“使用点”指经适配器核验的操作边界：本次原表达式已求值一次，采样与操作使用的是同一组参数/对象，且没有未核对的转换或状态变化间隙。禁止为采值再次调用函数/getter、提前取值或多次做类型转换。固定/未脱离 buffer、归一化整数及状态时序须有适配器/profile 依据；可变/共享 buffer、并发修改、语义未知的转换或不能保证事件一致性均保留 unknown，不静默按普通固定 buffer 处理。
+
+探针修改在独立观察副本中进行，不能覆盖原冻结候选。ProbePlan 固定目标 binding、采样方法/适配器版本、探针源码/配置摘要、观察副本与原运行版本的映射、扰动检查及其证据；运行产物绑定 observation_runtime_sha256。只有插桩构建成功而目标未到达时，记录 not_reached，不判条件满足。探针消除了原故障或改变语义时记录 inconclusive/unknown；它不是业务修复。实际支持哪些采样机制、能否观测转换后的参数及非扰动证据，待 W08 的工具链/设备能力核验，不预设 HarmonyOS 已提供某个调试接口。
+
+首版不把多事件、多对象或多个来源的片段拼成运行 batch；一张执行凭据须包含同次操作所需角色和一致性依据。源码 literal 可作位置/参数旁证，不能填补执行凭据中缺失的值。来源事实有效但前提不足时保存事实与 unknown，不伪造 collected 全量数据。
+
+##### 预算、保存与恢复
+
+主机先核对来源能力、版本、对象引用、资源和预算，再登记请求。源码事实读取使用已有证据读取能力；新运行采样须走诊断执行授权、探针预算及受管作业，既有采样产物回读不能悄悄启动新作业。计算不启动采样器，也不代扣或放宽运行额度。所有读取、采集、解析、检查和失败都进入共享工具/时间/实际模型或设备成本；基础与增强拥有相同来源工具，差异只在何时使用和怎样关联。
+
+拟议新 store 固定适配器能力/版本、语义 profile 和探针策略的 manifest；每个绑定、请求、凭据和结果独立内容寻址、追加登记。真实值在运行后才产生，所以不把整个动态 receipt 集合作为会话启动时必须冻结的 fixture 列表。会话冻结上述静态 manifest，计算身份再固定实际 receipt 哈希；既有凭据不得修改，新增凭据不改写旧计算。源码回读重新实查字节；执行回读核对作业与产物记录及适配器，不能靠重算算术补出执行来源。
+
+采集请求先持久化；完成凭据可恢复回读，已派发但无法对账的执行保持 inconclusive/unknown，不重复产生设备动作。停止和清理沿用本机租约/证据保留规则；观察副本、探针产物和 receipt 均在受管工作目录，不为此建立常驻服务或第二套任务台账。
+
+##### 拒绝与未知的反例验收
+
+非法归属、已改字节、伪造凭据或与已登记映射矛盾属于拒绝；合法请求但能力/解析/前提不足保存 unknown，不当作反驳。首个实现包至少覆盖以下独立反例，测试替身均只产生合成证据。
+
+| 反例 | 必须行为 |
+|---|---|
+| capacity/offset 或 index/length 调换，单位相同 | 与主机角色映射不一致，拒绝；不产生可信计算 |
+| 已登记 TypedArray 操作被改用 DataView 谓词，或显式长度被改成 remaining | 算子/调用形状与 binding 不一致，拒绝；不能只校验 binding_id 存在 |
+| 同一行有多个操作，模型指向另一个参数/注释数字 | 不接纳错误 anchor；支持范围不足或定位多义时 unknown |
+| 候选插入行、改写调用、出现重复片段 | 旧绑定不得沿用；重新实查产生新绑定，歧义保留 unknown |
+| 构造器被遮蔽、API 被包装或 profile 与目标版本未匹配 | 绑定或平台适用性 unknown，不凭名称宣布内置语义成立 |
+| 初始化 literal 存在，但使用点变量已改变或来源未知 | 只保存文本事实，使用点值 unknown，不执行传播猜测 |
+| 其他候选/任务/作业/场景的运行值 | 已知归属矛盾拒绝；缺少归属依据 unknown |
+| 对象释放后实例地址复用、相同变量换对象 | 实例/代次不一致不得组合；缺代次证明时 unknown |
+| 使用前未就绪或使用后就绪，被当作使用时状态 | 保留原事件事实，ready_at_use unknown；正确使用点事件才可计算 |
+| 参数来自多个时刻/线程/对象，期间状态变化 | 不拼合；一致性依据不足 unknown |
+| 目标未触达、作业失联或资源中断 | not_reached/inconclusive/blocked，条件 unknown，非修复失败/成功 |
+| 为记录重复执行 getter/转换，或观察副本消除故障 | 不给可信使用点值资格，inconclusive/unknown，不把探针当修复 |
+| 数值/单位/固定 buffer/归一化前提不满足 | 有效事实保留，有限计算 unknown；不补值或放宽 profile |
+| 模型自填 producer/hash/status 或把 mock 作业标真实 | 接纳入口拒绝；synthetic 通道不能升级 |
+| receipt、绑定、profile 或源码被改写；跨恢复更换 manifest | 拒绝旧身份复用，保留已存证据与未决项 |
+
+##### 与现有实现的迁移
+
+本次设计不升级当前 Contract/schema 1、ConditionStore、report schema 3 或 session schema 5，也不开放新工具、来源或运行能力。既有 synthetic/unknown 路径与测试继续有效，既有 applicability_authority=model_inference 保留；新设计不是给旧结果增加一个“可信” sidecar。
+
+实现时先新增独立的绑定/采值凭据契约与合成接纳门，单独回读，不直接注入现有 ObservationBatch。真正接入新来源或改变计算/SDK 工具语义时，再显式设计 ConditionRequest/Inputs/Result/Record schema 2 和对应新 session/report schema，冻结新增 manifest；新会话不跨旧工具 schema 续跑，旧记录仍按旧规则回读为历史合成结果。旧 fixture 若引用新绑定，须登记新的请求并重新计算新 ID，来源仍 synthetic。禁止覆盖旧结果、直接修改 v1 封闭来源枚举或让 v1 默认接纳真实执行标签。
+
+根因假设仍由证据和因果检验支持；可信局部采样也不自动改变 Diagnosis/RepairObligation 状态。ScopedConditionResult 不是 VerificationVerdict，不进入应用接受门充当 pass。共同协议的原故障复现、构建/目标/业务/回归检查仍由独立验收和实际运行提供。
+
 ### R1 初始化与生命周期
 
 - 触发：空对象解引用、未初始化字段被消费，或异步/生命周期顺序可疑。
