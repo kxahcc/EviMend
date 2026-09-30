@@ -1,6 +1,6 @@
 # 离线证据与固定响应修复闭环
 
-状态：当前使用说明。最后维护：2026-09-30。
+状态：当前使用说明。最后维护：2026-10-01。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
 当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。固定响应 `repair/resume` 已把 Deep Agents SDK、因果诊断与修复义务、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实模型、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。
@@ -65,6 +65,10 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 合成输入自检位于 `tests/test_offline_evidence.py`，显式案例身份与哈希拒绝反例位于 `tests/test_case_identity.py`；领域对象和候选目录反例位于 `tests/test_contracts.py`、`tests/test_workspace.py`，固定响应闭环、HTTP 模拟协议、策略分支、接受契约、模型请求账本、逐工具授权/恢复、因果记录和修复决策交接分别位于 `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`、`tests/test_decisions.py`。这些检查不读取或运行 data_B 中的应用，不调用真实模型或设备。当前设计与待实现功能见 [技术设计](../../docs/development/system-design-draft.md) 和 [模块契约](../../docs/design-contracts.md)。
 
 模型账本的程序接口是 `ModelCallIntent`、`ModelCallStore` 和 `invoke_accounted`：调用前持久登记并占用次数，发出后若丢失响应则保留未知状态，同一 ID 不重发；收到的 `AIMessage` 保存为可恢复响应，格式错误与 Token usage 分开记账。固定响应模型根据实际传给 SDK 的消息、工具定义和参数生成哈希，完成响应在 Graph 未落检查点时可回放；请求已发出但无响应时报告 `model_result_unknown` 并停止。真实提供方适配器仍须核对实际发送请求、禁用或逐次登记内部重试；当前 CLI 不具备真实模型计费能力。
+
+`conditions.py` 同样只供独立程序调用：先登记含 RuntimeConstraint 的诊断，再由可信测试代码建立 SyntheticObservations fixture registry，调用 `ConditionEvaluator(workspace, registry).evaluate(request, batch)`。ConditionRequest 引用该诊断的假设和绑定，声明有限算子及含候选/版本/操作点/对象/路径的范围。接口支持 array_index、data_view_access、typed_array_view 和 ready_at_use；不求值诊断表达式，不自动提取源码值或采集真实运行值。输入自报标签或改值无法匹配已固定 fixture；缺值、单位/范围/前提不符返回 unknown，非法目标或诊断引用拒绝。
+
+条件结果的 satisfied/violated 只表示固定合成输入的计算，包含子条件与输入摘要；不写回诊断、决策、义务或应用接受门，不生成 CheckLedger 结果。它尚未接入 SDK 工具和报告，session schema 仍为 4。详细前提见 [模块规格第 3.0 节](../../docs/design-contracts.md#30-首批有限条件检查)。自检命令为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_conditions.py`，不运行 data_B 应用。
 
 `acceptance.py` 当前只供独立程序调用：准备者冻结与候选无关的共同协议，可信打包器绑定完整运行源码，执行端按检查 ID 回传原版和候选的结果，接受门对缺失、模拟、版本错配和行为失败返回 `not_verified`。这些适配器及业务 oracle 尚未接入；该模块的合成 `verified_under_protocol` 测试值不是本项目已修复应用的成绩。
 

@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-09-30。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、修复决策与候选的结构化交接、模型账本、逐工具授权和动作恢复已接入固定响应离线循环；应用接受门、模拟 HTTP 协议及策略分支也已有合成实现。因果关系的实际检验、运行条件计算、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
+状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-01。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、修复决策与候选的结构化交接、模型账本、逐工具授权和动作恢复已接入固定响应离线循环；有限条件计算、应用接受门、模拟 HTTP 协议及策略分支已有独立合成实现。条件计算结果尚未接入 Agent，因果关系的实际检验、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -39,7 +39,7 @@ Diagnosis 保存 exception_locations、hypotheses、selected_hypothesis_id、unk
 
 `diagnostics.py` 已将上述对象接入固定响应工具。`inspect_analysis(include_schema=True)` 按需提供主机任务身份、DiagnosisSubmission 的 JSON schema 和接纳规则；按 diagnosis_id 可回读原记录。`record_diagnosis(diagnosis_json=...)` 接收诊断、源码/日志引用、模型推断、已有证据 ID、失败检查引用及义务；旧的 path/line/reason 简单路径仍保留，不能和结构化路径混用。
 
-源码文本由主机按版本和行范围读取，日志核对原字节哈希后读取，模型只能提交推断和引用，不能自填执行事实。执行证据只从已登记候选的已保存失败检查产生，核对候选源码哈希与 execution_id；恢复引用旧执行依据也须明确相同 feedback_candidate_id。所有模型提交的假设保持 unknown、关系保持 model_inference；这不是禁止后续可信检查确认它们，而是防止模型自授确认。引用闭包不得缺项或循环，已有证据 ID 不得改写。诊断、证据和关联义务在同一个不可改写的文件中原子保存；新假设或修订使用新 ID。程序只检查结构、引用和来源，不能证明因果解释正确，也未自动计算运行条件。
+源码文本由主机按版本和行范围读取，日志核对原字节哈希后读取，模型只能提交推断和引用，不能自填执行事实。执行证据只从已登记候选的已保存失败检查产生，核对候选源码哈希与 execution_id；恢复引用旧执行依据也须明确相同 feedback_candidate_id。所有模型提交的假设保持 unknown、关系保持 model_inference；这不是禁止后续可信检查确认它们，而是防止模型自授确认。引用闭包不得缺项或循环，已有证据 ID 不得改写。诊断、证据和关联义务在同一个不可改写的文件中原子保存；新假设或修订使用新 ID。诊断接纳工具只检查结构、引用和来源，不能证明因果解释正确，尚不自动调用第 3.0 节的条件检查器。
 
 ### 1.2.1 修复义务和动作提案
 
@@ -75,7 +75,7 @@ RepairObligation 用 record_id 作为 obligation_id，包含 kind（runtime_cond
 
 `decisions.py` 保存不可改写的 DecisionRecord：规范化请求、诊断/义务/反馈上下文哈希、策略开关、原始策略建议、反馈建议、最终 next_action 及推断层级。身份摘要排除接纳时间等审计元数据，但保留语义输入；相同请求和上下文回读原结果。inspect_analysis 可列出决策/反馈 ID 并按 decision_id 回读；报告包含这些决策。保存决策属于 record_analysis，不冒充执行检查。
 
-候选可选成对引用 decision_id/direction_id；主机核对同诊断、已提议方向和候选声明义务。决策是建议，允许模型选择其他已提议方向；未知建议本身不阻止合法候选登记。当前还没有运行条件计算、自动确认根因或真实应用反馈接入。
+候选可选成对引用 decision_id/direction_id；主机核对同诊断、已提议方向和候选声明义务。决策是建议，允许模型选择其他已提议方向；未知建议本身不阻止合法候选登记。此入口尚未接纳条件计算结果，也没有自动确认根因或真实应用反馈接入。
 
 ### 1.3 补丁、验证和尝试
 
@@ -131,9 +131,28 @@ Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和�
 
 规则卡是后续 Skill 的知识来源，不包含案例编号到答案的映射。未知语义进入 missing_evidence，不能由通用模板代替业务判断。
 
-W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，通过 `consult_rule` 访问；未知类别或关闭规则开关时返回通用路径。修复方向、义务、区分问题与实际失败的绑定统一见第 1.2.3 节；Agent 当前只授权已有日志/源码读取，没有诊断执行探针。下面条件是规则知识，尚未实现为可执行检查器，不能把提示命中解释为条件已满足或根因正确。
+W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，通过 `consult_rule` 访问；未知类别或关闭规则开关时返回通用路径。修复方向、义务、区分问题与实际失败的绑定统一见第 1.2.3 节；Agent 当前只授权已有日志/源码读取，没有诊断执行探针。R1/R2 的部分有限条件已有第 3.0 节的独立计算接口，R3/R4 和业务语义仍是规则知识；提示命中不能解释为条件已满足或根因正确。
 
 义务记录由模型工具创建时固定为 `model_inference`，须引用已登记诊断证据；候选的 restores/preserves 只能引用本次运行、本源码版本已登记的义务。合成检查实际失败后，模型可把失败与候选义务关联为 `scope=synthetic`、`link_authority=model_inference` 的反例；观察文本来自执行器，违反哪项义务仍是模型解释，不构成硬拒绝或应用行为证据。反例只关联原候选哈希及源码版本。可信需求、独立业务判据和应用反馈接入后，才能提高证据层级。
+
+### 3.0 首批有限条件检查
+
+`conditions.py` 是独立程序接口，尚未作为 SDK 工具或 CheckLedger 执行器接入。它回答“这组有界输入是否满足指定条件”，不回答“源码一定产生这些值”或“业务已经修好”。不解析或求值 RuntimeConstraint.condition、ValueBinding.expression；只使用已登记绑定 ID 和有限枚举算子。
+
+ConditionRequest 包含 check_id、diagnosis_id、hypothesis_id、kind、binding_ids、length_mode、profile 和 ConditionScope。范围绑定 task/run、分析源码哈希、实际计算版本、可选候选 ID、该版本的 operation 位置、scenario_id、path_id、subject_id 和 sample_id。主机核对诊断及假设的规则类别、绑定存在性、原版操作位置、基准实际字节和冻结候选实际字节。候选位置校验路径/行范围，尚不自动证明原版与候选行映射；模型选错算子或绑定含义也不会被此校验自动纠正。
+
+| 算子 | 角色/单位 | 有限计算 |
+|---|---|---|
+| array_index | index、length 为 elements | 0 ≤ index < length；这是需要集合内元素的条件，不声称普通数组越界必抛异常，也不检查稀疏槽内容 |
+| data_view_access | capacity、offset 为 bytes，width 为 bytes_per_element | offset + width ≤ capacity；capacity 指视图可访问字节数，允许未对齐访问 |
+| typed_array_view | capacity、offset 为 bytes，width 为 bytes_per_element；显式 count 为 elements | 偏移对齐；显式长度不超过容量；remaining 模式无 count，检查偏移范围及剩余字节整除 |
+| ready_at_use | state 为 state | 同一对象、路径和使用点的状态为 ready；uninitialized/released 违反条件，未采于使用点或未知状态保留 unknown |
+
+finite_condition_v1 仅接纳已归一化的安全整数，非 index 数值非负，字节宽度限于当前支持的固定宽度集合；DataView/TypedArray 还须确认 buffer 固定且未脱离。不执行语言数值转换，不覆盖可变/共享 buffer、并发状态变化或完整 ArkTS 语义。2026-10-01 查阅 [ECMAScript 2023 TypedArray 构造规则](https://tc39.es/ecma262/2023/multipage/indexed-collections.html#sec-initializetypedarrayfromarraybuffer) 和 [ECMA-262 第 14 版 DataView 规则](https://dev.ecma-international.org/wp-content/uploads/ECMA-262_14th_edition_june_2023.pdf)：用于有限公式与前提，目标 HarmonyOS 版本兼容性未验证。生命周期算子仅检查采样状态，不模拟异步执行或证明所有路径初始化。
+
+ObservationBatch 包含 observation_id、上述完整范围、origin、值/单位和明确的归一化、buffer、采样前提。SyntheticObservations 只由主机测试/准备代码注入，复制规范化 fixture；模型不能通过 origin 标签、同 ID 改值或自填哈希取得来源资格。当前 registry 固定的是测试输入，不是运行观察；没有源码值提取器、实际运行采样器或应用来源接纳接口。输入范围不一致、值缺失、单位错配或前提未知返回 unknown；非法请求、诊断引用、规则绑定或已变源码直接拒绝。
+
+ConditionResult 保存请求和输入摘要、每个子条件及操作数、satisfied/violated/unknown 和 synthetic/unknown 支持层级。状态只描述该组 fixture 输入的计算；root_cause_confirmation 固定 unknown，application_verification 固定 not_run。结果不会改写诊断、义务、决策或共同接受协议，不自动产生 CheckLedger pass/fail，也不把局部条件满足当作业务正确。真实采样、不可改写结果保存及受控反馈交接仍须后续实现。
 
 ### R1 初始化与生命周期
 
@@ -211,4 +230,4 @@ Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/s
 
 ## 6. 关联与待完成规格
 
-工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录到修复决策及候选的固定响应交接已可执行；运行条件检查、可信应用验证对象接纳与本机执行控制仍待闭合和实测。
+工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录到修复决策及候选的固定响应交接、首批独立有限条件计算已可执行；条件结果到 Agent 的交接、真实值采集、其余规则检查、可信应用验证对象接纳与本机执行控制仍待闭合和实测。
