@@ -204,7 +204,7 @@ def test_resume_freezes_fixture_inputs_and_old_schema_cannot_continue(tmp_path: 
     report = run_fixed_agent(task, work, "run1", [response(1), response(2)], executor, resume=True)
     assert report["model_calls"] == 2
     session = json.loads((work / "session.json").read_text())
-    assert session["schema_version"] == 5 and session["observations_sha256"] == registry.fingerprint()
+    assert session["schema_version"] == 6 and session["observations_sha256"] == registry.fingerprint()
     session["schema_version"] = 4
     (work / "session.json").write_text(json.dumps(session), encoding="utf-8")
     with pytest.raises(ValueError, match="session identity"):

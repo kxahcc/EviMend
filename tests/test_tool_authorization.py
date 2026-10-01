@@ -110,6 +110,7 @@ def test_all_offline_tools_pass_through_authorization(tmp_path: Path) -> None:
                                                    support_evidence_ids=["infer1"])], remaining_probe_budget=0)
     request = DecisionRequest(task_id="task1", run_id="run1", diagnosis_id="diagnosis1", plan=plan)
     calls = [("read_log", {}), ("list_source", {}), ("read_source", {"path": "src/main.ets"}),
+             ("search_source", {"query": "bad"}),
              ("record_diagnosis", {"diagnosis_json": json.dumps(submission)}),
              ("record_obligation", {"obligation_id": "preserve_value", "statement": "Keep the expected value",
                                     "evidence_ids": ["infer1"]}),
@@ -120,12 +121,12 @@ def test_all_offline_tools_pass_through_authorization(tmp_path: Path) -> None:
              ("consult_rule", {"family": "bounds"}), ("plan_repair_action", {"plan_json": request.model_dump_json()}),
              ("inspect_analysis", {"diagnosis_id": "diagnosis1", "include_schema": True}),
              ("evaluate_condition", {"request_json": condition.model_dump_json()})]
-    scripted = [response(index, name, args) for index, (name, args) in enumerate(calls, start=1)] + [response(14)]
+    scripted = [response(index, name, args) for index, (name, args) in enumerate(calls, start=1)] + [response(15)]
     report = run_fixed_agent(task, tmp_path / "run", "run1", scripted,
                              FixedTextExecutor("src/main.ets", "value=good\n"),
                              policy_features=PolicyFeatures(rule_guidance=True, obligation_tracking=True,
                                                             decision_checks=True))
-    assert report["tool_calls"] == 13 and report["rejected_tool_calls"] == report["uncertain_tool_calls"] == 0
+    assert report["tool_calls"] == 14 and report["rejected_tool_calls"] == report["uncertain_tool_calls"] == 0
     assert {item["tool_name"] for item in report["actions"]} == set(report["offered_tools"])
     assert report["checks"][0]["status"] == "fail" and report["application_verification"] == "not_run"
     feedback = json.loads(next((tmp_path / "run/feedback").glob("*.json")).read_text())

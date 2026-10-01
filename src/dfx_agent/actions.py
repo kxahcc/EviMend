@@ -28,6 +28,7 @@ TOOL_ACTIONS: dict[str, tuple[str, str]] = {
     "read_log": ("inspect_existing", "read_log"),
     "list_source": ("inspect_existing", "read_source"),
     "read_source": ("inspect_existing", "read_source"),
+    "search_source": ("inspect_existing", "read_source"),
     "inspect_analysis": ("inspect_existing", "read_source"),
     "record_diagnosis": ("record_analysis", "record_analysis"),
     "record_obligation": ("record_analysis", "record_analysis"),

@@ -81,6 +81,16 @@ RepairObligation 用 record_id 作为 obligation_id，包含 kind（runtime_cond
 
 候选可选成对引用 decision_id/direction_id；主机核对同诊断、已提议方向和候选声明义务。决策是建议，允许模型选择其他已提议方向；未知建议本身不阻止合法候选登记。自动根因确认和真实应用反馈尚未接入。
 
+### 1.2.4 任务指引与通用源码检索
+
+`task_strategy.py` 的共享任务策略通过 Deep Agents 的 system_prompt 接入，启动消息只含主机核对的 task/run/source 身份、能力、续跑状态及 offline_synthetic/not_run 验证级别。基础指引覆盖日志→跨文件追踪上游和消费者→原始行假设→保行为补丁→冻结候选→实际检查反馈→有依据的修订或诚实终止；增强开关只追加对应规则、义务与决策检查指引。缺少有限条件输入不禁止基础修复；文本检索与模型说明均不能确认因果或真实运行值。
+
+`search_source(query, path_prefix=None, candidate_id=None, case_sensitive=True, offset=0, limit=30)` 只接受有限单行字面查询；大小写忽略也是转义后的字面匹配，不执行用户正则。path_prefix 是相对文件/目录的组件前缀，不展开 glob；模型不能指定任意 root。原版整树摘要必须匹配任务，候选须已登记且冻结字节、manifest 和 diff 相符；草稿不参与检索。规模、单文件、查询、片段与分页限额由 source_search.py 的固定常量和 search_limits 定义，超限拒绝，不静默放宽。
+
+结果包含原版 source_snapshot_sha256、实际 snapshot_sha256、scope、candidate_id、查询与过滤选项，以及 matches 中的 path、从 1 起的 line/column、有限 text、snippet_start_column、text_truncated、原字节 file_sha256。同一行只返回首个命中，按路径和行稳定排序；total_matched_lines、has_more、next_offset 明确分页，返回的下一页位置必须可用。NUL/非 UTF-8 文件以 skipped 原因列出；complete 只表示过滤范围内文件均可解码，不等于当前页包含全部命中，更不表示代码安全。长行片段截断用原列号定位，不能把片段当完整上下文。无匹配且 complete=False 时不得声明该范围没有目标文本。
+
+检索属于 inspect_existing/read_source，基础与增强共享同一工具和总预算；实际 candidate_id 进入主机授权，不可用 proposal_json 隐藏。完整工具回执进入现有 SQLite，已保存结果恢复时只回放，不重复扫描。session schema 6 冻结项目 system_prompt、初始任务上下文、工具 schema/描述和检索限额，并继续绑定预算、能力、策略和合成 registry 指纹；变更任一项或旧 schema 1–5 都拒绝续跑，旧记录保留而另建运行 ID。项目 system_prompt 的摘要不冒充 SDK 拼接后的全部提示；最终实际消息/工具/参数仍由每次 ModelCallIntent 留指纹。报告继续使用 schema 3，未新增应用验证能力。
+
 ### 1.3 补丁、验证和尝试
 
 CandidatePatch 当前保存 candidate_id、ordinal、parent_snapshot_sha256、candidate_snapshot_sha256、diff_sha256、diagnosis_id、changed_paths、restores、preserves 及可选成对的 decision_id/direction_id。拟议 intended_constraint、preserved_behaviors、verification_obligations 的信息目前由关联诊断/义务表达，尚未独立实现这些字段。完整 diff 登记后才进入任何候选专属检查；格式错误、无法应用和局部检查失败同样记为已产生候选的失败。
@@ -160,7 +170,7 @@ ConditionResult 保存请求和输入摘要、每个子条件及操作数、sati
 
 ConditionStore 将主机输入保存到工作目录的 condition-inputs.json，将 ConditionRecord 保存到 conditions/<result_id>.json。记录绑定结果内容、输入 registry 指纹和去除接纳时间后的诊断包哈希，result_id 为内容摘要；相同输入回读原记录，不覆盖旧结果。回读校验归属、文件类型及链接，重新核对诊断、源码版本和完整计算；即使刷新文件名/摘要，也不能把不满足的谓词改成满足。持久 fixture 可支持恢复，仍不证明实际运行来源。
 
-evaluate_condition 只收序列化 request_json、可选 observation_id 和动作提案；不接受模型自填值、fixture 或结果。主机可通过程序接口注入合成 registry；当前 CLI 默认空 registry，未提供 ID 时保存 missing_observations 的 unknown，未知 ID 拒绝。inspect_analysis 可列出输入 ID/范围和结果 ID，按 condition_result_id 回读，并按需返回请求 schema。计算登记属于 record_analysis，引用与候选纳入相同工具授权和总工具预算，不消耗一个虚构的执行探针额度。session schema 5 固定 registry 指纹；恢复不能替换输入，已保存工具回执则回放，不重复登记动作，回执未存时保持动作结果未知。报告 schema 3 增加 condition_results；旧会话 schema 1–4 不续跑。可信值采集、目标版本适用性和真实应用验证尚待实现。
+evaluate_condition 只收序列化 request_json、可选 observation_id 和动作提案；不接受模型自填值、fixture 或结果。主机可通过程序接口注入合成 registry；当前 CLI 默认空 registry，未提供 ID 时保存 missing_observations 的 unknown，未知 ID 拒绝。inspect_analysis 可列出输入 ID/范围和结果 ID，按 condition_result_id 回读，并按需返回请求 schema。计算登记属于 record_analysis，引用与候选纳入相同工具授权和总工具预算，不消耗一个虚构的执行探针额度。session schema 6 固定 registry 指纹；恢复不能替换输入，已保存工具回执则回放，不重复登记动作，回执未存时保持动作结果未知。报告 schema 3 增加 condition_results；旧会话 schema 1–5 不续跑。可信值采集、目标版本适用性和真实应用验证尚待实现。
 
 #### 3.0.1 可信采值与算子绑定
 
@@ -260,7 +270,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 ##### 与现有实现的迁移
 
-当前独立合成入口不升级既有 Contract/schema 1、ConditionStore、report schema 3 或 session schema 5，也不开放新 SDK 工具、真实来源或运行能力。既有 synthetic/unknown 路径与测试继续有效，既有 applicability_authority=model_inference 保留；新来源不能靠给旧结果增加一个“可信” sidecar 接入。
+当前独立合成入口不升级既有 Contract/schema 1、ConditionStore、report schema 3 或 session schema 6，也不开放新 SDK 工具、真实来源或运行能力。既有 synthetic/unknown 路径与测试继续有效，既有 applicability_authority=model_inference 保留；新来源不能靠给旧结果增加一个“可信” sidecar 接入。
 
 独立绑定/采值凭据契约与合成接纳门单独回读，不直接注入现有 ObservationBatch。真正接入新来源时先显式设计独立来源对象的新 schema；改变计算/SDK 工具语义时再设计 ConditionRequest/Inputs/Result/Record schema 2 和对应新 session/report schema，冻结新增 manifest。新会话不跨旧工具 schema 续跑，旧记录仍按旧规则回读为历史合成结果。旧 fixture 若引用新绑定，须登记新的请求并重新计算新 ID，来源仍 synthetic。禁止覆盖旧结果、直接修改 v1 封闭来源枚举或让 v1 默认接纳真实执行标签。
 

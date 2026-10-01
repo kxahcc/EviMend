@@ -1,0 +1,100 @@
+{
+  "session_id": "session-2026-10-01-task-strategy-search",
+  "date": "2026-10-01",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "work_package": "W05 explicit repair task strategy and bounded shared source search",
+  "user_request_summary": "继续推进完整 Agent 的任务能力开发；先完成软件再实测，不启动真实模型或 HarmonyOS 实验。",
+  "changes": [
+    "新增 task_strategy.py，共享强基线的日志分析、跨文件上游和消费者追踪、原始行假设、保行为补丁、冻结候选、实际反馈修订和诚实终止指引；三增强开关只追加对应可选指导。",
+    "新增 source_search.py，对已核验原版或注册冻结候选做有限单行字面检索，返回源码身份、文件哈希、原始行列和有坐标的有限片段；稳定分页并明确编码跳过和不完整覆盖。",
+    "search_source 接入同一 inspect_existing/read_source 授权与总工具预算，候选参数进入实际注册校验；完成回执检查点恢复只回放，不再次扫描。",
+    "SDK 显式接入 system_prompt 与主机任务上下文；模型逐调用账本继续记录实际最终消息/工具/参数。session schema 6 冻结项目策略、初始上下文、工具 schema/描述和检索限额；拒绝旧会话 1–5 续跑。",
+    "新增策略、检索和真实 SDK 交接合成测试，验证跨文件查找→上游假设→候选→失败→修订→合成通过；不将脚本响应称作模型自主修复。",
+    "更新既有导览、规格、设计、计划、使用说明和 STATUS；下一包优先 W05 可配置模型适配边界与模拟传输，有限采值保留为增强子包。未增设常驻设计文档，未改三份竞赛模板或 data_B。"
+  ],
+  "validation": {
+    "entry": "scripts/local.ps1 Run; explicit TestPath per test file; sequential managed tasks",
+    "selected_test_files": [
+      {
+        "path": "tests/test_source_search.py",
+        "passed": 57,
+        "skipped": 1,
+        "log": ".dfx-local/artifacts/6eae0bdd-5b27-4331-badc-868746db468a.log"
+      },
+      {
+        "path": "tests/test_task_strategy.py",
+        "passed": 19,
+        "log": ".dfx-local/artifacts/bbb368a0-e109-41cf-9757-5ecfae605251.log"
+      },
+      {
+        "path": "tests/test_task_handoff.py",
+        "passed": 9,
+        "log": ".dfx-local/artifacts/971d946d-7224-41ec-8c70-9fe8e57f8012.log"
+      },
+      {
+        "path": "tests/test_agent_loop.py",
+        "passed": 12,
+        "log": ".dfx-local/artifacts/a4e19977-f737-41f7-8661-22f1f9dac1d5.log"
+      },
+      {
+        "path": "tests/test_tool_authorization.py",
+        "passed": 15,
+        "log": ".dfx-local/artifacts/a82cd8b6-3a3f-4e89-a11b-6473de6e0104.log"
+      },
+      {
+        "path": "tests/test_condition_handoff.py",
+        "passed": 30,
+        "log": ".dfx-local/artifacts/b718d376-435d-43f3-992a-ce4558bd6b19.log"
+      },
+      {
+        "path": "tests/test_policies.py",
+        "passed": 10,
+        "log": ".dfx-local/artifacts/cfe6752e-34a9-4c2e-b6b4-92a8793ac203.log"
+      },
+      {
+        "path": "tests/test_model_calls.py",
+        "passed": 8,
+        "log": ".dfx-local/artifacts/65d5360c-6ec1-481a-bbdf-185290305d49.log"
+      }
+    ],
+    "final_selected_tests_passed": 160,
+    "final_selected_tests_skipped": 1,
+    "ruff": "passed; .dfx-local/artifacts/159de8f0-74e4-4bb7-b215-ba9705787a78.log",
+    "pyright": "0 errors; .dfx-local/artifacts/2352e393-6d2b-4d06-8458-ea8171e61314.log",
+    "docs": "14 registered; 0 errors; .dfx-local/artifacts/df77a34c-2bab-4a42-94ac-7381390b3ed7.log",
+    "semantic_review": "独立只读审查确认实际候选绑定、预算公平和证据边界；修正大匹配集合的下一页可达性，并明确项目提示摘要与 SDK 最终消息摘要的不同职责。",
+    "real_model_runs_this_batch": 0,
+    "application_replays_this_batch": 0
+  },
+  "development_failures_and_resolution": [
+    "只读审查发现 offset 上限可导致返回不可用 next_offset；上限改为源码字节规模可覆盖的匹配行范围，新增超过十万匹配行的可继续分页反例，通过。",
+    "首次 Ruff 检出4项异常类型、导入、编码和集合表达问题；修正后通过。策略参数化测试的 pytest 弃用警告也通过改为 tuple 消除。",
+    "首次 Pyright 检出 session 可能未绑定；明确初始化后修复，类型检查通过，并重新验证 SDK 交接和恢复。"
+  ],
+  "environment": {
+    "new_dependencies_or_toolchains": false,
+    "resource_limits_changed": false,
+    "new_background_services": false,
+    "active_managed_task_at_status_snapshot": false,
+    "tmp_bytes_at_status_snapshot": 0,
+    "managed_bytes_by_category_at_status_snapshot": {
+      "tools": 41432064,
+      "artifacts": 446382,
+      "cache": 107220044,
+      "work": 110075,
+      "python": 59906689,
+      "env": 107635855,
+      "state": 833,
+      "tmp": 0
+    },
+    "environment_cache_and_logs_preserved": true
+  },
+  "limitations": [
+    "固定响应脚本提前指定动作和候选，合成文本检查不是编译/设备/业务验收；不能据此报告真实根因准确率、修复率或增强收益。",
+    "源码检索只定位字面文本，不计算数据流、源码 literal 或运行值，不核定目标平台算子适用性。",
+    "云端提供方、实际模型、网络传输与真实应用执行仍未接入；模型自主诊断/补丁能力和真实成本未知。",
+    "符号链接用例因本账户无创建权限跳过，不计通过，待有权限环境复验。"
+  ],
+  "next_work_package": "W05 configurable model adapter boundary with simulated transport; no credentials, network model calls, or real application experiments."
+}
