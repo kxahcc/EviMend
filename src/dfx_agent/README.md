@@ -1,9 +1,9 @@
-# 离线证据与固定响应修复闭环
+# 离线证据与修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-01。
+状态：当前使用说明。最后维护：2026-10-02。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
-当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。固定响应 `repair/resume` 已把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实模型、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。
+当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 支持固定响应和模拟模型协议，已把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实云端传输、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。
 
 从项目根目录查看命令：
 
@@ -41,14 +41,33 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 `analyze` 接收含 `task.json` 的快照目录，输出目录必须在该快照之外。报告保存栈位置、相关源码和映射歧义；`root_cause` 与 `patch` 为 null，验证状态保持 not_run。输入哈希校验能发现相对清单的改动，不证明清单的来源可信或日志与源码运行版本一致。
 
-固定响应离线演示必须通过受管入口执行，输入已准备并通过 `verify_task` 的任务快照、JSON 脚本和新的工作 ID：
+离线演示必须通过受管入口执行，输入已准备并通过 `verify_task` 的任务快照、JSON 脚本和新的工作 ID：
 
 ```powershell
 .\scripts\local.ps1 Run -Task offline -OfflineTaskPath <快照目录> -OfflineScriptPath <固定响应JSON> -OfflineWorkId demo1
 .\scripts\local.ps1 Run -Task offline -OfflineTaskPath <快照目录> -OfflineScriptPath <固定响应JSON> -OfflineWorkId demo1 -Resume
 ```
 
-`<...>` 是要替换的参数示意，不是可直接运行的真实任务。输入路径须在仓库内且不在 `data_B/` 或 `archive/`；工作目录固定为 `.dfx-local/work/offline-<ID>/`。脚本格式是 `{"schema_version":1,"responses":[{"tool":"edit_source","args":{"path":"src/main.ets","old":"bad","new":"good"},"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}],"expected":{"path":"src/main.ets","text":"value=good\n"}}`；可选 `policy_features` 对象含 `rule_guidance`、`obligation_tracking`、`decision_checks` 三个布尔开关，缺省全关。`tool:null` 表示模型结束消息，`usage:null` 表示提供方用量未知。这个 expectation 只用于合成替身，不得放入未来独立评测求解上下文。
+`<...>` 是要替换的参数示意，不是可直接运行的真实任务。输入路径须在仓库内且不在 `data_B/` 或 `archive/`；工作目录固定为 `.dfx-local/work/offline-<ID>/`。schema 1 脚本格式是 `{"schema_version":1,"responses":[{"tool":"edit_source","args":{"path":"src/main.ets","old":"bad","new":"good"},"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}],"expected":{"path":"src/main.ets","text":"value=good\n"}}`。`tool:null` 表示结束消息，此时 args 必须为空；`usage:null` 表示用量未知，存在的用量须为非负整数且总数一致。
+
+schema 2 用于检查实际模型协议交接，仍是进程内模拟，不连接云端：
+
+```json
+{
+  "schema_version": 2,
+  "model": {
+    "mode": "mock_chat_completions",
+    "settings": {"provider_id": "mock-provider", "model_id": "synthetic-model", "max_output_tokens": 128},
+    "responses": [{"id": "reply-1", "model": "synthetic-model", "choices": [
+      {"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "done"}}
+    ], "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}]
+  },
+  "expected": {"path": "src/main.ets", "text": "value=good\n"},
+  "limits": {"max_calls": 6}
+}
+```
+
+两种格式均可选 `policy_features`（rule_guidance、obligation_tracking、decision_checks 三个布尔开关，缺省全关）和 `limits`（max_calls、max_known_tokens、max_seconds、max_candidates、max_tool_calls，正数，未指定时沿用循环默认值）。文件最多 1 MiB，拒绝链接、额外字段、重复 JSON 键和非有限数值。配置不接受密钥、端点或真实网络模式；responses 与 expected 都不进入模型任务上下文，expected 只供合成执行器。模拟恢复按已完成调用数对齐响应流；完成请求回放不消费新响应，已发出但未知的请求不重发。已正常结束的 Graph 再 resume 只核对/汇总，不开启新模型对话；已用尽预算仍明确报告耗尽。修改模型配置或循环限额不能继续原会话。
 
 每次 SDK 工具调用先经 `actions.py` 的主机授权：检查工具对应动作、参数、任务/版本、引用、候选及能力；全部动作串行，并受独立工具预算约束。工具参数可带 `proposal_json`（序列化的 `ActionProposal`），用于显式提交理由和引用；它不能改变工具所需能力或候选，也不能隐藏工具实际引用。模型返回的工具调用并不自动获准；最后一个已记账模型响应仍可完成合法动作，但不能绕过工具、候选和时间预算。
 
@@ -64,11 +83,17 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 失败后 `link_failed_check` 返回反馈及 feedback_id，再决策时成对传该 feedback_id 与原 candidate_id；主机重新核对已保存失败检查、候选源码哈希和原观察。`decisions/<ID>.json` 保存建议及上下文摘要；`inspect_analysis(decision_id=...)` 可回读，默认列出决策和反馈 ID。`register_candidate` 可选成对传 decision_id/direction_id，核对同诊断、所选提议方向及声明义务；建议不强迫模型采用某一修法。失败与义务的关联仍是推断，只建议重审相关方向。
 
-`agent-report.json` 的 schema 3 记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态；`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义和检索限额；`session.json` 使用 schema 6，对应当前任务策略、检索工具定义和条件引用格式，旧 schema 1–5 会话拒绝续跑，须保留旧证据并另建工作 ID。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+`agent-report.json` 的 schema 4 记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。completion 摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。cost 记录完整调用分母，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
+
+`reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅，当前没有独立 report CLI 或证据 Export 命令。
+
+`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额及 model_profile；`session.json` 使用 schema 7，旧 schema 1–6 会话拒绝续跑，须保留旧证据并另建工作 ID。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
 
 合成输入自检位于 `tests/test_offline_evidence.py`，显式案例身份与哈希拒绝反例位于 `tests/test_case_identity.py`；领域对象和候选目录反例位于 `tests/test_contracts.py`、`tests/test_workspace.py`，固定响应闭环、HTTP 模拟协议、策略分支、接受契约、模型请求账本、逐工具授权/恢复、因果记录和修复决策交接分别位于 `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`、`tests/test_decisions.py`。这些检查不读取或运行 data_B 中的应用，不调用真实模型或设备。当前设计与待实现功能见 [技术设计](../../docs/development/system-design-draft.md) 和 [模块契约](../../docs/design-contracts.md)。
 
-模型账本的程序接口是 `ModelCallIntent`、`ModelCallStore` 和 `invoke_accounted`：调用前持久登记并占用次数，发出后若丢失响应则保留未知状态，同一 ID 不重发；收到的 `AIMessage` 保存为可恢复响应，格式错误与 Token usage 分开记账。固定响应模型根据实际传给 SDK 的消息、工具定义和参数生成哈希，完成响应在 Graph 未落检查点时可回放；请求已发出但无响应时报告 `model_result_unknown` 并停止。真实提供方适配器仍须核对实际发送请求、禁用或逐次登记内部重试；当前 CLI 不具备真实模型计费能力。
+模型账本的程序接口是 `ModelCallIntent`、`ModelCallStore` 和 `invoke_accounted`：调用前持久登记并占用次数，发出后若丢失响应则保留未知状态，同一 ID 不重发；收到的 `AIMessage` 保存为可恢复响应，格式错误与 Token usage 分开记账。固定响应模型根据实际传给 SDK 的消息、工具定义和参数生成哈希；模拟请求模型以 PreparedRequest 的唯一规范化发送体固定消息/工具/参数、整个 body 和 profile 指纹，发送前再次核对。原始 usage 保留，合格计数另行归一化；格式错误的整个响应不执行工具，已知 Token 超限阻止下一次调用而非承诺实际硬限额。完成响应在 Graph 未落检查点时可回放；请求已发出但无响应时报告 model_result_unknown 并停止。当前只允许 MockTransport，真实提供方兼容性、长上下文压缩与真实计费仍须验证。
+
+两种离线模型共享 context_profile：关闭 SDK 自动摘要和人类消息/工具结果卸载，避免它们写入冻结原版或绕过调用恢复。模型调用登记前核对完整序列化消息的字节上限；超限以 context_limit 停止且不产生新请求，格式不支持以 context_format_unsupported 停止。该字节限额定义在 models.py，与云端 Token 窗口不是同一指标；主机可记账的压缩仍待实现。session 7 冻结此策略，恢复不得替换。
 
 有限条件使用顺序是：登记含 RuntimeConstraint 的诊断，查看主机输入 ID 和范围，调用 evaluate_condition，再按结果 ID 回读或提交修复决策。工具接收 request_json 和可选 observation_id，不接受模型自填的值或结果；schema 可从 inspect_analysis(include_schema=True) 获取。ConditionRequest 引用诊断的假设和绑定，声明有限算子及完整范围。当前支持 array_index、data_view_access、typed_array_view 和 ready_at_use；不求值诊断表达式，不自动提取源码值或采集真实运行值。缺值、单位/范围/前提不符返回 unknown，非法目标或诊断引用拒绝。
 

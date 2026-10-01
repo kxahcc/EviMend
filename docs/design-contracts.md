@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-01。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选的交接、模型账本、逐工具授权和动作恢复已接入固定响应离线循环；应用接受门、模拟 HTTP 协议及策略分支已有合成实现。可信采值、算子适用性和因果关系的实际检验、真实模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
+状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-02。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选交接、模型账本、逐工具授权、动作恢复和主机终止摘要已接入固定响应与可配置 mock wire 的共享离线循环；应用接受门、模拟 HTTP 协议及策略分支已有合成实现。可信采值、算子适用性和因果关系的实际检验、云端模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -37,7 +37,7 @@ Diagnosis 保存 exception_locations、hypotheses、selected_hypothesis_id、unk
 | missing_evidence | 哪个事实未知，以及为何可能改变修改方向 |
 | distinguishing_check | 可空 DiagnosticQuestion：question、至少区分两个已登记假设的 observation_routes 及 retain_unknown；这里只记录问题，尚不执行检查或决定修法 |
 
-`diagnostics.py` 已将上述对象接入固定响应工具。`inspect_analysis(include_schema=True)` 按需提供主机任务身份、DiagnosisSubmission 的 JSON schema 和接纳规则；按 diagnosis_id 可回读原记录。`record_diagnosis(diagnosis_json=...)` 接收诊断、源码/日志引用、模型推断、已有证据 ID、失败检查引用及义务；旧的 path/line/reason 简单路径仍保留，不能和结构化路径混用。
+`diagnostics.py` 已将上述对象接入两种离线模型共用的工具。`inspect_analysis(include_schema=True)` 按需提供主机任务身份、DiagnosisSubmission 的 JSON schema 和接纳规则；按 diagnosis_id 可回读原记录。`record_diagnosis(diagnosis_json=...)` 接收诊断、源码/日志引用、模型推断、已有证据 ID、失败检查引用及义务；旧的 path/line/reason 简单路径仍保留，不能和结构化路径混用。
 
 源码文本由主机按版本和行范围读取，日志核对原字节哈希后读取，模型只能提交推断和引用，不能自填执行事实。执行证据只从已登记候选的已保存失败检查产生，核对候选源码哈希与 execution_id；恢复引用旧执行依据也须明确相同 feedback_candidate_id。所有模型提交的假设保持 unknown、关系保持 model_inference；这不是禁止后续可信检查确认它们，而是防止模型自授确认。引用闭包不得缺项或循环，已有证据 ID 不得改写。诊断、证据和关联义务在同一个不可改写的文件中原子保存；新假设或修订使用新 ID。诊断接纳工具只检查结构、引用和来源，不能证明因果解释正确，尚不自动调用第 3.0 节的条件检查器。
 
@@ -49,19 +49,31 @@ RepairObligation 用 record_id 作为 obligation_id，包含 kind（runtime_cond
 
 `ActionProposal` 是模型意图，不是执行结果。对象绑定 task/run/分析源码版本，保存 action、target_ids、evidence_ids、candidate_id、reason、required_capability、observation_routes、unknown_route 和 estimated_cost_basis。`record_analysis` 表示登记诊断、义务、建议、有限条件计算或反馈，不冒充执行观察或源码编辑。诊断探针至少区分两个修复方向，观测映射须能改变方向，并保留“未命中预测”的 `retain_unknown` 分支。`authorize_action` 只用主机持有的任务版本、已登记引用、候选、能力和剩余预算给出允许/拒绝；模型自报的能力与成本不构成授权。`finish` 还须引用已通过独立接受门的候选。
 
-固定响应 SDK 的同步工具调用已通过 `ToolAuthorizationMiddleware`：主机把工具名与参数映射成动作，校验参数、版本、已登记引用、候选和实际能力；可选 `proposal_json` 只能补充模型的理由与引用，不能改变工具对应的动作/能力或候选，工具实际引用也不能被省略。主机根据已记账的模型响应生成稳定 action_id；模型响应内的 call ID 元数据由适配器覆盖，不接受模型自授身份。已付费且保存的当前响应可在没有下一次模型调用额度时完成合法工具动作，但仍受独立工具调用预算、候选预算和截止时间限制。实际探针、停止请求、资源租约及应用结果归类仍待真实控制器集成。
+SDK 的两种离线模型共用 `ToolAuthorizationMiddleware`：主机把工具名与参数映射成动作，校验参数、版本、已登记引用、候选和实际能力；可选 `proposal_json` 只能补充模型的理由与引用，不能改变工具对应的动作/能力或候选，工具实际引用也不能被省略。主机根据已记账的模型响应生成稳定 action_id；模型响应内的 call ID 元数据由适配器覆盖，不接受模型自授身份。已登记且保存的当前响应可在没有下一次模型调用额度时完成合法工具动作，但仍受独立工具调用预算、候选预算和截止时间限制。实际探针、停止请求、资源租约及应用结果归类仍待真实控制器集成。
 
-`ToolActionStore` 在工具产生效果前记录授权与 `dispatched`，工具返回后保存完整 `ToolMessage` 及哈希再交给 Graph。`completed` 仅表示工具结果已保存，授权通过也不表示工具执行成功。相同模型调用与工具调用身份、相同参数的完成结果恢复时只回放；身份对应的参数改变则拒绝。已派发但无结果记录时保留未知，停止为 `action_result_unknown`，不盲目再次编辑。拒绝本身只有工具错误消息，不生成源码修改、候选或检查事实。原始工具结果只留受管 SQLite，报告只列授权、状态和结果哈希；这不是应用成功证据。
+`ToolActionStore` 在工具产生效果前记录授权与 `dispatched`，工具返回后保存完整 `ToolMessage` 及哈希再交给 Graph。`completed` 仅表示工具结果已保存，授权通过也不表示工具执行成功。相同模型调用与工具调用身份、相同参数的完成结果恢复时只回放；身份对应的参数改变则拒绝。已派发但无结果记录时保留未知，停止为 `action_result_unknown`，不盲目再次编辑。拒绝本身只有工具错误消息，不生成源码修改、候选或检查事实。原始工具回执只留受管 SQLite；报告保留动作及诊断/候选/反馈摘要，不复制完整原始工具回执，也不产生应用成功证据。
 
 反例 Counterexample 保存实际输入或产物引用、执行版本、观察、violated_obligation_ids 及 affected_hypothesis_ids。关联本身也可能是模型推断，必须标记；只反驳观测所覆盖的主张。重试时优先携带有效反例与未知项，不重复携带所有长日志。
 
 ### 1.2.2 模型请求、响应与恢复
 
-`ModelCallIntent` 是主机生成的稳定调用身份：call/task/run ID、调用用途（求解、格式修复、上下文压缩或 SDK 重试）、提供方与具体模型 ID，以及完整有序消息、工具 schema、生成参数的规范化哈希和允许的工具名。哈希对应的原始请求必须由可信适配器核对；仅填入任意哈希不能证明实际发送内容。调用次数从登记时占用，同一 task/run 内所有用途共用次数预算，不能把格式修复或压缩隐藏在 SDK 内部。跨 run 的总预算尚未定义。
+`ModelCallIntent` 保持 schema 1，是主机生成的稳定调用身份：call/task/run ID、调用用途（求解、格式修复、上下文压缩或 SDK 重试）、提供方与具体模型 ID，以及完整有序消息、工具 schema、生成参数的规范化哈希和允许的工具名。固定响应入口摘要 LangChain 消息与工具定义；`AccountedProviderModel` 摘要实际 wire 消息、原生 function descriptors 和生成参数，并把规范请求体及适配器 profile 的 SHA-256 纳入参数摘要。仅填入任意哈希不能证明实际发送内容，发送边界仍须复核下述冻结请求。调用次数从登记时占用，同一 task/run 内所有用途共用次数预算，不能把格式修复或压缩隐藏在 SDK 内部。跨 run 的总预算尚未定义。
+
+`model_provider.py` 的 `ProviderSettings` 冻结 provider_id、model_id、输出上限、可选 temperature 和请求超时；身份仅是配置，实际提供方/型号仍未选择。`ChatCompletionsAdapter` 当前只接收主机注入的 exact HTTPX MockTransport，端点固定为 model.invalid，无凭据、真实端点配置、自动重试或重定向。profile 包含 wire/schema、mock-only 标志、设置及请求/响应限额。2026-10-02 查阅 [DeepSeek Chat Completion 官方接口](https://api-docs.deepseek.com/api/create-chat-completion/) 作为文字/工具 wire 的设计参考，不表示完成该提供方或所有兼容 API 的接入。
+
+`PreparedRequest` 冻结 canonical body、body_sha256 和 profile_sha256；messages/tools/parameters 仅是由 body 解析的独立视图，不能通过修改嵌套副本改变发送内容。发送前重核规范字节、哈希、profile 和有限请求结构，再发送相同 UTF-8 body。支持 system/user/assistant/tool 文字消息、原生 function 工具、stop、tool_choice 和明确的 parallel_tool_calls；assistant reasoning_content 若存在，按原值保存并用于续轮。tool ID 必须唯一，结果须对应尚未完成的工具调用；附件、未知角色/生成选项、未闭合工具历史及不支持的格式发送前拒绝，不静默丢字段。请求/响应限额以适配器常量及 profile 为准；非有限数、重复 JSON 键和不合法 Unicode 拒绝。
 
 `ModelCallStore` 用项目受管目录内的 SQLite 保存 `reserved → dispatched → completed` 或 `dispatched → unknown`。先持久化意图，紧邻外部调用前标记 dispatched；重启后已完成的同一请求回放已保存的 `AIMessage`，不再发请求。已发出但无完整本地响应时，同一 call ID 禁止重发，结果与费用维持 unknown；确需另试须显式建新 call ID 并另占次数。标记 dispatched 与网络实际送达之间的崩溃窗口也保守算 unknown。提供方通常不保证以 call ID 查询或幂等，不能承诺 exactly-once。异常捕获后的原因只记录类别，不把异常文本中的凭据写进账本。
 
-收到响应后保存规范化消息及哈希、提供方消息 ID（如可得）、工具调用名称/ID/参数摘要、格式问题与 `usage_metadata` 的真实 input/output/total。原始消息仅保留在本机受管状态用于检查点落盘前恢复，不进入 Git 或默认汇总导出。格式错误也算已完成的一次调用，不能丢掉它的 usage；缺失或无效 usage 单独标记 `missing`/`invalid`，统计只有已知 Token 和未知调用数，不从文本长度补估。`text_only`、模型自称成功、工具参数或模型推断都不产生执行证据。固定响应 Deep Agents 模型入口已通过账本并把主机调用身份绑定到工具授权；Graph 检查点之前的完成响应可回放，已发出且未保存的响应停止为 unknown。真实 LangChain 提供方、其底层重试的逐次计费、实际 Token 硬限额和应用接受门接入仍待完成。
+响应须有单一 assistant choice、消息身份及合法终止字段。invalid arguments 保存为 invalid_tool_calls；截断或终止原因不一致的工具不能交给动作执行。`AccountedProviderModel` 在保存响应和 usage 后，对整条 format_error 停止，不执行同一响应中其余合法工具，也不暗中请求修正。HTTP、超时、超限或无法解析的响应使用固定安全原因；已派发但未取得可保存消息的调用保持 unknown，不保存异常正文中的私有内容。
+
+收到消息后保存规范化消息及哈希、提供方消息 ID、工具名称/ID/参数摘要与格式问题。wire 的非 null 原始 usage 完整保留为 response_metadata.dfx_provider_usage_raw；prompt_tokens/completion_tokens/total_tokens 须为非负整数、合计一致并与 usage_metadata 的 input/output/total 对应，才能标为 known。原值缺失/null 为 missing，存在但无效或映射不一致为 invalid；账本保存原值摘要，不以类型强制转换或文本长度补估。格式错误仍是完成的一次调用，不能丢掉其 usage。原始消息只留本机受管状态，不进入 Git 或默认汇总导出；text_only、模型自称成功和工具参数不产生执行事实。
+
+session schema 7 冻结 model_profile、context_profile、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略和合成 registry 指纹；续跑须全部一致，旧会话 schema 1–6 不续跑，另建 run 保留历史。项目提示摘要不代表 SDK 拼接后的全部消息，每次请求仍按实际 wire 留指纹；Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
+
+context_profile 定义当前有限上下文边界：两种模型在 reserve 之前核对完整序列化消息的 UTF-8 字节上限，超限以 context_limit 结束，无法序列化以 context_format_unsupported 结束，均不新增调用。SDK 的 SummarizationMiddleware 显式排除；必需的 FilesystemMiddleware 通过公开同类替换关闭人类消息与工具结果卸载，原 14 工具及授权保留。基础/增强同策略，不能在后台压缩、写入原版、重试或丢弃历史后继续。字节上限唯一维护在 models.py，不代表提供方 Token 窗口；受管压缩须另行设计无工具摘要调用、独立产物和派生调用恢复后验收。
+
+`offline_script.py` 的受限 loader 只接纳既有固定响应 schema 1 或 mock_chat_completions schema 2。脚本必须是普通文件，路径链拒绝链接/重解析点，文件拒绝多硬链接；读取前后核对身份、大小及修改时间并冻结读到的规范 JSON。字段、正数预算、策略和合成 expectation 严格校验，返回对象每次生成独立模型和响应流。CLI repair/resume 经现有受管离线入口分流；mock 续跑按已完成调用偏移响应流，完成调用仍由账本回放，次数与时间额度不重置。脚本 expectation 仅供合成执行器，不能作为应用 oracle 或进入真实求解上下文；该入口不开放云端实验。
 
 ### 1.2.3 已登记诊断到修复决策
 
@@ -89,7 +101,7 @@ RepairObligation 用 record_id 作为 obligation_id，包含 kind（runtime_cond
 
 结果包含原版 source_snapshot_sha256、实际 snapshot_sha256、scope、candidate_id、查询与过滤选项，以及 matches 中的 path、从 1 起的 line/column、有限 text、snippet_start_column、text_truncated、原字节 file_sha256。同一行只返回首个命中，按路径和行稳定排序；total_matched_lines、has_more、next_offset 明确分页，返回的下一页位置必须可用。NUL/非 UTF-8 文件以 skipped 原因列出；complete 只表示过滤范围内文件均可解码，不等于当前页包含全部命中，更不表示代码安全。长行片段截断用原列号定位，不能把片段当完整上下文。无匹配且 complete=False 时不得声明该范围没有目标文本。
 
-检索属于 inspect_existing/read_source，基础与增强共享同一工具和总预算；实际 candidate_id 进入主机授权，不可用 proposal_json 隐藏。完整工具回执进入现有 SQLite，已保存结果恢复时只回放，不重复扫描。session schema 6 冻结项目 system_prompt、初始任务上下文、工具 schema/描述和检索限额，并继续绑定预算、能力、策略和合成 registry 指纹；变更任一项或旧 schema 1–5 都拒绝续跑，旧记录保留而另建运行 ID。项目 system_prompt 的摘要不冒充 SDK 拼接后的全部提示；最终实际消息/工具/参数仍由每次 ModelCallIntent 留指纹。报告继续使用 schema 3，未新增应用验证能力。
+检索属于 inspect_existing/read_source，基础与增强共享同一工具和总预算；实际 candidate_id 进入主机授权，不可用 proposal_json 隐藏。完整工具回执进入现有 SQLite，已保存结果恢复时只回放，不重复扫描。指引、工具和检索限额由第 1.2.2 节的当前会话固定；最终实际消息/工具/参数仍由每次 ModelCallIntent 留指纹。主机报告按第 1.3.2 节核验，不新增应用验证能力。
 
 ### 1.3 补丁、验证和尝试
 
@@ -119,7 +131,21 @@ oracle 的实际内容与 hash 由独立准备者管理：已核验需求/接口
 
 W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈希、补丁哈希、环境、共同协议、初始状态、执行层、重复序号和超时。`run_id + 请求规范摘要` 生成幂等键；重复序号改变表示一次新的逻辑回放。客户端提交前保存意图，响应丢失时只能以同一键对账；服务端 SQLite 对该键设唯一约束，查询不能新建作业。`cancel_requested` 不是 `canceled`，服务重启后无法确认仍在运行的模拟作业标记 `inconclusive`。产物引用绑定 job、内容哈希与大小，服务和客户端分别校验。模拟结果显式 `scope=synthetic`、`application_verification=not_run`，不能转为正式应用 pass。当前 W06 请求尚无 check_id 与场景绑定，真实适配时须在兼容性版本中补齐，逐项产生上述 Verdict；不能按执行层次猜测属于哪个检查。真实执行进程、设备状态确认与应用级结果仍待接入。
 
-Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和本次成本。FinalReport 保存第一次提交验证前的根因预测与最终预测，不能用成功补丁落点覆盖初始定位成绩。
+完整 Attempt/FinalReport 的应用级交付对象仍待接入，须保存诊断/候选/验证引用、下一步动作、累计和本次成本，并分别保留初次与最终根因预测。当前离线报告按下节从主机记录重建，不能用成功补丁落点覆盖初始定位成绩。
+
+### 1.3.2 主机终止摘要与结果核验
+
+`agent-report.json` 使用 report schema 4，completion 为 schema 1 的 host_summary，由 `reporting.py` 的 build_completion 在运行结束后读取持久事实生成，不采信模型结尾的“修好了”。它核对基准原字节、登记诊断/义务/决策/条件、候选源码/manifest/diff、检查意图与结果，以及模型账本和工具动作的归属、请求与回执。facts_sha256 固定这些输入，summary_sha256 固定派生摘要；哈希表示内容一致，不提升证据来源。
+
+定位按工具动作账本排序：initial 是首次允许 edit_source 之前、已有完成回执的首个登记诊断；首次允许编辑即形成 cutoff，即使该编辑后来失败，也不能用后续诊断补成初次预测。latest 是最后一个有完成回执的登记诊断，candidate_linked 是最新候选实际关联的诊断；三者可以不同。已登记但没有可核对动作顺序的诊断列为 unsequenced，不猜测其先后。各定位保持 model_inference/root_cause_confirmation=unknown，包含候选根因位置及原证据；没有 ground truth 判断就不生成定位准确率。
+
+候选按登记 ordinal 排序，保留全部 patch 引用及摘要、manifest、not_requested/pending/completed 检查状态和实际回执。latest_candidate_id 只指最后一个候选，最终状态依据它的检查，不选择历史上最好的一次：旧候选通过而最新候选失败或未查时，保留历史通过列表并报告当前 unresolved。未完成模型/工具/检查优先保持未知，模型格式或不支持请求同样 unresolved；预算耗尽按其停止条件报告。离线通过最多是 offline_checked；有已保存检查时 verification.level 为 offline_synthetic，否则为 not_run；accepted 始终 false，application_verification 始终 not_run。
+
+cost 从模型和动作账本汇总所有登记调用、已知 Token、missing/invalid usage、未发出/结果未知调用、拒绝动作与检查请求。只有全部登记调用完成且 usage 完整时 total_tokens 才有数值；否则保持 null，同时保留已知 subtotal 和未知计数。没有实测依据的 monetary_cost、localization_ms 和 repair_ms 保持 null，不能用脚本长度、合成响应或零值代替真实成本和耗时。
+
+`read_completion` 只回读并重新核验，不运行模型、工具或检查。它核对 report 的归属/schema、整个 completion，以及 report_validation.verified_top_level_fields 列出的候选、检查、累计模型/工具成本、动作、决策、条件等顶层字段；policy_features 有会话依据时、offered_tools 有模型调用依据时才列为可核验。adapter_error_reason 与各 *_this_turn 成本差分当前属于 unverified_top_level_fields；stopped_reason 是重新计算的输入，部分原因须有账本依据，但不是完整重建的停止过程。调用成功不表示整个任意报告字段、应用结果或模型语义已被验证。
+
+后续聚合只消费与持久事实匹配的摘要，并分别记录初次定位、最终定位、首次候选和最新候选，不删除失败或未知项；真实应用指标仍须共同接受协议与独立 oracle。受管导出须保留重新核验所需的明确产物、版本和来源；仅复制一份 agent-report.json 不能代替可复现证据。
 
 ## 2. 控制器转换规格
 
@@ -129,6 +155,8 @@ Attempt 保存诊断/候选/验证引用、下一步动作及理由、累计和�
 |---|---|---|---|
 | 原始日志映射有歧义 | 全部候选路径、版本未知 | 补查源码和打包来源，或保留未知 | 随机选第一个文件当成精确定位 |
 | 两个诊断解释会导向不同补丁 | 区分二者所需事实 | 预算内补查或执行一个探针 | 多做一次相同检查算获得新证据 |
+| mock wire 模型响应有格式错误或不支持的请求格式 | 已有消息、原始 usage/安全原因和调用状态 | 保存后 unresolved，或在明确新调用预算下另行处理 | 执行同轮部分工具或在 SDK 内暗中重试 |
+| 模型已派发但响应未保存 | 请求身份、账本状态和未知费用 | 回读已有结果；否则 unresolved | 没有结果就假设调用未发生并重发同 ID |
 | diff 无法应用或引入编译错误 | 原候选、错误与成本 | 修订生成；必要时更新上下文 | 抹去本次首次失败 |
 | 依赖下载/SDK/签名失败 | 环境标识和原始执行错误 | 有界重试环境；否则 blocked | 直接否定业务诊断 |
 | 原故障在正确版本继续出现 | 回放确实触达目标的证据 | 检查修复覆盖，或换根因假设 | 仅因“日志相同”认定所有诊断错误 |
@@ -151,7 +179,7 @@ W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，�
 
 ### 3.0 首批有限条件检查
 
-`conditions.py` 提供独立程序接口及固定响应 SDK 的 evaluate_condition 工具。它回答“这组有界输入是否满足指定条件”，不回答“源码一定产生这些值”或“业务已经修好”。不解析或求值 RuntimeConstraint.condition、ValueBinding.expression；只使用已登记绑定 ID 和有限枚举算子，不作为 CheckLedger 执行器。
+`conditions.py` 提供独立程序接口及两种离线模型共用的 evaluate_condition 工具。它回答“这组有界输入是否满足指定条件”，不回答“源码一定产生这些值”或“业务已经修好”。不解析或求值 RuntimeConstraint.condition、ValueBinding.expression；只使用已登记绑定 ID 和有限枚举算子，不作为 CheckLedger 执行器。
 
 ConditionRequest 包含 check_id、diagnosis_id、hypothesis_id、kind、binding_ids、length_mode、profile 和 ConditionScope。范围绑定 task/run、分析源码哈希、实际计算版本、可选候选 ID、该版本的 operation 位置、scenario_id、path_id、subject_id 和 sample_id。主机核对诊断及假设的规则类别、绑定存在性、原版操作位置、基准实际字节和冻结候选实际字节。候选位置校验路径/行范围，尚不自动证明原版与候选行映射；模型选错算子或绑定含义也不会被此校验自动纠正。
 
@@ -170,7 +198,7 @@ ConditionResult 保存请求和输入摘要、每个子条件及操作数、sati
 
 ConditionStore 将主机输入保存到工作目录的 condition-inputs.json，将 ConditionRecord 保存到 conditions/<result_id>.json。记录绑定结果内容、输入 registry 指纹和去除接纳时间后的诊断包哈希，result_id 为内容摘要；相同输入回读原记录，不覆盖旧结果。回读校验归属、文件类型及链接，重新核对诊断、源码版本和完整计算；即使刷新文件名/摘要，也不能把不满足的谓词改成满足。持久 fixture 可支持恢复，仍不证明实际运行来源。
 
-evaluate_condition 只收序列化 request_json、可选 observation_id 和动作提案；不接受模型自填值、fixture 或结果。主机可通过程序接口注入合成 registry；当前 CLI 默认空 registry，未提供 ID 时保存 missing_observations 的 unknown，未知 ID 拒绝。inspect_analysis 可列出输入 ID/范围和结果 ID，按 condition_result_id 回读，并按需返回请求 schema。计算登记属于 record_analysis，引用与候选纳入相同工具授权和总工具预算，不消耗一个虚构的执行探针额度。session schema 6 固定 registry 指纹；恢复不能替换输入，已保存工具回执则回放，不重复登记动作，回执未存时保持动作结果未知。报告 schema 3 增加 condition_results；旧会话 schema 1–5 不续跑。可信值采集、目标版本适用性和真实应用验证尚待实现。
+evaluate_condition 只收序列化 request_json、可选 observation_id 和动作提案；不接受模型自填值、fixture 或结果。主机可通过程序接口注入合成 registry；当前 CLI 默认空 registry，未提供 ID 时保存 missing_observations 的 unknown，未知 ID 拒绝。inspect_analysis 可列出输入 ID/范围和结果 ID，按 condition_result_id 回读，并按需返回请求 schema。计算登记属于 record_analysis，引用与候选纳入相同工具授权和总工具预算，不消耗一个虚构的执行探针额度。registry 指纹由第 1.2.2 节的会话固定；恢复不能替换输入，已保存工具回执则回放，不重复登记动作，回执未存时保持动作结果未知。condition_results 进入第 1.3.2 节的主机报告和核验范围，来源仍为合成。可信值采集、目标版本适用性和真实应用验证尚待实现。
 
 #### 3.0.1 可信采值与算子绑定
 
@@ -270,7 +298,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 ##### 与现有实现的迁移
 
-当前独立合成入口不升级既有 Contract/schema 1、ConditionStore、report schema 3 或 session schema 6，也不开放新 SDK 工具、真实来源或运行能力。既有 synthetic/unknown 路径与测试继续有效，既有 applicability_authority=model_inference 保留；新来源不能靠给旧结果增加一个“可信” sidecar 接入。
+当前独立采值合成入口不升级既有 Contract/schema 1 或 ConditionStore，也不改变第 1.2.2、1.3.2 节的会话/报告语义，不开放新 SDK 工具、真实来源或运行能力。既有 synthetic/unknown 路径与测试继续有效，既有 applicability_authority=model_inference 保留；新来源不能靠给旧结果增加一个“可信” sidecar 接入。
 
 独立绑定/采值凭据契约与合成接纳门单独回读，不直接注入现有 ObservationBatch。真正接入新来源时先显式设计独立来源对象的新 schema；改变计算/SDK 工具语义时再设计 ConditionRequest/Inputs/Result/Record schema 2 和对应新 session/report schema，冻结新增 manifest。新会话不跨旧工具 schema 续跑，旧记录仍按旧规则回读为历史合成结果。旧 fixture 若引用新绑定，须登记新的请求并重新计算新 ID，来源仍 synthetic。禁止覆盖旧结果、直接修改 v1 封闭来源枚举或让 v1 默认接纳真实执行标签。
 
@@ -352,4 +380,4 @@ Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/s
 
 ## 6. 关联与待完成规格
 
-工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录、有限条件结果到修复决策及候选的固定响应交接已可执行；真实值采集、其余规则检查、可信应用验证对象接纳与本机执行控制仍待闭合和实测。
+工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录、有限条件结果到修复决策和候选的离线交接、mock wire 模型边界及主机结果摘要已可执行；离线聚合/受管导出、真实提供方、真实值采集、其余规则检查、可信应用验证接纳与本机执行控制仍待闭合和实测。

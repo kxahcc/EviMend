@@ -1,11 +1,11 @@
 # 当前状态
 
-状态：当前进度。最后维护：2026-10-01。
+状态：当前进度。最后维护：2026-10-02。
 职责：唯一维护已完成工作、当前任务、阻塞及下一步；项目蓝图与目录见 [开发导览](../DEVELOPMENT.md)，阶段定义见 [实施计划](project-work-plan.md)。
 
 ## 当前阶段
 
-P0 设计闭合进行中，同时推进 P1 通用 Agent 任务能力；不表示完整设计或 P1 已完成。优先补齐基础 Agent 的明确任务策略、跨文件检索和模型适配入口，再继续有限采值增强。后续本机 Agent 拟通过云端大模型 API 接入基础模型；HarmonyOS 应用验证和效果评测在本机受管工作流进行，不再等待远程执行主机。本地权重部署和小模型微调不在当前路线；具体模型尚未选定。当前仍只做设计和合成软件自检，不启动真实模型或应用实验。
+P0 设计闭合进行中，P1 已打通任务策略、跨文件检索、固定/模拟模型协议、定位/补丁/合成反馈、恢复和结果摘要。当前有限上下文路径显式关闭 SDK 隐式摘要及文件卸载；受管压缩、离线聚合和证据导出仍须补齐，不表示 P1 或完整系统已完成。后续本机 Agent 拟通过云端大模型 API 接入基础模型；HarmonyOS 应用验证和效果评测在本机受管工作流进行。本地权重部署和小模型微调不在当前路线；具体模型尚未选定。当前仍只做设计和合成软件自检，不启动真实模型或应用实验。
 
 ## 已完成与证据
 
@@ -15,33 +15,35 @@ P0 设计闭合进行中，同时推进 P1 通用 Agent 任务能力；不表示
 | 项目蓝图 | 已明确目标工具、案例流程、重点和技术底座概览；详细规格仍需闭合 | DEVELOPMENT.md、开发设计第 1.1 节 |
 | 技术选型 | Deep Agents SDK（底层 LangGraph）/Pydantic/SQLite 已接入固定响应路径；HTTPX/FastAPI/Uvicorn 为已完成的模拟协议原型，不再是本机应用执行的必需服务。真实模型与本机设备执行未接入，应用修复未验证 | 开发设计第 1.1、6 节；uv.lock；W03/W05/W06 自检 |
 | 方法设计 | 已落实竞争力设计、四项工作与失败风险、端到端推演及强基线比较要求；因果诊断、义务、有效合成反例和同范围有限条件结果已绑定修复决策，动作授权与共同接受对象已有合成实现；可信采样、算子适用性及真实控制器/应用验证仍未落地 | [设计草案](development/system-design-draft.md)、[模块规格](design-contracts.md) |
-| 本机资源与交接设计 | 已定义集中目录、资源限制、停止/清理协议及 W01–W10 实现包；Job 限制对合成 Run、Init、pytest、质量检查和固定响应离线 Agent 生效，真实模型/应用任务尚未接入 | 开发设计第 9 节、模块规格第 5 节、实施计划 |
+| 本机资源与交接设计 | 已定义集中目录、资源限制、停止/清理协议及 W01–W10 实现包；Job 限制对合成 Run、Init、pytest、质量检查和离线 Agent 生效，真实模型/应用任务尚未接入 | 开发设计第 9 节、模块规格第 5 节、实施计划 |
 | W01 本机管理 | Prepare/Status/Clean 已实现；清理默认预览并校验 owner、目标指纹、活动标记和链接；当前 37 条隔离合成断言通过 | scripts/local.ps1、scripts/test_local_runtime.ps1、sessions/2026-09-23-W01-local-cleanup.json |
 | W02 进程保护 | Run/Stop 已实现固定合成场景；Job 的 CPU/提交内存/进程数设置后读回，子进程挂起加入后运行；输出管道按字节上限收集，监测时间、内存预留和磁盘。25 条隔离断言通过 | scripts/local_job.cs、scripts/local_synthetic.ps1、scripts/test_local_process.ps1、sessions/2026-09-23-W02-local-processes.json |
 | W03 受管依赖与 SDK 切片 | 项目专属 uv 0.12.9、CPython 3.13.5、uv.lock 已就位；Deep Agents 0.7.18 固定响应脚本验证编辑、候选登记、失败后修订、120 Token 记录、禁用委派与 SQLite 恢复。受管 Init 重复执行 10 项断言通过，SDK 合成测试 1 项通过；不代表真实模型或应用修复成功 | configs/bootstrap.json、uv.lock、tests/test_sdk_compat.py、scripts/test_local_bootstrap.ps1、sessions/2026-09-23-W03-managed-sdk.json |
 | W04 首批领域对象与候选工作区 | 严格 Pydantic 对象及证据来源/行号/版本/引用检查；从已校验分析快照独立复制草稿，失败编辑原子回退，登记完整 diff、候选源码与哈希，检查前复核。合成测试 9 通过、1 项符号链接测试因当前账户权限跳过；硬链接隔离测试通过。尚非可构建运行工程 | src/dfx_agent/contracts.py、workspace.py；tests/test_contracts.py、test_workspace.py；sessions/2026-09-23-W04-contracts-workspace.json |
 | W05 固定响应离线闭环 | Deep Agents 哈希校验日志读取、通用源码浏览/编辑工具、未确认诊断、候选登记门、合成检查反馈、调用/已知 Token/时间/候选预算与停止报告已接入；固定响应模型调用也通过独立 SQLite 账本，Graph 检查点前完成可回放，已发出未保存时保留未知且不重发。当前 12 项受管合成测试通过；受管 CLI repair/resume 冒烟为 9 月 29 日记录。仅合成文本判据，无应用成功 | src/dfx_agent/agent.py、models.py、model_calls.py、verification.py、cli.py；tests/test_agent_loop.py；.dfx-local/artifacts 中相应记录 |
-| W05 任务策略与跨文件检索 | 显式 system_prompt 和主机任务上下文已接入 SDK；基础策略覆盖上游原始行定位、保行为补丁、检查和有依据的反馈修订，增强只按开关追加。search_source 可在核验原版/冻结候选上做分页字面检索，带版本/坐标/编码缺项，共用授权和总预算。57 项检索、19 项策略、9 项 SDK 交接测试通过，检索符号链接用例 1 项权限跳过；脚本跨文件定位→失败→再修订已打通。session 6 冻结项目提示、初始上下文、工具定义和检索限额；尚无真实模型自主修复证据 | src/dfx_agent/task_strategy.py、source_search.py、agent.py；tests/test_task_strategy.py、test_source_search.py、test_task_handoff.py；sessions/2026-10-01-task-strategy-search.json |
+| W05 任务策略与跨文件检索 | 显式 system_prompt 和主机任务上下文已接入 SDK；基础策略覆盖上游原始行定位、保行为补丁、检查和有依据的反馈修订，增强只按开关追加。search_source 可在核验原版/冻结候选上做分页字面检索，带版本/坐标/编码缺项，共用授权和总预算。57 项检索、19 项策略、9 项 SDK 交接测试通过，检索符号链接用例 1 项权限跳过；脚本跨文件定位→失败→再修订已打通。session 7 冻结项目提示、初始上下文、工具定义和检索限额；尚无真实模型自主修复证据 | src/dfx_agent/task_strategy.py、source_search.py、agent.py；tests/test_task_strategy.py、test_source_search.py、test_task_handoff.py；sessions/2026-10-01-task-strategy-search.json |
+| W05 模拟模型与结果交接 | 可配置 MockTransport 接入真实 SDK；唯一规范化发送体绑定消息/工具/参数与 profile，完整响应/原始 usage 保存，未知结果不重发，混合错误工具调用全批停止。主机 report 4 核验编辑前初次定位、最新候选/diff/check、决策/条件及调用/动作账本，标明不可回读诊断范围；session 7 冻结 model_profile。受管 PowerShell repair/resume 模拟冒烟通过，正常结束后恢复新增请求为 0；无真实云端兼容或应用效果证据 | model_provider.py、models.py、reporting.py、offline_script.py、cli.py；新增测试；sessions/2026-10-02-model-boundary-report.json |
+| W05 有限上下文保护 | 已经公开 SDK 扩展关闭自动摘要和人类消息/工具结果卸载，两种模型在 reserve 前检查完整序列化消息，超限/格式不支持明确停止；session 7 冻结 context_profile，基础增强一致。24 项合成测试通过，低摘要阈值/大工具输出未引发额外调用或后端写入，原版不变；受管语义压缩仍未实现 | models.py、agent.py；tests/test_context_boundary.py；sessions/2026-10-02-model-boundary-report.json |
 | W06 HTTP 模拟作业协议 | 版本/协议绑定请求、HTTPX 客户端意图、SQLite 唯一幂等键、查询、取消待确认、重启不确定状态及双端产物哈希校验已实现。FastAPI 进程内模拟服务 7 项合成测试通过，无后台进程或设备；所有结果为 synthetic/not_run。该原型可复用状态语义，不是本机真实执行适配器 | src/dfx_agent/backends.py、remote_service.py；tests/test_remote_contract.py；uv.lock；.dfx-local/artifacts 中对应记录 |
 | W07 领域策略合成分支 | 四类规则卡、可关闭的规则/义务/查证开关、修法等价直接路径、区分力/能力/预算判断、候选义务与合成失败反例引用已接入固定响应 Agent 和受管固定脚本；基础与增强通用工具一致。10 项策略合成测试通过；模型推断关联不作硬拒绝，未运行实际诊断探针或应用 | src/dfx_agent/policies.py、agent.py、cli.py、workspace.py；tests/test_policies.py；.dfx-local/artifacts 中本批记录 |
 | P0 动作与共同接受契约 | 模型动作提案与主机引用/能力/预算授权、候选无关的四层共同协议、故障签名、源码/运行版本绑定和保守接受门已形成 Pydantic 契约；13 项合成测试通过。动作授权已接入固定响应工具边界，接受门仍未接入真实打包器、业务 oracle 或设备；模拟或缺项不能成功 | src/dfx_agent/contracts.py、acceptance.py；tests/test_action_acceptance.py；模块规格第 1.2–1.3 节 |
-| P0 逐工具授权与结果恢复 | SDK 当前 14 个项目工具在执行前校验参数、动作/能力、任务/版本、实际引用、候选与预算，绑定已记账的主机模型调用身份；SQLite 保存授权与工具结果，完成回放不重复动作，回执未存保持未知。有限条件与源码检索工具纳入同一能力和总工具预算，拒绝额外字段及隐藏嵌套请求的实际引用；15 项授权反例通过。同步固定响应路径以外仍待接入 | src/dfx_agent/actions.py、agent.py、models.py；tests/test_tool_authorization.py；sessions/2026-10-01-condition-handoff.json |
+| P0 逐工具授权与结果恢复 | SDK 当前 14 个项目工具在执行前校验参数、动作/能力、任务/版本、实际引用、候选与预算，绑定已记账的主机模型调用身份；SQLite 保存授权与工具结果，完成回放不重复动作，回执未存保持未知。有限条件与源码检索工具纳入同一能力和总工具预算，拒绝额外字段及隐藏嵌套请求的实际引用；15 项授权反例通过。固定响应和模拟请求路径共用授权；真实云端仍待接入 | src/dfx_agent/actions.py、agent.py、models.py；tests/test_tool_authorization.py；sessions/2026-10-01-condition-handoff.json |
 | P0 因果诊断与修复义务交接 | 已补齐必要条件、值/状态绑定、因果步骤、支持/反驳引用、区分问题和双向义务关联；结构化提交由主机读取源码/日志、核对实际失败检查的候选版本，再原子保存诊断包。schema/既有记录可按需回读；候选和合成反馈共享义务 ID。21 项新增合成测试通过，引用契约 5 项、闭环 12 项、授权 15 项和策略 10 项回归通过。模型状态保持 unknown，此接纳入口仍不自动计算条件，因果真实性及效果未知 | src/dfx_agent/contracts.py、diagnostics.py、agent.py；tests/test_causal_diagnosis.py；sessions/2026-09-30-causal-diagnosis.json |
-| P0 已登记诊断到修复决策 | DecisionRequest 绑定同任务/运行/源码的诊断、假设、证据、义务与区分问题；失败后仅使用已保存且匹配原候选的合成检查反馈，有限条件另声明完整期望范围并关联相关假设方向。保存建议与上下文，可回读并由候选成对引用决策/方向；原有直接/补查/未知/失败重审 21 项合成测试回归通过。session schema 6 拒绝旧会话续跑；仍不执行探针、不确认因果或硬拒绝推断义务 | src/dfx_agent/decisions.py、agent.py、actions.py；tests/test_decisions.py；sessions/2026-10-01-condition-handoff.json |
+| P0 已登记诊断到修复决策 | DecisionRequest 绑定同任务/运行/源码的诊断、假设、证据、义务与区分问题；失败后仅使用已保存且匹配原候选的合成检查反馈，有限条件另声明完整期望范围并关联相关假设方向。保存建议与上下文，可回读并由候选成对引用决策/方向；原有直接/补查/未知/失败重审 21 项合成测试回归通过。session schema 7 拒绝旧会话续跑；仍不执行探针、不确认因果或硬拒绝推断义务 | src/dfx_agent/decisions.py、agent.py、actions.py；tests/test_decisions.py；sessions/2026-10-01-condition-handoff.json |
 | P0 首批有限条件检查 | 索引范围、DataView 访问、TypedArray 容量/对齐/省略长度及使用点就绪状态已有程序接口，SDK 交接见下行。主机固定合成输入，核对任务/版本/诊断/绑定/对象/路径/采样点与单位；缺值或前提不足保留未知，不求值表达式、不改写假设或应用门。51 项计算合成测试通过；源码值提取和真实运行采样仍未实现 | src/dfx_agent/conditions.py；tests/test_conditions.py；模块规格第 3.0 节；sessions/2026-10-01-condition-handoff.json |
-| P0 有限条件结果交接 | 主机输入及内容寻址结果不可改写保存；回读重核诊断、源码、候选、范围和完整计算。SDK 可按输入 ID 计算、按结果 ID 回读并提交同范围决策；violated 仅建议重审相关方向，satisfied/unknown 不确认修复，关闭关联保留未知。结果保存 23 项、交接/授权/恢复 30 项新增合成测试通过，原条件 51 项及授权 15 项、决策 21 项回归通过；报告 schema 3、会话 schema 6 冻结输入指纹。CLI 默认空 registry，程序测试可注入主机 fixture；可信采值及适用性仍未实现 | src/dfx_agent/conditions.py、agent.py、actions.py、decisions.py；tests/test_condition_store.py、test_condition_handoff.py；sessions/2026-10-01-condition-handoff.json |
+| P0 有限条件结果交接 | 主机输入及内容寻址结果不可改写保存；回读重核诊断、源码、候选、范围和完整计算。SDK 可按输入 ID 计算、按结果 ID 回读并提交同范围决策；violated 仅建议重审相关方向，satisfied/unknown 不确认修复，关闭关联保留未知。结果保存 23 项、交接/授权/恢复 30 项新增合成测试通过，原条件 51 项及授权 15 项、决策 21 项回归通过；报告 schema 4、会话 schema 7 冻结输入指纹。CLI 默认空 registry，程序测试可注入主机 fixture；可信采值及适用性仍未实现 | src/dfx_agent/conditions.py、agent.py、actions.py、decisions.py；tests/test_condition_store.py、test_condition_handoff.py；sessions/2026-10-01-condition-handoff.json |
 | P0 可信采值与算子绑定设计 | 已在现有主文档定义操作/参数锚点、主机角色映射、来源分层、采值凭据、对象代次/操作事件、观察扰动、预算/恢复及 schema 迁移；逐项推演同单位角色置换、候选移位、使用前后状态、目标未到达和平台未知等反例，并做跨文档人工审查。独立合成入口见下行，真实采值与平台适用性仍待实现 | [设计第 3.2.1 节](development/system-design-draft.md#321-怎样取得可信的条件输入)、[规格第 3.0.1 节](design-contracts.md#301-可信采值与算子绑定)、实施计划；sessions/2026-10-01-value-source-design.json |
 | P0 主机操作绑定与采值凭据合成契约 | 独立 SourceAnchor/BindingProposal/主机合成映射、CaptureIntent/Receipt 和不可改写登记已实现；实查 UTF-8 原字节、父操作、诊断、原版/候选和冻结 manifest。模拟事件核对操作、对象实例/代次/时序，回读不登记；追加 fixture 不改变旧凭据，来源始终 synthetic。66 项新增测试通过；工作区 4 通过/1 权限跳过、因果诊断 21、有限条件 51、条件保存 23、固定响应闭环 12 项回归通过。未接 SDK、新来源计算、解析器或设备 | src/dfx_agent/value_sources.py；tests/test_value_sources.py；sessions/2026-10-01-value-source-contracts.json |
 | P0 案例选择契约 | 显式 schema 2 目录校验任务、案例键、谱系、变体、日志成员及可选场景脚本哈希，拒绝重复身份/同字节日志、不安全路径和会复制进分析快照的评测脚本；任务快照仅留下选择摘要。7 项合成测试通过。目录仍不能证明日志/源码同版或应用可运行 | src/dfx_agent/task.py、cli.py；tests/test_case_identity.py；数据报告候选审查 |
 | P0 模型调用与恢复契约 | SQLite 请求账本在调用前登记并占用次数，发出后同 ID 不盲重试；完成响应可跨重启回放，格式错误和已知/缺失 usage 分开记录。独立账本 8 项、固定响应 SDK 闭环 12 项合成测试通过。真实提供方、底层重试计费和实际 Token 硬限额仍未接入 | src/dfx_agent/model_calls.py、models.py；tests/test_model_calls.py、test_agent_loop.py；模块规格第 1.2.2 节 |
 | 离线证据入口 | prepare/analyze 提供快照、日志解析、栈位置映射和证据报告，结果不自动确认根因或有效修复 | cli.py、logs.py、sources.py；修复循环见 W05 |
-| 软件自检 | 受管 pytest：原型 10 项、案例身份 7 项、SDK 固定响应 1 项、W04 9 项、W05 12 项、W06 7 项、W07 10 项、P0 接受契约 13 项、模型账本 8 项、逐工具授权 15 项、因果诊断交接 21 项、修复决策交接 21 项、有限条件检查 51 项、条件保存 23 项、Agent 交接 30 项及独立采值契约 66 项通过，W04 符号链接测试 1 项跳过。任务指引 19 项、源码检索 57 项、SDK 任务交接 9 项通过，检索符号链接 1 项权限跳过。本批所选 8 个测试文件合计 160 通过、1 跳过；其余模块最近验证见对应行及 session，不是同一轮全仓运行。W01/W02 反例测试见对应行；均仅为合成自检，非应用评测 | .dfx-local/artifacts 下相应运行记录 |
+| 软件自检 | 本批所选 11 个测试文件合计 359 通过、1 项脚本符号链接用例因权限跳过；不是同一轮全仓运行。模拟模型协议 110、SDK 交接 17、报告核验 45、脚本载入 82、CLI 7、上下文边界 24，以及调用账本 8、授权 15、条件交接 30、任务交接 9、固定闭环 12 项通过。其余模块最近验证见对应行及 session；全部为合成自检，非应用评测 | .dfx-local/artifacts；sessions/2026-10-02-model-boundary-report.json |
 | 仓库管理 | 本地 Git 已建立，模板与开发材料分开；失效规划已归档，当前文档设有归属及检查规则 | AGENTS.md、DEVELOPMENT.md、Git 历史 |
 | 文档自检 | 14 份登记文档检查无错误；检查器 5 个合成场景通过；7 个归档文件保留且不再跟踪，3 个提交模板未改动 | scripts/check_docs.py、sessions/2026-09-16-document-governance.json |
 
 ## 尚未完成
 
-真实模型/应用任务的受管 Run 与证据导出；有限源码 literal 提取、可信运行值采集、实际语法/类型下的算子/角色/候选坐标与目标平台适用性核验、新来源接入计算/SDK 及真实应用结果接纳；模型账本与真实模型入口及其底层重试集成、实际请求哈希核对和 Token 硬限额；语义根因定位和补丁生成；其余规则条件的程序检查及业务语义判定；完整运行工程与独立业务判据；本机 SDK/设备能力盘点、受管安装与本地作业适配器、设备状态核验；案例选择摘要与正式接受协议的可信绑定、正式任务清单、数据划分和真实效果评测。
+受管长上下文压缩、离线评测聚合与证据导出；真实模型/应用任务的受管 Run；有限源码 literal 提取、可信运行值采集、实际语法/类型下的算子/角色/候选坐标与目标平台适用性核验、新来源接入计算/SDK 及真实应用结果接纳；真实云端传输、提供方兼容性、底层重试和实际 Token 硬限额；真实模型自主根因定位和补丁效果；其余规则条件的程序检查及业务语义判定；完整运行工程与独立业务判据；本机 SDK/设备能力盘点、受管安装与本地作业适配器、设备状态核验；案例选择摘要与正式接受协议的可信绑定、正式任务清单、数据划分和真实效果评测。
 
 模型修复运行、应用构建、设备回放次数均为 0。根因准确率、修复率和实际模型成本均未知。
 
@@ -49,12 +51,13 @@ P0 设计闭合进行中，同时推进 P1 通用 Agent 任务能力；不表示
 
 - 用户已决定在本机进行后续应用验证与评测；当前本机 HarmonyOS 工具链/设备是否可用、容量和受管安装条件均未核实。环境缺失只阻塞应用验收，不阻塞 P0/P1。
 - 当前受管环境使用项目专属 Python 3.13.5 与锁定依赖。9 月 16 日只读检查未在 PATH 找到 hdc/ohpm/hvigorw，未接通模型提供方；这些是观察记录，不是对所有安装位置和账号的完整证明。
+- 2026-10-02 本批未安装或下载依赖，沿用受管环境；最终 Ruff、Pyright 和 14 份登记文档检查通过。Status 观察到项目受管目录约 302 MiB、活动任务为 none，临时目录保留约 2 KiB 合成冒烟输入；检查和模拟进程均已结束。没有改变全局环境、资源配置或三个提交模板。
 - 本机 SDK/设备/模拟器及磁盘/内存余量、云端模型提供方/型号与 API 预算、私仓数据外发边界、正式赛程和评测规则细节尚未确定。`configs/local-runtime.json` 仍禁止真实模型/应用实验和本机 SDK 安装，直到受管适配与资源门槛验收；不要把计划写成已配置事实。
 
 ## 下一步及完成条件
 
-**下一工作包：W05 可配置模型适配边界与模拟传输。** 任务指引和源码检索已接入，下一步把固定响应之外的模型调用接口做具体，先验证请求/响应交接与恢复，不使用 API 凭据或启动真实模型。可信采值仍按 [实施计划](project-work-plan.md#可信采值契约的实现范围) 留作独立增强子包；W08 仍须先完成本机资源/工具链盘点和运行保护验收。
+**下一工作包：W05 受管长上下文压缩。** 先解决摘要独立产物位置、无工具摘要调用、统一账本与衍生调用恢复，再按 W09/W10 预实现离线聚合及受管导出。当前只使用模拟传输，不使用 API 凭据或启动真实模型。可信采值仍按 [实施计划](project-work-plan.md#可信采值契约的实现范围) 留作独立增强子包；W08 仍须先完成本机资源/工具链盘点和运行保护验收。
 
-1. 定义提供方无关配置、发送边界和 SDK 适配接口，复用既有模型调用账本；默认使用测试传输。以合成响应覆盖实际消息/工具/参数序列化与指纹、tool-call 格式、缺失/无效 usage、超时/丢响应、禁止隐藏重试、完成回放和发出后未知。固定响应路径和基础/增强同预算要求须保留；模型名称和实际提供方继续待定，不安装新模型、不开放真实调用开关。
-2. 模型边界通过后，补齐可回读的最终定位/候选/反馈摘要和通用闭环的剩余交接；有限源码 literal、可信运行值及平台适用性不阻塞基础 Agent 的尝试能力。它们仍按规格第 3.0.1 节逐项验收，不把合成凭据改标为源码或执行事实。
+1. 不直接重新启用 SDK 默认摘要。设计主机压缩请求/结果与 solver 的独立调用身份，冻结被压缩消息和原始来源，不共享带工具的可变模型绑定；摘要和格式错误均计入相同总预算，无隐藏重试。摘要已完成但 Graph 未保存可回放，摘要发出未保存保持未知；压缩结果不能向冻结原版写入，也不能把工具或历史未知升级为事实。先实现明确的合成正常/失败/恢复反例，未通过时保持有限上下文停止。
+2. 聚合必须从核验后的摘要读取首次定位、最新候选与完整失败/成本分母；应用指标、缺失耗时、用量未知和重复案例不得补值或混算。导出须在停止状态保留重建摘要所需文件、清单和哈希，拒绝活动任务、外链和缺证据，并接入现有管理/清理入口。有限采值仍按规格第 3.0.1 节独立验收，不阻塞通用尝试能力。
 3. 后续形成正式案例前核对完整源码谱系、可构建工程和独立行为判据；真实实验按用户安排和 W08 门槛启动，缺环境不编造结果。工作区及检索符号链接拒绝用例在具备权限的环境复验。

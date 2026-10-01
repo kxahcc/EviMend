@@ -28,11 +28,11 @@ def main() -> None:
     analyze.add_argument("--output", required=True, type=Path)
     analyze.add_argument("--max-anchors", type=int, default=8)
     for name in ("repair", "resume"):
-        offline = sub.add_parser(name, help="Managed fixed-response offline demonstration only")
+        offline = sub.add_parser(name, help="Managed fixed-response or mock-wire demonstration only")
         offline.add_argument("--task", required=True, type=Path)
         offline.add_argument("--work", required=True, type=Path)
         offline.add_argument("--run-id", required=True)
-        offline.add_argument("--fixed-script", required=True, type=Path)
+        offline.add_argument("--fixed-script", "--script", dest="fixed_script", required=True, type=Path)
     try:
         args = parser.parse_args()
         if args.command == "doctor":
@@ -45,35 +45,28 @@ def main() -> None:
                 raise ValueError("Analysis output must be outside the fixed task input")
             result = analyze_task(args.task, args.max_anchors)
         else:
-            from langchain_core.messages import AIMessage
-
-            from .agent import run_fixed_agent
-            from .policies import PolicyFeatures
-            from .verification import FixedTextExecutor
+            from .agent import run_fixed_agent, run_provider_agent
+            from .model_calls import ModelCallStore
+            from .offline_script import load_offline_script
+            from .workspace import CandidateWorkspace
 
             if os.environ.get("DFX_MANAGED_AGENT") != "offline-v1":
                 raise ValueError("repair/resume require the managed offline entry point")
-            if args.fixed_script.stat().st_size > 1_048_576:
-                raise ValueError("fixed-response script exceeds 1 MiB")
-            script = json.loads(args.fixed_script.read_text(encoding="utf-8"))
-            required = {"schema_version", "responses", "expected"}
-            if (script.get("schema_version") != 1 or not required <= set(script) or
-                    set(script) - required - {"policy_features"}):
-                raise ValueError("invalid fixed-response script")
-            policy_features = PolicyFeatures.model_validate(script.get("policy_features", {}))
-            responses = []
-            for index, item in enumerate(script["responses"], start=1):
-                if set(item) != {"tool", "args", "usage"}:
-                    raise ValueError("invalid fixed response")
-                tool_call = [] if item["tool"] is None else [{"name": item["tool"], "args": item["args"], "id": f"call-{index}"}]
-                responses.append(AIMessage(content="done" if not tool_call else "", tool_calls=tool_call,
-                                           usage_metadata=item["usage"]))
-            expected = script["expected"]
-            if set(expected) != {"path", "text"}:
-                raise ValueError("invalid synthetic expectation")
-            result = run_fixed_agent(args.task, args.work, args.run_id, responses,
-                                     FixedTextExecutor(expected["path"], expected["text"]),
-                                     resume=args.command == "resume", policy_features=policy_features)
+            script = load_offline_script(args.fixed_script)
+            options = {**script.options(), "resume": args.command == "resume", "policy_features": script.features()}
+            if script.mode == "fixed_response":
+                result = run_fixed_agent(args.task, args.work, args.run_id, script.fixed_responses(),
+                                         script.executor(), **options)
+            else:
+                offset = 0
+                if args.command == "resume":
+                    workspace = CandidateWorkspace.reopen(args.task, args.work, args.run_id)
+                    store_path = workspace.root / "model-calls.sqlite"
+                    if not store_path.is_file() or store_path.is_symlink():
+                        raise ValueError("resume model ledger is missing or linked")
+                    offset = ModelCallStore(store_path).usage_summary(workspace.task_id, args.run_id)["completed_calls"]
+                result = run_provider_agent(args.task, args.work, args.run_id, script.adapter(response_offset=offset),
+                                            script.executor(), **options)
         if args.command in ("doctor", "analyze") and args.output:
             if args.output.exists():
                 raise ValueError("Output already exists; choose a new report path")

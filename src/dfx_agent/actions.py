@@ -112,12 +112,28 @@ class ToolActionStore:
     def records(self) -> list[dict[str, Any]]:
         with closing(self._connect()) as connection:
             rows = connection.execute("SELECT * FROM tool_actions ORDER BY rowid").fetchall()
-        return [{"action_id": row["action_id"], "model_call_id": row["model_call_id"],
+        return [{"action_id": row["action_id"], "request_sha256": row["request_sha256"],
+                 "model_call_id": row["model_call_id"],
                  "tool_name": row["tool_name"], "state": row["state"],
                  "authorization": "allowed" if row["rejection"] is None else "rejected",
                  "rejection": row["rejection"], "receipt_sha256": row["message_sha256"],
                  "proposal": json.loads(row["proposal_json"]) if row["proposal_json"] else None}
                 for row in rows]
+
+    def receipt(self, action_id: str) -> ToolMessage:
+        """Read a completed host receipt without executing or completing an action."""
+        with closing(self._connect()) as connection:
+            row = connection.execute("SELECT * FROM tool_actions WHERE action_id=?", (action_id,)).fetchone()
+        if row is None:
+            raise ValueError("tool action is not registered")
+        if row["state"] != "completed" or row["message_json"] is None:
+            raise ToolActionUncertain("tool result was not durably saved")
+        if sha256(row["message_json"]) != row["message_sha256"]:
+            raise ValueError("tool receipt changed")
+        message = ToolMessage.model_validate_json(row["message_json"])
+        if message.name != row["tool_name"] or not message.tool_call_id:
+            raise ValueError("tool receipt belongs to another action")
+        return message
 
 
 def _registered_references(workspace: CandidateWorkspace) -> tuple[set[str], set[str], set[str]]:

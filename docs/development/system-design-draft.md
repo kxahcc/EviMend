@@ -1,6 +1,6 @@
 # 应用软件代码故障精准定位与自修复：开发设计草案
 
-状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-01。
+状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-02。
 职责：维护架构、核心算法及后端抽象。实现状态见 [STATUS](../STATUS.md)，字段与规则见 [模块规格](../design-contracts.md)，阶段见 [实施计划](../project-work-plan.md)。
 
 ## 1. 核心决策
@@ -21,11 +21,11 @@
 
 目标交付是支持单任务与批处理的代码故障定位与自修复 Agent，命令行是启动入口。输入为日志、源码和允许的执行入口，输出为根因位置、可应用补丁、验证记录和资源报告。模型负责选择动作，执行框架负责调度与保存状态，我们实现修复策略及验收适配。
 
-**首版采用 Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + LangChain 提供方适配包 + SQLite；应用构建、设备回放和评测在用户本机通过受管作业进程执行。** 项目专属 Python、SDK 依赖和 SQLite 检查点已由 uv.lock 锁定；固定响应离线循环与 HTTP 模拟协议已接入，本机真实模型入口、工具链作业适配和应用验收控制仍待实现。基础模型拟由本机 Agent 调用云端大模型 API，不部署本地权重；具体提供方和型号仍待选定，不假定有远程应用执行主机。
+**首版采用 Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite；应用构建、设备回放和评测在用户本机通过受管作业进程执行。** 项目专属 Python、SDK 依赖和 SQLite 检查点已由 uv.lock 锁定；固定响应、模拟模型请求与 HTTP 模拟作业协议已接入，真实云端传输、工具链作业适配和应用验收控制仍待实现。基础模型拟由本机 Agent 调用云端大模型 API，不部署本地权重；具体提供方和型号仍待选定，不假定有远程应用执行主机。
 
 #### 选型依据与替代方案
 
-直接使用 LangGraph 需要我们补通用代码工具、上下文管理和 Agent 循环，首版工程量偏大。主实现选择 **Deep Agents SDK**，LangGraph 保留为其底层运行时；使用 SDK 的循环、文件工具、上下文压缩与 Skills 接入，我们实现领域策略、候选管理和应用验证。固定响应切片只证明这些最小接口能组合，不证明本项目的修复效果。
+直接使用 LangGraph 需要我们补通用代码工具、上下文管理和 Agent 循环，首版工程量偏大。主实现选择 **Deep Agents SDK**，LangGraph 保留为其底层运行时；复用工具循环与扩展点，我们实现受控文件工具、领域策略、候选管理和应用验证。SDK 的自动压缩及文件卸载在当前有限上下文路径显式关闭，后续须经计费和恢复验收后接入；不能因为框架具有能力就声明项目已经安全启用。合成切片只证明这些接口能组合，不证明本项目的修复效果。
 
 | 方案 | 适合之处 | 本项目取舍 |
 |---|---|---|
@@ -48,7 +48,7 @@
 | 编排 | deepagents 的 create_deep_agent，底层 LangChain/LangGraph | 复用工具循环和上下文管理；领域工具/中间件负责动作校验、预算与验收，不再嵌套第二套循环 |
 | 状态恢复 | langgraph-checkpoint-sqlite；首版单本地主进程写入 | run_id 对应独立 thread_id，保存最小状态和产物引用；SQLite 位于本地磁盘 |
 | 数据校验 | Pydantic 2；关键外部字段严格校验，JSON Schema 导出 | 诊断、义务、动作、补丁和验证对象；GraphState 用可序列化 TypedDict/dict，不存 SDK 会话或进程句柄 |
-| 模型 | langchain-core + 按提供方选装 langchain-openai 或 langchain-anthropic | ModelClient 包装适配差异、动作解析、usage、错误分类；每次评测固定实际模型标识 |
+| 模型 | langchain-core + 显式请求适配器；现阶段 HTTPX MockTransport | AccountedProviderModel 经同一账本对实际发送体记账；真实提供方确定后核对专用/通用适配包或显式传输，禁止绕过记账及隐藏重试 |
 | 检索与修改 | SDK 文件工具及后端；Python、ripgrep、Git 补充 | 复用读写/搜索能力；我们管理任务工作目录、候选 diff、版本绑定与回退；不自行开发通用编辑器 |
 | 本地轨迹 | SQLite 持久状态 + JSONL 事件导出 + 文件产物哈希 | 模型请求、工具结果、动作和成本可追踪；JSONL 是导出/审阅轨迹，不另做相互竞争的状态真值 |
 | 配置与 Skills | TOML 运行配置，Markdown 规则正文和 Pydantic 校验的结构化元数据 | 通过 SDK skills 参数显式加载受控规则目录；不加载 data_B 中的 Prompt/AGENTS 等构造说明；行为义务仍由程序校验 |
@@ -57,13 +57,19 @@
 | 应用执行 | 本机已盘点并按项目版本匹配的 HarmonyOS SDK、Hvigor、ohpm、hdc 及可用设备/模拟器，Hypium 仅在案例需要时接入 | 完整工程、签名、目标操作、功能和回归判据；安装位置、版本和容量先核对，不自动升级为最新版 |
 | 开发质量 | pytest、Ruff、Pyright | 单元/契约/状态恢复检查和静态质量；模型与应用实验单独运行 |
 
-Deep Agents 依赖 LangChain Agent 和 LangGraph；模型使用提供方适配包。接受这些依赖以减少自研基础设施，不再宣称绕开预置 Agent 流程。[ChatOpenAI](https://docs.langchain.com/oss/python/integrations/chat/openai) 与 [ChatAnthropic](https://docs.langchain.com/oss/python/integrations/chat/anthropic) 提供工具调用及 usage 接口；第三方 OpenAI-compatible 服务不能默认视为完全兼容，必须核对动作、推理相关协议字段与成本字段，必要时使用其专用适配包。
+Deep Agents 依赖 LangChain Agent 和 LangGraph；模型入口沿用 langchain-core。真实提供方可采用经核验的适配包，也可复用显式序列化边界，选择服从实际协议与记账要求。[ChatOpenAI](https://docs.langchain.com/oss/python/integrations/chat/openai) 与 [ChatAnthropic](https://docs.langchain.com/oss/python/integrations/chat/anthropic) 提供工具调用及 usage 接口；第三方 OpenAI-compatible 服务不能默认视为完全兼容，必须核对动作、推理相关协议字段与成本字段。当前没有新增提供方依赖。
 
 #### 模型与策略如何解耦
 
 SDK 维护模型消息和工具循环；工具边界转换为我们自己的 ActionProposal/ModelObservation，业务策略不依赖 AIMessage 内部字段。优先使用原生工具调用，返回后再做本地 Pydantic 校验。供应商格式约束不能代替业务校验，格式修复同样记为模型调用。
 
-只由一层负责语义重试和预算，关闭或显式计入 SDK 的自动重试；不允许 SDK、图节点和控制器各重试一轮却只记录一次。`ModelCallStore` 已用合成回调验证调用前登记、发出后不盲重试、完整响应回放、格式错误和 usage 分类；固定响应 Deep Agents 模型入口也已接入，模拟了 Graph 检查点前的崩溃与未知发送。它不代表真实模型已接入或实际 Token 硬限额已生效。正式适配时，求解、格式修复、上下文压缩及 SDK 重试均须穿过同一计数边界；提供方底层隐式重试必须关闭或逐次计入。原始响应中可获得的 usage/请求标识保留，适配器不支持的字段保持未知，不静默删除后称计费完整。确认的格式、usage、上下文和工具能力写入模型配置；具体模型账号和型号不是框架选择的前提。
+只由一层负责语义重试和预算，关闭或显式计入 SDK 的自动重试；不允许 SDK、图节点和控制器各重试一轮却只记录一次。`ModelCallStore` 已接入固定响应及模拟请求模型，覆盖调用前登记、Graph 落盘前的完整响应回放、未知发送停止、格式错误和 usage 分类。`PreparedRequest` 以唯一规范化 JSON 发送体固定消息、工具、参数及 profile 哈希；实际发送前重核，不能只给发送前另一份对象留指纹。SDK 的中性 `tool_choice=None` 由模型入口省略，其余不支持字段明确拒绝。
+
+当前 Chat Completions 边界只允许进程内 MockTransport 和固定无网络端点，不接收密钥；配置固定模型标识、输出上限、温度与超时。文本、工具调用和显式 reasoning_content 有限支持；附件、流式响应、未声明选项或不完整工具调用不静默降级。混合有效/无效工具调用的整个响应停止，不执行其中有效子集。原始 usage 保存，合法计数另做归一化；缺失/错误用量保持未知，已知 Token 预算只阻止下一次发送，不能保证当前响应或真实计费硬上限。该协议参考 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，查阅日期 2026-10-02；这不是已选择 DeepSeek 或已验证其真实兼容性。
+
+真实适配时，求解、格式修复、上下文压缩及 SDK 重试均须穿过同一计数边界；提供方底层隐式重试必须关闭或逐次计入。原始响应中可获得的 usage/请求标识保留，适配器不支持的字段保持未知，不静默删除后称计费完整。确认的格式、usage、上下文和工具能力写入模型配置；具体模型账号和型号不是框架选择的前提。
+
+当前上下文策略是显式有界且不自动压缩：通过 HarnessProfile 关闭 SummarizationMiddleware，并通过公开同类中间件替换关闭 FilesystemMiddleware 的人类消息/工具结果卸载；保留必需文件中间件及原工具排除。两种模型在调用登记前核对完整序列化消息字节上限，超限明确以 context_limit 结束，不新增请求、不丢弃历史后偷偷继续。context_profile 连同模型配置进入 session 冻结，基础/增强一致；字节限额见 models.py，不能当作所选云端模型的 Token 窗口。依据 2026-10-02 对锁定 SDK 0.7.18 本机源代码的检查，默认摘要会调用带重试的摘要模型并把历史写入 backend，默认大工具结果也会卸载；当前 backend 指向冻结原版，因此不能直接启用。未来受管压缩须使用独立产物位置、无工具的摘要调用、统一费用账本和衍生调用恢复，不以关闭策略冒充已解决长上下文能力。
 
 #### 持久化不能替代外部操作一致性
 

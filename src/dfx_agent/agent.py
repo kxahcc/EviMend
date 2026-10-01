@@ -15,6 +15,9 @@ from deepagents import (
     register_harness_profile,
 )
 from deepagents.backends import FilesystemBackend
+from deepagents.middleware.filesystem import FilesystemMiddleware
+from deepagents.middleware.summarization import SummarizationMiddleware
+from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import tool
@@ -41,12 +44,19 @@ from .decisions import DecisionRequest, DecisionStore, feedback_key
 from .diagnostics import AnalysisStore, DiagnosisSubmission
 from .logs import MAX_LOG_BYTES
 from .model_calls import ModelCallStore, ModelCallUncertain, canonical
-from .models import FixedResponseModel, ModelLimit
+from .model_provider import ChatCompletionsAdapter
+from .models import (
+    AccountedProviderModel,
+    FixedResponseModel,
+    ModelLimit,
+    context_profile,
+)
 from .policies import (
     Counterexample,
     PolicyFeatures,
     rule_guidance,
 )
+from .reporting import build_completion
 from .source_search import SourceSearch, search_limits
 from .task import digest, verify_task
 from .task_strategy import build_system_prompt, build_task_message
@@ -374,13 +384,14 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             record_obligation, link_failed_check, evaluate_condition]
 
 
-def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
+def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     executor: OfflineExecutor, *, resume: bool = False, max_calls: int = 20,
                     max_known_tokens: int = 4000, max_seconds: float = 60,
                     max_candidates: int = 3, max_tool_calls: int = 60,
                     capabilities: frozenset[str] | None = None,
                     policy_features: PolicyFeatures | None = None,
-                    observations: SyntheticObservations | None = None) -> dict[str, Any]:
+                    observations: SyntheticObservations | None = None,
+                    provider_adapter: ChatCompletionsAdapter | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
         raise ValueError("budgets must be positive")
@@ -396,7 +407,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
     session: dict[str, Any] = {}
     if resume:
         session = json.loads(session_path.read_text(encoding="utf-8"))
-        if session.get("schema_version") != 6:
+        if session.get("schema_version") != 7:
             raise ValueError("resume budget or session identity differs")
         conditions = ConditionStore(workspace)
         if observations is not None and observations.fingerprint() != conditions.observations_sha256:
@@ -410,13 +421,16 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
     tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
                    task_info["crash_sha256"], policy_features, capabilities, conditions)
     system_prompt = build_system_prompt(policy_features)
-    session_identity = {"schema_version": 6, "run_id": run_id, "started_at": started_at.isoformat(),
+    model_profile = (provider_adapter.profile() if provider_adapter is not None else
+                     {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
+    session_identity = {"schema_version": 7, "run_id": run_id, "started_at": started_at.isoformat(),
                         "max_calls": max_calls, "max_known_tokens": max_known_tokens,
                         "max_seconds": max_seconds, "max_candidates": max_candidates,
                         "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
                         "protocol_sha256": executor.protocol_sha256,
                         "observations_sha256": conditions.observations_sha256,
-                        "policy_features": policy_features.model_dump(),
+                        "policy_features": policy_features.model_dump(), "model_profile": model_profile,
+                        "context_profile": context_profile(),
                         "system_prompt_sha256": digest(system_prompt.encode("utf-8")),
                         "task_message_sha256": digest(build_task_message(
                             task_id=workspace.task_id, run_id=run_id,
@@ -434,13 +448,17 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
     remaining_seconds = (started_at + timedelta(seconds=max_seconds) - datetime.now(UTC)).total_seconds()
     model_calls = ModelCallStore(workspace.root / "model-calls.sqlite")
     actions = ToolActionStore(workspace.root / "tool-actions.sqlite")
-    model = FixedResponseModel(responses=responses, max_calls=max_calls,
+    model_type = AccountedProviderModel if provider_adapter is not None else FixedResponseModel
+    provider_arguments: dict[str, Any] = {"adapter": provider_adapter} if provider_adapter is not None else {}
+    model = model_type(responses=responses, max_calls=max_calls,
                                max_known_tokens=max_known_tokens,
                                deadline=time.monotonic() + max(0, remaining_seconds),
-                               call_store=model_calls, task_id=workspace.task_id, run_id=run_id)
-    register_harness_profile("dfxfixed", HarnessProfile(
+                               call_store=model_calls, task_id=workspace.task_id, run_id=run_id,
+                               **provider_arguments)
+    register_harness_profile(model._llm_type, HarnessProfile(
         excluded_tools=frozenset({"ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute", "task",
                                  "write_todos", "delete"}),
+        excluded_middleware=frozenset({SummarizationMiddleware}),
         general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
     ))
     config: RunnableConfig = {"configurable": {"thread_id": run_id}, "max_concurrency": 1,
@@ -448,13 +466,19 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
     error: str | None = None
     status = "unresolved"
     with SqliteSaver.from_conn_string(str(workspace.root / "checkpoints.sqlite")) as saver:
+        filesystem_backend = FilesystemBackend(root_dir=workspace.base, virtual_mode=True)
+        middleware: list[AgentMiddleware[Any, Any, Any]] = [
+            FilesystemMiddleware(backend=filesystem_backend, tool_token_limit_before_evict=None,
+                                 human_message_token_limit_before_evict=None),
+            ToolAuthorizationMiddleware(
+                workspace, model_calls, actions, capabilities=capabilities, max_calls=max_calls,
+                max_candidates=max_candidates, max_tool_calls=max_tool_calls, deadline=model.deadline),
+        ]
         graph = create_deep_agent(
             model=model, tools=tools, system_prompt=system_prompt,
-            backend=FilesystemBackend(root_dir=workspace.base, virtual_mode=True),
+            backend=filesystem_backend,
             checkpointer=saver, subagents=[],
-            middleware=[ToolAuthorizationMiddleware(
-                workspace, model_calls, actions, capabilities=capabilities, max_calls=max_calls,
-                max_candidates=max_candidates, max_tool_calls=max_tool_calls, deadline=model.deadline)],
+            middleware=middleware,
         )
         if resume:
             checkpoint = graph.get_state(config)
@@ -477,6 +501,10 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         try:
             if resume and (pending_model_call or pending_graph):
                 graph.invoke(None, config)
+            elif resume and previous_count:
+                # A completed graph is a read/reconcile operation, not a new conversation.
+                if model.calls >= max_calls or model.known_tokens >= max_known_tokens:
+                    raise ModelLimit("model_budget")
             else:
                 graph.invoke({"messages": [{"role": "user", "content": build_task_message(
                     task_id=workspace.task_id, run_id=run_id,
@@ -484,7 +512,7 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
                     capabilities=capabilities, resume=resume)}]}, config)
         except ModelLimit as exc:
             error = str(exc)
-            status = "budget_exhausted" if error != "fixed_responses_exhausted" else "unresolved"
+            status = "budget_exhausted" if error in ("model_budget", "wall_time") else "unresolved"
         except ModelCallUncertain:
             error = "model_result_unknown"
             status = "unresolved"
@@ -503,11 +531,10 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         status, error = "unresolved", "action_result_unknown"
     elif any(item["rejection"] == "budget_exhausted" for item in action_records):
         status, error = "budget_exhausted", error or "action_budget"
-    if (status != "budget_exhausted" and error not in ("model_result_unknown", "action_result_unknown") and
-            any(item["status"] == "pass" for item in checks)):
-        status = "offline_checked"
+    completion = build_completion(workspace, ledger, model_calls, actions, stopped_reason=error)
+    status = completion["suggested_status"]
     report: dict[str, Any] = {
-        "schema_version": 3, "task_id": workspace.task_id, "run_id": run_id,
+        "schema_version": 4, "task_id": workspace.task_id, "run_id": run_id,
         "source_snapshot_sha256": workspace.source_snapshot_sha256,
         "status": status, "application_verification": "not_run",
         "candidates": candidates, "checks": checks,
@@ -524,7 +551,20 @@ def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessa
         "missing_usage_calls_this_turn": model.missing_usage_calls - prior_missing,
         "policy_features": policy_features.model_dump(),
         "offered_tools": sorted(set(model.offered_tools)),
-        "stopped_reason": error,
+        "stopped_reason": error, "completion": completion,
+        "adapter_error_reason": getattr(model, "request_error_reason", None),
     }
     _atomic_json(workspace.root / "agent-report.json", report)
     return report
+
+
+def run_fixed_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
+                    executor: OfflineExecutor, **options: Any) -> dict[str, Any]:
+    """Run the shared repair loop using deterministic offline messages."""
+    return _run_agent(task, work, run_id, responses, executor, **options)
+
+
+def run_provider_agent(task: Path, work: Path, run_id: str, adapter: ChatCompletionsAdapter,
+                       executor: OfflineExecutor, **options: Any) -> dict[str, Any]:
+    """Run the same loop through the mock-only wire boundary; never a cloud experiment."""
+    return _run_agent(task, work, run_id, [], executor, provider_adapter=adapter, **options)

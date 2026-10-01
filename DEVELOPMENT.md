@@ -1,6 +1,6 @@
 # 项目蓝图与开发导览
 
-状态：当前开发入口。最后维护：2026-10-01。
+状态：当前开发入口。最后维护：2026-10-02。
 职责：先用通俗语言说明要做什么、如何做和重点在哪，再提供文件导航。这里是设计的概览；具体技术决策以开发设计为准，实际进度以 STATUS 为准。
 
 ## 1. 我们最终要做出什么
@@ -72,13 +72,13 @@ Skills 是上述知识和动作的组织方式，例如“容量与元素数怎�
 
 ## 5. 开发框架和资源
 
-**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + LangChain 模型适配包 + SQLite** 是首版 Agent 技术底座。应用验证规划由本机受管子进程调用匹配的 **HarmonyOS 工具链与设备/模拟器**；现有 HTTPX/FastAPI 代码是模拟协议原型。详细选择理由、恢复边界和依赖接入门槛统一见 [开发设计](docs/development/system-design-draft.md)。
+**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。模型边界目前用既有 HTTPX 的模拟传输验证，真实云端提供方确定后再核对其适配方式；应用验证规划由本机受管子进程调用匹配的 **HarmonyOS 工具链与设备/模拟器**。详细选择理由、恢复边界和依赖接入门槛统一见 [开发设计](docs/development/system-design-draft.md)。
 
 | 部分 | 用什么 | 为什么 |
 |---|---|---|
 | Agent 流程 | Deep Agents SDK | 复用文件工具、上下文管理与工具循环；我们实现诊断策略及验证约束 |
 | 输入输出 | Pydantic 2 | 检查模型动作、证据、候选与验证结果的结构 |
-| 模型 | 由 ModelClient 包装所选云端大模型 API 的提供方适配包 | 本机 Agent 发起并记账；具体提供方、型号和 API 兼容性待确定，不在本机部署权重 |
+| 模型 | langchain-core 模型入口、持久调用账本与显式请求适配器 | 已能核对模拟请求的消息、工具、参数与响应；真实云端提供方、型号及传输仍待接入，不在本机部署权重 |
 | 状态与轨迹 | SQLite 检查点、JSONL 事件导出、文件产物 | 本地即可运行和检查，不先部署数据库服务 |
 | 环境管理 | uv + pyproject.toml + uv.lock | 项目内隔离依赖并锁定版本；固定响应 SDK 切片已做合成验证 |
 | 代码工具 | Python、ripgrep、Git CLI | 按需读源码、生成/检查补丁、维护候选目录 |
@@ -86,15 +86,15 @@ Skills 是上述知识和动作的组织方式，例如“容量与元素数怎�
 | 应用验证 | 本机项目匹配的 DevEco/SDK、Hvigor、ohpm、hdc，按需 Hypium | 先核对本机容量和设备/模拟器可用性，再受管构建、回放及业务验收 |
 | 开发检查 | pytest、Ruff、Pyright | 合成测试、接口检查、格式和类型检查 |
 
-Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增量仍在修复义务与检查选择。首版不叠加多 Agent 框架、云端追踪平台或消息队列；mini-swe-agent 保留为外部工程参照。我们仍须实现领域工具、候选登记、幂等作业和业务验证，框架不会自动解决这些问题。
+Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增量仍在修复义务与检查选择。当前关闭 SDK 自动摘要和消息/工具结果卸载，采用明确的上下文上限；受管压缩的计费和恢复另行验收。首版不叠加多 Agent 框架、云端追踪平台或消息队列；mini-swe-agent 保留为外部工程参照。我们仍须实现领域工具、候选登记、幂等作业和业务验证，框架不会自动解决这些问题。
 
-这一底座已完成依赖锁、首批领域对象、固定响应离线修复循环、模拟 HTTP 作业协议、可关闭的领域策略分支，以及固定响应模型调用和工具动作账本。SDK 工具调用先由主机授权，恢复时回放已完成结果，未保存的执行结果保持未知；真实模型入口、可构建工程与本机应用验证尚待实现，进度看 STATUS。
+这一底座已完成依赖锁、首批领域对象、固定响应及模拟模型协议的离线修复循环、模拟 HTTP 作业协议、可关闭的领域策略分支和调用账本。最终报告把初次定位、最新定位、候选补丁、检查与未知用量分开，可从已保存事实核验摘要。SDK 工具调用先由主机授权，恢复时回放已完成结果，未保存的执行结果保持未知；真实云端传输、可构建工程与本机应用验证尚待实现，进度看 STATUS。
 
 ### 本机资源怎样集中管理
 
 本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；需要长期保留的证据计划导出到 runs/exports。日常只启动一个受管任务。真实应用阶段先盘点设备、SDK/构建缓存的占用，再为其建立同样受管的安装、运行和清理入口；当前方案没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop、Init，以及固定合成、测试/质量和固定响应离线 Agent 的受限 Run。任务先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local。真实模型/本机应用任务与 Export 尚未接入；[本机配置](configs/local-runtime.json) 的位置标记已改为 local，但安装/实验开关仍关闭。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop、Init，以及固定合成、测试/质量和离线 Agent 的受限 Run。任务先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local。真实模型/本机应用任务与 Export 尚未接入；[本机配置](configs/local-runtime.json) 的位置标记已改为 local，但安装/实验开关仍关闭。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
 ## 6. 怎样一步步把它做出来
 
@@ -141,7 +141,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init 与受限合成/测试/质量/离线 Agent 任务入口；真实模型/应用任务尚未接入 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
 | `scripts/local_bootstrap.ps1`、`scripts/local_test.ps1`、`scripts/local_quality.ps1` | Job 内的固定依赖安装、pytest 和文档/Ruff/Pyright 检查，不接受任意 shell 命令 |
-| `scripts/local_agent.ps1` | Job 内固定响应离线 repair / resume 工作进程，输入由管理入口限定 |
+| `scripts/local_agent.ps1` | Job 内固定响应或模拟模型协议的离线 repair / resume 工作进程，输入由管理入口限定 |
 | `scripts/test_local_runtime.ps1`、`scripts/test_local_process.ps1`、`scripts/test_local_bootstrap.ps1` | W01 路径清理、W02 进程保护和 W03 重复 Init 的合成验收 |
 | `scripts/check_docs.py` | 文档登记、链接、维护元数据及 archive 跟踪检查 |
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
@@ -150,6 +150,8 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `tests/test_conditions.py`、`tests/test_condition_store.py`、`tests/test_condition_handoff.py` | 有限条件计算、不可改写结果及固定响应 Agent 交接，含单位/范围/来源、版本、恢复和开关反例；不是应用评测 |
 | `tests/test_value_sources.py` | 独立主机合成操作绑定与采值凭据反例：原字节锚点、角色/事件、不可改写登记和回读；不证明真实语法解析或运行采样 |
 | `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`、`tests/test_decisions.py` | 固定响应闭环、模拟 HTTP、领域策略、动作/应用接受、模型与工具恢复、因果诊断及修复决策交接的合成验收 |
+| `tests/test_model_provider.py`、`tests/test_provider_loop.py`、`tests/test_reporting.py`、`tests/test_offline_script.py`、`tests/test_offline_cli.py` | 模拟模型请求/响应、SDK 交接、最终摘要核验和受管脚本/命令入口；不调用真实模型 |
+| `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
@@ -181,7 +183,10 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `value_sources.py` | 独立核对冻结源码字节、主机 fixture 的参数角色及模拟操作事件，登记绑定、意图与合成凭据；未接入 SDK、真实解析/采样或新来源条件计算 |
 | `actions.py` | SDK 工具中间件、主机能力/引用/预算检查及 SQLite 动作结果账本；不提供真实应用执行 |
 | `workspace.py` | 从已校验分析快照建立独立草稿、原子文本编辑、冻结完整 diff 与候选哈希，并校验恢复归属；不执行应用检查 |
-| `models.py` | 固定响应模型经账本接入 Deep Agents 循环，并实施调用/已知 Token/时间预算；真实提供方适配待实现 |
+| `models.py` | 固定响应及模拟请求模型经账本接入同一 Deep Agents 循环，实施调用/已知 Token/时间预算；真实云端传输待实现 |
+| `model_provider.py` | 严格配置、实际消息/工具/参数序列化、模拟 Chat Completions 请求/响应与原始 usage；只允许 MockTransport，不接受凭据或真实端点 |
+| `offline_script.py` | 校验固定响应及模拟协议 JSON 脚本、策略与限额，建立隔离响应流；期望答案只供合成执行器 |
+| `reporting.py` | 从版本、诊断、模型/工具账本和检查重建最终摘要，核验补丁及可验证报告字段；不执行模型或应用 |
 | `model_calls.py` | 持久模型请求账本、响应回放、格式/usage 分类及崩溃窗口拒绝重发；已用于固定响应路径，尚未接入真实提供方 |
 | `agent.py` | Deep Agents 离线循环，接入任务指引、跨文件检索、未确认诊断、候选门控、可关闭策略工具和停止报告 |
 | `task_strategy.py` | 基础/增强共享的明确修复任务指引与主机任务上下文；增强按开关追加，不证明模型效果 |
@@ -192,7 +197,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `backends.py` | 版本绑定的 HTTP 模拟请求/作业对象、客户端意图与查询/取消/产物校验；本机真实执行适配器尚未实现 |
 | `remote_service.py` | SQLite 持久化的 FastAPI 模拟作业服务和显式测试工作者状态；保留作协议反例测试，不是计划中的运行服务 |
 | `runtime.py` | 当前仅观察 PATH/模块/环境变量存在性；不启动 SDK/设备 |
-| `cli.py` | 参数与命令分发；repair / resume 只允许受管固定响应离线演示 |
+| `cli.py` | 参数与命令分发；repair / resume 只允许受管固定响应或模拟协议演示，恢复按账本对齐模拟响应 |
 | `__init__.py` | Python 包入口 |
 
 ## 查看与检查
@@ -208,7 +213,7 @@ python scripts/dfx.py --help
 .\scripts\test_local_runtime.ps1 -Suite Paths
 ```
 
-受管 pytest 可运行 `-Task test -TestPath tests/test_agent_loop.py` 检查闭环。受管离线演示的输入约定见 [原型说明](src/dfx_agent/README.md)；它只使用固定响应和合成判据，不启动真实模型或应用。盘点工具用法见其 README，真实任务输入必须显式提供经核验的清单。
+受管 pytest 可运行 `-Task test -TestPath tests/test_agent_loop.py` 检查闭环。受管离线演示的输入约定见 [原型说明](src/dfx_agent/README.md)；它只使用固定响应或进程内模拟传输和合成判据，不启动真实模型或应用。盘点工具用法见其 README，真实任务输入必须显式提供经核验的清单。
 
 ## Git 与归档
 

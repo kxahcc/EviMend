@@ -1,6 +1,6 @@
-"""Bounded fixed-response model with durable accounting for offline tests.
+"""Accounted SDK models for fixed responses and mock-only wire requests.
 
-Provider adapters and real token accounting remain a later work package.
+Cloud transport and application experiments are outside this development slice.
 """
 
 from __future__ import annotations
@@ -12,20 +12,41 @@ from langchain_core.language_models.base import LangSmithParams
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ConfigDict, Field
 
 from .model_calls import (
     ModelCallBudget,
     ModelCallIntent,
     ModelCallStore,
+    ModelCallUncertain,
     canonical,
     invoke_accounted,
     sha256,
 )
+from .model_provider import AdapterError, ChatCompletionsAdapter, PreparedRequest
 
 
 class ModelLimit(RuntimeError):
     """The controller must terminate without another model request."""
+
+
+MAX_SERIALIZED_MESSAGES_BYTES = 1_048_576
+
+
+def context_profile() -> dict[str, Any]:
+    """The finite SDK context policy is frozen alongside the model profile."""
+    return {"max_serialized_messages_bytes": MAX_SERIALIZED_MESSAGES_BYTES, "automatic_summarization": False,
+            "human_message_offload": False, "tool_result_offload": False, "implicit_model_retries": False}
+
+
+def _check_context(messages: list[BaseMessage]) -> None:
+    try:
+        size = len(canonical([item.model_dump(mode="json") for item in messages]).encode("utf-8"))
+    except (TypeError, ValueError, UnicodeError, RecursionError, OverflowError):
+        raise ModelLimit("context_format_unsupported") from None
+    if size > MAX_SERIALIZED_MESSAGES_BYTES:
+        raise ModelLimit("context_limit")
 
 
 class FixedResponseModel(BaseChatModel):
@@ -82,6 +103,7 @@ class FixedResponseModel(BaseChatModel):
                   run_manager: Any = None, **kwargs: Any) -> ChatResult:
         if time.monotonic() >= self.deadline:
             raise ModelLimit("wall_time")
+        _check_context(messages)
         intent = self._intent(messages, stop, kwargs)
         existing = self.call_store.get(intent.call_id)
         if existing is None and (self.calls >= self.max_calls or self.known_tokens >= self.max_known_tokens):
@@ -103,4 +125,76 @@ class FixedResponseModel(BaseChatModel):
             self.known_tokens = summary["known_total_tokens"]
             self.missing_usage_calls = summary["missing_usage_calls"] + summary["invalid_usage_calls"]
         self.turn_calls += 1
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+
+class AccountedProviderModel(FixedResponseModel):
+    """Reuse the SDK/budget fields with an explicit mock-only wire adapter."""
+
+    adapter: ChatCompletionsAdapter = Field(exclude=True)
+    request_error_reason: str | None = None
+
+    @property
+    def _llm_type(self) -> str:
+        return "dfxmock"
+
+    def _get_ls_params(self, stop: list[str] | None = None, **kwargs: Any) -> LangSmithParams:
+        return LangSmithParams(ls_provider="dfxmock", ls_model_name=self.adapter.settings.model_id)
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> AccountedProviderModel:
+        descriptors = [convert_to_openai_tool(item) for item in tools]
+        self.offered_tools.extend(item["function"]["name"] for item in descriptors)
+        self.bound_tool_descriptors = descriptors
+        # LangChain explicitly passes None for its unspecified tool-choice default.
+        self.bound_tool_options = {key: value for key, value in kwargs.items()
+                                   if not (key == "tool_choice" and value is None)}
+        return self
+
+    def _request_intent(self, request: PreparedRequest) -> ModelCallIntent:
+        return ModelCallIntent(
+            call_id=f"model-{self.turn_calls + 1}", task_id=self.task_id, run_id=self.run_id,
+            kind="solver", provider_id=self.adapter.settings.provider_id, model_id=self.adapter.settings.model_id,
+            prompt_sha256=sha256(canonical(request.messages)),
+            tool_schema_sha256=sha256(canonical(request.tools)),
+            parameters_sha256=sha256(canonical({"wire_parameters": request.parameters,
+                                                "body_sha256": request.body_sha256,
+                                                "profile_sha256": request.profile_sha256})),
+            tool_names=tuple(item["function"]["name"] for item in request.tools),
+        )
+
+    def _generate(self, messages: list[BaseMessage], stop: list[str] | None = None,
+                  run_manager: Any = None, **kwargs: Any) -> ChatResult:
+        if time.monotonic() >= self.deadline:
+            raise ModelLimit("wall_time")
+        _check_context(messages)
+        try:
+            request = self.adapter.prepare(messages, self.bound_tool_descriptors, stop=stop,
+                                           bind_options=self.bound_tool_options, generate_options=kwargs)
+        except AdapterError as exc:
+            self.request_error_reason = exc.reason
+            raise ModelLimit("provider_request_unsupported") from exc
+        intent = self._request_intent(request)
+        if self.call_store.get(intent.call_id) is None and (
+                self.calls >= self.max_calls or self.known_tokens >= self.max_known_tokens):
+            raise ModelLimit("model_budget")
+
+        def provide() -> AIMessage:
+            message = self.adapter.invoke(request).model_copy(deep=True)
+            message.response_metadata = {**message.response_metadata, "dfx_model_call_id": intent.call_id}
+            return message
+
+        try:
+            message, observation = invoke_accounted(self.call_store, intent, provide, max_calls=self.max_calls)
+        except ModelCallBudget as exc:
+            raise ModelLimit("model_budget") from exc
+        except AdapterError as exc:
+            self.request_error_reason = exc.reason
+            raise ModelCallUncertain("provider request has no saved response") from exc
+        finally:
+            usage = self.call_store.usage_summary(self.task_id, self.run_id)
+            self.calls, self.known_tokens = usage["reserved_calls"], usage["known_total_tokens"]
+            self.missing_usage_calls = usage["missing_usage_calls"] + usage["invalid_usage_calls"]
+        self.turn_calls += 1
+        if observation.format_status == "format_error":
+            raise ModelLimit("provider_format_error")
         return ChatResult(generations=[ChatGeneration(message=message)])

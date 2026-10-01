@@ -1,7 +1,7 @@
 """Isolated model-call boundary: durable intent, response, usage and uncertainty.
 
-No real provider is configured here. Every SDK-originated provider call must pass
-through this boundary when a provider adapter is later connected.
+Fixed and mock-wire models share this boundary. Real provider transport is not
+configured; future SDK-originated requests must use the same durable accounting.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from langchain_core.messages import AIMessage
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -132,17 +132,28 @@ def normalize_message(intent: ModelCallIntent, message: AIMessage) -> ModelObser
         calls.append(ToolCallFingerprint(call_id=call_id, name=name, arguments_sha256=arguments_hash))
     if not calls and not message.content:
         errors.append("empty_response")
-    usage_raw = message.usage_metadata
+    provider_raw = message.response_metadata.get("dfx_provider_usage_raw")
+    usage_raw: Any = provider_raw if provider_raw is not None else message.usage_metadata
     usage: ModelUsage | None = None
     usage_status: Literal["known", "missing", "invalid"] = "missing" if usage_raw is None else "invalid"
     usage_raw_sha = sha256(canonical(usage_raw)) if usage_raw is not None else None
     if usage_raw is not None:
         try:
-            usage = ModelUsage.model_validate({key: usage_raw[key] for key in
-                                               ("input_tokens", "output_tokens", "total_tokens")})
+            if provider_raw is not None:
+                usage = ModelUsage.model_validate({"input_tokens": usage_raw["prompt_tokens"],
+                                                   "output_tokens": usage_raw["completion_tokens"],
+                                                   "total_tokens": usage_raw["total_tokens"]})
+                if (usage.total_tokens != usage.input_tokens + usage.output_tokens or
+                        message.usage_metadata is None or any(
+                            message.usage_metadata[key] != usage.model_dump()[key] for key in
+                            ("input_tokens", "output_tokens", "total_tokens"))):
+                    raise ValueError("provider usage differs from normalized usage")
+            else:
+                usage = ModelUsage.model_validate({key: usage_raw[key] for key in
+                                                   ("input_tokens", "output_tokens", "total_tokens")})
             usage_status = "known"
         except (KeyError, TypeError, ValueError):
-            pass
+            usage = None
     status: Literal["tool_calls", "text_only", "format_error"] = (
         "format_error" if errors else "tool_calls" if calls else "text_only")
     return ModelObservation(request_sha256=intent.sha256(),
