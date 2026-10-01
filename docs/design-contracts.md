@@ -164,7 +164,7 @@ evaluate_condition 只收序列化 request_json、可选 observation_id 和动�
 
 #### 3.0.1 可信采值与算子绑定
 
-本节是**拟议接口与验收契约，尚未实现**；不改变上节已有 schema、工具或证据能力。目标是分别核对“值从哪里取得”和“值属于哪个操作的哪个角色”。系统按已冻结源码建立操作绑定，按该绑定取得凭据，再计算条件；模型提出问题和引用，不能提交主机确认状态、可信值或执行凭据。
+本节定义可信采值与操作绑定的契约。**独立的原字节锚点、主机合成绑定、采值请求/凭据和不可改写登记已实现；真实语法/类型绑定、literal 提取、执行采样及新来源条件计算仍未实现。** 上节 schema、SDK 工具和证据能力保持原有行为。完整目标是分别核对“值从哪里取得”和“值属于哪个操作的哪个角色”，按已冻结源码建立绑定，按该绑定取得凭据，再计算条件；模型提出问题和引用，不能提交主机确认状态、可信值或执行凭据。
 
 ##### 来源与结论分层
 
@@ -179,7 +179,7 @@ evaluate_condition 只收序列化 request_json、可选 observation_id 和动�
 
 ##### 接口、对象和主机职责
 
-最小调用顺序为 `bind_operation(proposal) → BindingAssessment`、`capture_values(request) → CaptureReceipt`、`calculate_condition(binding_id, receipt_ids) → ScopedConditionResult`。以下是拟议字段职责，不是现有 Python API。
+完整调用顺序为 `bind_operation(proposal) → BindingAssessment`、`capture_values(request) → CaptureReceipt`、`calculate_condition(binding_id, receipt_ids) → ScopedConditionResult`。前两步已有独立合成 Python 入口，最后一步仍拟议。下表定义完整字段职责；本包只实现其中的合成子集，不能将字段名或模拟事件当作真实采样能力。
 
 | 对象 | 必需信息与义务 |
 |---|---|
@@ -192,6 +192,12 @@ evaluate_condition 只收序列化 request_json、可选 observation_id 和动�
 | ScopedConditionResult | 输入 binding/receipt 内容哈希、每个谓词及 calculation_status、输入来源支持、绑定状态、平台适用性和未知理由；root_cause_confirmation 仍 unknown、application_verification 仍 not_run |
 
 CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusive / unknown。只有 collected 且所需角色完整、来源及前提满足才产生该范围的计算支持；状态并不表示条件成立。数学结果 satisfied/violated 与平台适用性可以不同：确定的一组数字可算出谓词，而目标运行语义仍未知。static_inference 不进入已观察值的接纳入口；模型仍可表达假设，但不能用假设填运行凭据。
+
+当前 `value_sources.py` 只接受由程序提供的 `SyntheticValueAdapter`。主机固定 `SyntheticBindingFixture` 的操作/角色/参数 span 与诊断引用；`bind_operation` 实读冻结源码的原字节，检查 UTF-8 字节边界、文件/片段摘要、原行号和父操作包含关系。没有支持的 fixture 时返回 unknown；即使状态 verified，其 support_origin 仍为 synthetic_fixture、目标平台仍 unknown，不说明程序已解析或运行这个操作。
+
+`request_capture` 先登记内容寻址的 CaptureIntent；`capture_values` 使用另行由主机登记的 SyntheticCaptureFixture，模式可模拟 source_literal 或 execution_sample，但 origin 固定为 synthetic_fixture。逐角色核对绑定/anchor/单位，缺值、数值 profile 或前提不足保留 unknown；模拟事件分别核对操作、任务/候选和拟议范围，并要求独立 object_instance_id、object_generation、同次 occurrence/线程与 at_use 阶段。异时或异对象事实保留但不拼合，目标未到达/中断状态可回读且不升格。这里没有设备派发、预算放宽、源码 literal 自动解析或有限条件计算。
+
+保存目录为工作目录内 `value-sources/` 的 manifest.json、bindings/、requests/、receipts/。静态 manifest 固定合成 adapter/profile/policy，动态 fixture 与 receipt 各自固定内容身份；追加不改变旧记录。重开须继续提供可信主机 adapter 及相应历史 fixture；不从磁盘标签自动建立信任。登记采用同目录临时文件与排他发布，绝不覆盖目标；binding/intent/receipt 回读均无登记副作用，并重新实查源码、诊断语义和主机 fixture。链接、硬链接、内容改写、缺失/替换 manifest 或内容寻址自洽但与主机依据不符的伪造都拒绝；中断留下的不完整记录不能自动视为已完成。
 
 主机接纳入口须实查原始文件或作业/产物，重新产生摘要和角色映射，再保存不可改写对象；模型 JSON 只能选择已有 ID 或提交 proposal。测试适配器明确属于 synthetic 通道，不允许用伪造作业模拟得到 local/application 来源。既有 Evidence 的 source_reader/execution_backend 只在各自真实依据存在时使用，不通过扩展 ObservationBatch.origin 把旧 fixture 升级。
 
@@ -226,7 +232,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 主机先核对来源能力、版本、对象引用、资源和预算，再登记请求。源码事实读取使用已有证据读取能力；新运行采样须走诊断执行授权、探针预算及受管作业，既有采样产物回读不能悄悄启动新作业。计算不启动采样器，也不代扣或放宽运行额度。所有读取、采集、解析、检查和失败都进入共享工具/时间/实际模型或设备成本；基础与增强拥有相同来源工具，差异只在何时使用和怎样关联。
 
-拟议新 store 固定适配器能力/版本、语义 profile 和探针策略的 manifest；每个绑定、请求、凭据和结果独立内容寻址、追加登记。真实值在运行后才产生，所以不把整个动态 receipt 集合作为会话启动时必须冻结的 fixture 列表。会话冻结上述静态 manifest，计算身份再固定实际 receipt 哈希；既有凭据不得修改，新增凭据不改写旧计算。源码回读重新实查字节；执行回读核对作业与产物记录及适配器，不能靠重算算术补出执行来源。
+完整采值 store 固定适配器能力/版本、语义 profile 和探针策略的 manifest；每个绑定、请求、凭据和结果独立内容寻址、追加登记。真实值在运行后才产生，所以不把整个动态 receipt 集合作为会话启动时必须冻结的 fixture 列表。会话冻结上述静态 manifest，计算身份再固定实际 receipt 哈希；既有凭据不得修改，新增凭据不改写旧计算。源码回读重新实查字节；执行回读核对作业与产物记录及适配器，不能靠重算算术补出执行来源。
 
 采集请求先持久化；完成凭据可恢复回读，已派发但无法对账的执行保持 inconclusive/unknown，不重复产生设备动作。停止和清理沿用本机租约/证据保留规则；观察副本、探针产物和 receipt 均在受管工作目录，不为此建立常驻服务或第二套任务台账。
 
@@ -254,9 +260,9 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 ##### 与现有实现的迁移
 
-本次设计不升级当前 Contract/schema 1、ConditionStore、report schema 3 或 session schema 5，也不开放新工具、来源或运行能力。既有 synthetic/unknown 路径与测试继续有效，既有 applicability_authority=model_inference 保留；新设计不是给旧结果增加一个“可信” sidecar。
+当前独立合成入口不升级既有 Contract/schema 1、ConditionStore、report schema 3 或 session schema 5，也不开放新 SDK 工具、真实来源或运行能力。既有 synthetic/unknown 路径与测试继续有效，既有 applicability_authority=model_inference 保留；新来源不能靠给旧结果增加一个“可信” sidecar 接入。
 
-实现时先新增独立的绑定/采值凭据契约与合成接纳门，单独回读，不直接注入现有 ObservationBatch。真正接入新来源或改变计算/SDK 工具语义时，再显式设计 ConditionRequest/Inputs/Result/Record schema 2 和对应新 session/report schema，冻结新增 manifest；新会话不跨旧工具 schema 续跑，旧记录仍按旧规则回读为历史合成结果。旧 fixture 若引用新绑定，须登记新的请求并重新计算新 ID，来源仍 synthetic。禁止覆盖旧结果、直接修改 v1 封闭来源枚举或让 v1 默认接纳真实执行标签。
+独立绑定/采值凭据契约与合成接纳门单独回读，不直接注入现有 ObservationBatch。真正接入新来源时先显式设计独立来源对象的新 schema；改变计算/SDK 工具语义时再设计 ConditionRequest/Inputs/Result/Record schema 2 和对应新 session/report schema，冻结新增 manifest。新会话不跨旧工具 schema 续跑，旧记录仍按旧规则回读为历史合成结果。旧 fixture 若引用新绑定，须登记新的请求并重新计算新 ID，来源仍 synthetic。禁止覆盖旧结果、直接修改 v1 封闭来源枚举或让 v1 默认接纳真实执行标签。
 
 根因假设仍由证据和因果检验支持；可信局部采样也不自动改变 Diagnosis/RepairObligation 状态。ScopedConditionResult 不是 VerificationVerdict，不进入应用接受门充当 pass。共同协议的原故障复现、构建/目标/业务/回归检查仍由独立验收和实际运行提供。
 
