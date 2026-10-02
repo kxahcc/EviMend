@@ -13,7 +13,7 @@ if ($Suite -eq 'Processes') {
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:Repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd([IO.Path]::DirectorySeparatorChar)
-$script:Runs = Join-Path $script:Repo 'runs'
+$script:Runs = Join-Path $script:Repo '.dfx-local/tmp'
 $script:TestRoot = Join-Path $script:Runs ("W01-test-" + [Guid]::NewGuid().ToString('N'))
 $script:CaseRepo = Join-Path $script:TestRoot 'repo 空格 示例'
 $script:Sentinel = Join-Path $script:TestRoot 'outside-sentinel.txt'
@@ -132,9 +132,26 @@ try {
     $unfinished = Invoke-Local -Arguments @('Clean', '-Scope', 'work') -ShouldPass $false
     Check ($unfinished.Contains('no terminal state')) 'unfinished work must be retained'
     Write-File (Join-Path $root 'work/r1/run-state.json') '{"status":"finished"}'
-    $workPlan = Invoke-Local -Arguments @('Clean', '-Scope', 'work')
-    $null = Invoke-Local -Arguments @('Clean', '-Scope', 'work', '-Apply', '-PlanId', $workPlan.plan_id)
-    Check (-not [IO.Directory]::Exists((Join-Path $root 'work'))) 'finished work can be cleaned'
+    $retained = Invoke-Local -Arguments @('Clean', '-Scope', 'work') -ShouldPass $false
+    Check ($retained.Contains('Evidence remains')) 'terminal work is still evidence'
+    Check ([IO.File]::Exists((Join-Path $root 'work/r1/file.txt'))) 'terminal evidence remains untouched'
+    $workPlan = Invoke-Local -Arguments @('Clean', '-Scope', 'work', '-DiscardEvidence')
+    $null = Invoke-Local -Arguments @('Clean', '-Scope', 'work', '-Apply', '-DiscardEvidence', '-PlanId', $workPlan.plan_id)
+    Check (-not [IO.Directory]::Exists((Join-Path $root 'work'))) 'explicitly discarded terminal work can be cleaned'
+
+    Write-File (Join-Path $root 'tmp/prepared/task.json') '{}'
+    foreach ($protectedScope in @('tmp', 'cache')) {
+        $blockedTmp = Invoke-Local -Arguments @('Clean', '-Scope', $protectedScope) -ShouldPass $false
+        Check ($blockedTmp.Contains('Evidence remains')) 'prepared snapshots are protected from cache cleanup'
+    }
+    Check ([IO.File]::Exists((Join-Path $root 'tmp/prepared/task.json'))) 'blocked cleanup preserves prepared snapshot'
+    $discardTmp = Invoke-Local -Arguments @('Clean', '-Scope', 'tmp', '-DiscardEvidence')
+    $null = Invoke-Local -Arguments @('Clean', '-Scope', 'tmp', '-Apply', '-DiscardEvidence', '-PlanId', $discardTmp.plan_id)
+    Write-File (Join-Path $root 'tmp/ex-interrupted/partial.bin') 'partial evidence'
+    $blockedStage = Invoke-Local -Arguments @('Clean', '-Scope', 'tmp') -ShouldPass $false
+    Check ($blockedStage.Contains('Evidence remains')) 'an unpublished export stage is protected'
+    $discardStage = Invoke-Local -Arguments @('Clean', '-Scope', 'tmp', '-DiscardEvidence')
+    $null = Invoke-Local -Arguments @('Clean', '-Scope', 'tmp', '-Apply', '-DiscardEvidence', '-PlanId', $discardStage.plan_id)
 
     $internalDir = Join-Path $root 'cache/internal'
     Write-File (Join-Path $internalDir 'inside.txt') 'internal'

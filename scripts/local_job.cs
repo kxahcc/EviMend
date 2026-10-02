@@ -154,7 +154,7 @@ namespace DfxLocal {
             if (scenario != "idle" && scenario != "child" && scenario != "noisy" &&
                 scenario != "memory" && scenario != "bootstrap" && scenario != "test" &&
                 scenario != "docs" && scenario != "ruff" && scenario != "pyright" && scenario != "offline" &&
-                scenario != "aggregate")
+                scenario != "aggregate" && scenario != "export")
                 throw new ArgumentException("Unsupported synthetic scenario");
             // Fixed executable and fixed script, with bounded data-only arguments.
             string command = "\"" + executable + "\" -NoProfile -NonInteractive -File \"" + script +

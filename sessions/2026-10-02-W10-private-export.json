@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-02",
+  "work_package": "W10 managed private offline evidence export",
+  "objective": "Preserve a complete explicit offline evaluation matrix and stopped raw evidence in a new private package, verify identical aggregation from the package alone, and retain source evidence under managed capacity and cleanup guards.",
+  "source_start_commit": "92658de",
+  "scope": "offline_synthetic",
+  "real_model_calls": 0,
+  "application_executions": 0,
+  "dependency_installations": 0,
+  "implementation": [
+    "ExportPlan schema 1 binds original manifest bytes, exact aggregate, owner/config, file and directory identity snapshots, full package inventory and estimated size. Only its fixed managed state path can be saved; unknown existing files and input overlap are refused.",
+    "Apply rederives the plan, streams hash-checked copies to a short new managed stage, validates metadata size/hash before writing, reaggregates privately and publishes only a new target after source/owner/config checks. Failures keep an unpublished stage and never delete source evidence.",
+    "Payload mirrors original task/work relative paths and preserves source, all candidates, Graph, model/action/check ledgers, diagnoses, obligations, feedback, decisions, conditions, value sources, compactions and failures. Explicit not_run/missing entries remain in the same matrix.",
+    "Verify checks only package bytes, inventory, read-only SQLite integrity and exact package-local aggregation; Graph messages are never deserialized or executed. Windows long-path and empty-authority SQLite URI handling are local API choices, not machine settings.",
+    "Raw business JSON and SQLite source assets are preserved as bytes; only declared host records and known work-root ledgers are interpreted. Orphan or nonempty database sidecars, unsafe names, links, hardlinks, unknown top-level records and source drift are rejected.",
+    "Managed Export/Apply/Verify run through the same fixed Windows Job entry, locked environment and own lease. Native ancestry handles the Windows venv launcher without weakening lease identity. Console receipts and error reasons are bounded and do not echo private exception inputs.",
+    "Read-only Verify validates the current managed owner and lease but treats a package owner as its origin, permitting retained old packages after a new Prepare/Init identity. It does not adopt old resources or modify origin metadata.",
+    "All managed jobs account for .dfx-local plus runs/exports under the existing shared disk budget; a separate per-package limit is defined only in configs/local-runtime.json. Nonempty terminal work, task snapshots and incomplete export stages still need explicit DiscardEvidence in a concrete cleanup request.",
+    "Updated existing design, contract, plan, evaluation, guide and usage owners consistently; no new Markdown ledger or submission-template edits."
+  ],
+  "validation": {
+    "mode": "6 selected test files through sequential managed jobs; not one full-repository run",
+    "passed": 207,
+    "skipped": 5,
+    "tests": [
+      {"path": "tests/test_exporting.py", "run_id": "8c8f886c-72b9-47c1-9513-51945027523a", "passed": 64, "skipped": 1},
+      {"path": "tests/test_export_cli.py", "run_id": "d5f105c2-4afd-486e-8b24-366ddff14f04", "passed": 40, "skipped": 0},
+      {"path": "tests/test_cleanup.py", "run_id": "4b75784f-9b92-4ed6-9b63-6d0367b40184", "passed": 1, "skipped": 0},
+      {"path": "tests/test_metrics.py", "run_id": "e724d744-d0ef-4dc6-9cd2-4e4306557913", "passed": 64, "skipped": 1},
+      {"path": "tests/test_readonly_evidence.py", "run_id": "44c64fb5-72b5-4bdb-b568-d69a66bffb5a", "passed": 27, "skipped": 3},
+      {"path": "tests/test_metrics_cli.py", "run_id": "20a61c3d-924e-4289-a681-89e22e7e53b8", "passed": 11, "skipped": 0}
+    ],
+    "skip_reason": "Current Windows account cannot create symbolic links; hardlinks, mutation, missing inputs, database sidecars and managed identity counterexamples were exercised.",
+    "quality": {
+      "ruff": {"status": "passed", "run_id": "bbba5443-b138-4f71-bea5-6bd75d5d1fea"},
+      "pyright": {"status": "passed", "run_id": "ef7be953-a621-4eb9-9887-97fe27a2cc41", "errors": 0, "warnings": 0},
+      "docs": {"status": "passed", "run_id": "f16274f3-0d4a-4208-b817-92daef279af5", "registered_documents": 14}
+    },
+    "smoke": {
+      "input_origin": "Previously recorded W09 synthetic fixed-response work; no new solver or application execution",
+      "manifest": ".dfx-local/tmp/W09-smoke-20261002/evaluation.json",
+      "source_work": ".dfx-local/work/offline-w09-smoke-20261002",
+      "package": "runs/exports/w10-smoke-20261002",
+      "preview_run_id": "3bb74b85-f79a-4957-b7e4-b037c24f6ef2",
+      "apply_run_id": "b9eeefe2-22c4-4a24-879c-7b66ee661930",
+      "verify_run_id": "233b8a60-34ee-40d8-b91c-655766fd2f7c",
+      "final_entry_verify_run_id": "988c6203-7b4e-45e8-b416-cb5650321949",
+      "plan_id": "92ede64b8f3dab339c30d8b74c4a2ff9ea5e2bed0319f5ce34a21a47d3e05231",
+      "package_sha256": "6c323bbcd0b639114791fdcdc71dcbaf763cfe83baa27ffd024864cce01b5042",
+      "aggregate_sha256": "c69eb89d380816e8eff94f82638e493964b81022ecb1267337d8e8eb6301428c",
+      "package_bytes": 66814,
+      "expected_runs": 2,
+      "verified_runs": 1,
+      "explicit_not_run": 1,
+      "known_tokens_lower_bound": 15,
+      "total_tokens": null,
+      "application_metrics": "all null",
+      "historical_execution_versions": "not recorded; all unknown fields retained",
+      "stopped": true
+    },
+    "corrected_failures": [
+      {"run_id": "91e1280e-42bc-4441-8f1c-b0cb6839f0e9", "reason": "Long copied paths failed on Windows; switched local evidence APIs to extended paths and shortened the owned stage name."},
+      {"run_id": "5e4de84a-d3da-4b72-bda2-a9a3f6699065", "reason": "SQLite rejected the extended-path URI authority; used an empty authority while retaining immutable read-only access."},
+      {"run_id": "7b8a483a-c4ee-4c1b-8567-fd8b6c7ef729", "reason": "Direct package aggregation still hit long paths; normalized the read-only aggregation root using the same local helper."},
+      {"run_id": "81a87af4-4397-4f41-896e-69767f7994d8", "reason": "Actual managed preview exposed a venv launcher between Python and the PowerShell worker; fixed native worker ancestry, retaining run/task/owner checks."},
+      {"run_id": "ac297f19-0a8c-45e2-8bc5-a280519aa7c4", "reason": "The old-package managed Verify succeeded but its test decoded PowerShell CP936 stdout as UTF-8. Fixed only the test child output encoding; full ownership and immutability assertions passed afterward."},
+      {"reason": "Final read-only audit found mutable manifest growth could write beyond the reviewed metadata allowance before rejecting publication. Moved exact size/hash checks before aggregation and writes; added and passed a mid-copy growth counterexample."},
+      {"reason": "Ruff import/style and Pyright narrowing findings were corrected without relaxing evidence, capacity or owner rejection gates."}
+    ],
+    "local_log_root": ".dfx-local/artifacts"
+  },
+  "environment": {
+    "existing_managed_python": "3.13.5",
+    "global_changes": false,
+    "resource_policy_changes": ["limits.max_export_package_bytes in configs/local-runtime.json", "existing managed disk budget now includes retained exports"],
+    "observation_stage": "After final selected tests and code quality checks; before the documentation-check log",
+    "observed_managed_bytes": 317314468,
+    "observed_tmp_bytes": 4415,
+    "observed_export_bytes": 66814,
+    "active_state": "none",
+    "remote_jobs_unknown": false,
+    "evidence_retention": "Original W09 synthetic task/work/aggregate and the private W10 package retained locally; test fixtures cleaned by the managed runner. No user environment or data cleanup performed."
+  },
+  "limitations": [
+    "No actual cloud request, HarmonyOS execution, root-cause ground truth, application acceptance, repair effectiveness, business regression or measured real model cost.",
+    "Raw private sources/logs/messages may contain sensitive content; file-name guards do not prove absence of secrets. local_only=true, redacted=false, share_ready=false; no upload performed.",
+    "Package hashes are content integrity checks, not signatures or proof of creator identity.",
+    "Graph bytes and SQLite integrity do not prove replay compatibility. Full historic execution Git/lock/SDK provenance was absent and is not backfilled.",
+    "Before/after snapshots and stopped markers do not lock arbitrary external concurrent writers; changed observed inputs reject export rather than granting an external-write sandbox guarantee.",
+    "A matrix export does not cover all runtime logs/state or other work, and does not automatically authorize cleanup.",
+    "Old-package managed integration changes only an isolated fixture owner and reuses installed dependencies read-only; it does not run Clean all or Prepare/Init against the user's actual environment."
+  ],
+  "next": "W05/W09 execution provenance freezing and compatibility/recovery semantics, using synthetic records first; actual provider and local HarmonyOS workflows remain behind W08 prerequisites."
+}

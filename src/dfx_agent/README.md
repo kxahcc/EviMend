@@ -3,14 +3,12 @@
 状态：当前使用说明。最后维护：2026-10-02。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
-当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 支持固定响应和模拟模型协议，已把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实云端传输、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。
+当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 支持固定响应和模拟模型协议，已把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实云端传输、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。导出是未脱敏的本机私有包，正式应用汇总、执行版本来源和公开脱敏/提交仍待接入，实际验收见 STATUS。
 
-从项目根目录查看命令：
+从项目根目录查看受管状态并运行合成自检：
 
 ```powershell
-python scripts/dfx.py --help
-python scripts/dfx.py prepare --help
-python scripts/dfx.py analyze --help
+.\scripts\local.ps1 Status
 .\scripts\local.ps1 Run -Task test -TestPath tests/test_agent_loop.py
 ```
 
@@ -85,7 +83,7 @@ schema 2 用于检查实际模型协议交接，仍是进程内模拟，不连�
 
 `agent-report.json` 的 schema 5 记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。completion schema 2 区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
 
-`reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，证据 Export 命令尚未实现。
+`reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，保留完整核验依据使用受管私有 Export。
 
 ### 只读聚合已停止的合成记录
 
@@ -102,6 +100,28 @@ configuration 的 model_profile_sha256、context_profile_sha256 和 search_limit
 缺目录、缺报告、失败和未知成本均保留在分母；损坏证据拒绝整批，不跳过。首次与最新定位/候选分开，repeat 与任务/谱系分开，不宣称独立样本。所有应用指标为 null、accepted=false。schema 8 未记录历史 Git/lock/SDK 版本，报告也保持 unknown；从现有记录生成清单不能证明当时预登记，正式实验须先冻结清单与完整执行来源。程序 API 为 load_evaluation_manifest / aggregate_evaluation / write_evaluation_report；写入只允许新报告且不能与输入重叠。
 
 `run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile；`session.json` 使用 schema 8，旧 schema 1–7 会话拒绝续跑，须保留旧证据并另建工作 ID。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+
+### 私有证据导出：预览、应用、包内核验
+
+使用与 aggregate 相同的显式 EvaluationManifest，只处理已停止的合成记录。以下参数占位须替换为现有仓库相对清单、新 Export ID 和预览返回的 PlanId：
+
+```powershell
+.\scripts\local.ps1 Export -EvaluationManifestPath <仓库相对清单.json> -ExportId <新ID>
+.\scripts\local.ps1 Export -EvaluationManifestPath <仓库相对清单.json> -ExportId <新ID> -Apply -PlanId <预览返回的HASH>
+.\scripts\local.ps1 Export -ExportId <已有ID> -Verify
+```
+
+第一条只预览并保存 `.dfx-local/state/export-plan-<ID>.json`，控制台返回有限的计划身份、预计字节和私有内容说明。合法的同 ID 旧计划可以重新预览刷新；未知已有文件、与 manifest/.new 或输入重叠的计划拒绝。Apply 重核原 manifest 字节、owner/config、矩阵、文件身份/哈希及缺失状态，任何漂移都要求重新预览；已有最终包不覆盖，须另选 ID。三个命令使用现有 Windows Job/串行管理入口，不直接运行 Python 导出命令绕过保护。
+
+最终包固定在 `runs/exports/<ID>/`：evaluation.json 保留 manifest 原字节，aggregate-report.json 保存完整源端摘要，package.json 保存计划、隐私说明及字节清单；payload/ 镜像原 task_path/work_path。它完整保留任务源码/日志、基准/草稿、全部候选/diff、Graph、模型/动作账本、检查、诊断/义务/决策、条件/采值、压缩及失败记录。空目录也在清单内，未运行和缺报告格子保留分母及未知费用，不为缺失 work 创建空壳。只复制已登记的明确范围，未知顶层、链接/共享文件、凭据类材料、活动/未知作业、未终态或非空 SQLite WAL/journal 均拒绝；不自动恢复数据库。
+
+复制先进入受管 tmp 的独立 ex- 前缀暂存。单包上限和 managed/exports 共同磁盘预算以 configs/local-runtime.json 为唯一来源；复制前预估，过程检查磁盘与新增量，完工重扫。源树不变、清单及包内重聚合全文一致后才发布新目录；失败暂存未发布，源输入保留。Verify 的证据输入只依赖包内字节，重新核验全部文件、只读 SQLite 与摘要，不读取原输入，不执行模型、工具、检查或 Graph 反序列化。Graph 只证明已保存字节/数据库完整性，没有验证其可恢复执行。
+
+Verify 仍须使用当前已初始化的受管环境，核对其 owner、依赖锁和自身租约。包中 owner_id 记录导出来源实例，不要求与当前实例相同：Clean all 后保留在 runs/exports 的包，可在重新 Prepare/Init 建立兼容环境后继续用同一 Verify 命令核验。核验不恢复或接管旧运行，不改写包、原任务及旧运行记录，仅保存当前受管日志/租约；来源 ID 和内容哈希不是制作者认证，也不产生清理权限。
+
+包明确 local_only=true、redacted=false、share_ready=false：原消息、源码和日志仍可能含私密内容，名称守卫不能证明没有秘密，不能直接上传或公开。导出器只声明自己的模块/schema 来源，不补写旧会话未知的 Git/lock/SDK 执行版本；应用结果仍未知。Export 不删除源、不自动清理或解锁整树清理：非空终态 work，以及 tmp/cache 中检测到的任务快照或未发布导出暂存，仍须在具体 Clean 预览和 Apply 请求中明确 -DiscardEvidence；单个矩阵包不覆盖所有管理记录，all 也不因已导出而自动放行。普通清理保留 runs/exports。
+
+程序接口为 preview_export / save_export_plan / apply_export / verify_export；参数与反例见 exporting.py、tests/test_exporting.py、tests/test_export_cli.py 和 tests/test_cleanup.py。对象约束见 [模块规格第 1.3.4 节](../../docs/design-contracts.md#134-停止记录的本机私有证据导出)，资源和清理协议见 [开发设计第 9 节](../../docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
 合成输入自检位于 `tests/test_offline_evidence.py`，显式案例身份与哈希拒绝反例位于 `tests/test_case_identity.py`；领域对象和候选目录反例位于 `tests/test_contracts.py`、`tests/test_workspace.py`，固定响应闭环、HTTP 模拟协议、策略分支、接受契约、模型请求账本、逐工具授权/恢复、因果记录和修复决策交接分别位于 `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`、`tests/test_decisions.py`。这些检查不读取或运行 data_B 中的应用，不调用真实模型或设备。当前设计与待实现功能见 [技术设计](../../docs/development/system-design-draft.md) 和 [模块契约](../../docs/design-contracts.md)。
 

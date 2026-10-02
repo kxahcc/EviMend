@@ -92,9 +92,11 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 
 ### 本机资源怎样集中管理
 
-本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；需要长期保留的证据计划导出到 runs/exports。日常只启动一个受管任务。真实应用阶段先盘点设备、SDK/构建缓存的占用，再为其建立同样受管的安装、运行和清理入口；当前方案没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
+本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；离线证据可通过受管 Export 保留到 runs/exports。日常只启动一个受管任务。真实应用阶段先盘点设备、SDK/构建缓存的占用，再为其建立同样受管的安装、运行和清理入口；当前方案没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop、Init，以及固定合成、测试/质量、离线 Agent 和只读聚合的受限 Run。任务先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local。真实模型/本机应用任务与 Export 尚未接入；[本机配置](configs/local-runtime.json) 的位置标记已改为 local，但安装/实验开关仍关闭。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+管理入口 scripts/local.ps1 提供 Prepare、Status、Clean、Stop、Init、固定合成/测试/质量/离线 Agent/只读聚合的受限 Run，以及私有证据 Export。任务先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local，managed 与 exports 共同受磁盘预算约束。真实模型/本机应用任务仍未接入；[本机配置](configs/local-runtime.json) 的位置标记为 local，安装/实验开关仍关闭。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+
+Export 从显式评测清单保留任务源码、全部候选、账本和失败记录：先预览内容与计划，再按 PlanId 应用，最后只读 Verify 从包内重建同一摘要。包含原始消息和私密源码，不能直接公开；导出不删除源，也不自动放行清理。终态 work、任务快照及未发布暂存仍须在具体清理请求中明确丢弃。实际验收看 STATUS；真实应用汇总、执行版本来源和公开脱敏另待后续接入，使用命令见 [原型说明](src/dfx_agent/README.md)。
 
 ## 6. 怎样一步步把它做出来
 
@@ -137,12 +139,13 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 |---|---|
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
 | `src/dfx_agent/` | Python 离线证据原型、候选工作区、固定响应修复闭环、模拟 HTTP 协议及受控策略；模块职责见下表 |
-| `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 repair / resume / aggregate 入口 |
-| `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init 与受限合成/测试/质量/离线 Agent/聚合任务入口；真实模型/应用任务尚未接入 |
+| `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 repair / resume / aggregate / export / verify-export 入口 |
+| `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init、受限合成/测试/质量/离线 Agent/聚合及私有 Export/Verify 入口；真实模型/应用任务尚未接入 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
 | `scripts/local_bootstrap.ps1`、`scripts/local_test.ps1`、`scripts/local_quality.ps1` | Job 内的固定依赖安装、pytest 和文档/Ruff/Pyright 检查，不接受任意 shell 命令 |
 | `scripts/local_agent.ps1` | Job 内固定响应或模拟模型协议的离线 repair / resume 工作进程，输入由管理入口限定 |
 | `scripts/local_metrics.ps1` | Job 内只读核验显式任务清单，生成新的离线汇总与终态；不调用模型或检查 |
+| `scripts/local_export.ps1` | Job 内固定私有 Export 预览、Apply 和只读 Verify 工作进程，核对管理租约与项目环境 |
 | `scripts/test_local_runtime.ps1`、`scripts/test_local_process.ps1`、`scripts/test_local_bootstrap.ps1` | W01 路径清理、W02 进程保护和 W03 重复 Init 的合成验收 |
 | `scripts/check_docs.py` | 文档登记、链接、维护元数据及 archive 跟踪检查 |
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
@@ -155,15 +158,16 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
 | `tests/test_context_compaction.py`、`tests/test_compaction_loop.py` | 主机压缩的完整工具组、冻结来源、独立费用、格式失败、未知结果、恢复及实际 SDK 交接的合成验收 |
 | `tests/test_readonly_evidence.py`、`tests/test_metrics.py`、`tests/test_metrics_cli.py` | 不可变账本、完整分母/未知项/重复运行、配置漂移及受管聚合入口的合成验收 |
+| `tests/test_exporting.py`、`tests/test_export_cli.py`、`tests/test_cleanup.py` | 完整私有证据包、计划/输入保存、包内重聚合、篡改/容量、受管导出入口及证据清理拒绝的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 项目 Skill 的模板位置；实际实现状态见 STATUS |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
-| `configs/local-runtime.json` | 本机资源/清理策略；CPU/内存/进程限制对合成 Run、Init、测试、质量、离线 Agent 和聚合任务生效，字段语义见设计与契约 |
+| `configs/local-runtime.json` | 本机资源/清理策略；合成 Run、Init、测试、质量、离线 Agent、聚合和 Export 的受管限制与共同磁盘预算，字段语义见设计与契约 |
 | `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
-| `.dfx-local/` | 本机环境、缓存、工作副本与运行状态根；Git 忽略，合成、安装、测试、质量和离线 Agent 任务受管 |
-| `runs/` | 历史原型产物、管理工具接入前的临时材料及需保留的 exports；Git 忽略 |
+| `.dfx-local/` | 本机环境、缓存、任务/工作副本、导出暂存与运行状态根；Git 忽略，所有当前运行入口受管 |
+| `runs/` | 历史原型产物、管理工具接入前的临时材料及本机私有 exports；Git 忽略，普通清理保留导出包 |
 | `archive/` | 失效文档及配套材料；Git 忽略，不作为当前入口或运行依赖 |
 | `pyproject.toml`、`uv.lock`、`.python-version` | Python 3.13 基线、SDK 与质量工具的已解析依赖锁 |
 | `.gitignore` | 排除本地数据、归档、运行产物、缓存、虚拟环境和凭据文件 |
@@ -193,6 +197,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `reporting.py` | 从版本、诊断、模型/工具账本和检查重建最终摘要，核验补丁及可验证报告字段；不执行模型或应用 |
 | `metrics.py` | 按显式 task/variant/repeat 清单只读核验停止记录，汇总初始定位、全部候选及完整成本；应用指标未知 |
 | `evidence_io.py` | 不可变只读 SQLite 连接，拒绝缺文件、链接/硬链及未合并日志；不修复或新建账本 |
+| `exporting.py` | 显式矩阵的私有计划/证据包、完整字节清单及包内重聚合核验；保留原消息与全部尝试，不执行 Graph、不删源、不自动授权清理 |
 | `model_calls.py` | 持久模型请求账本、响应回放、格式/usage 分类及崩溃窗口拒绝重发；已用于固定响应路径，尚未接入真实提供方 |
 | `agent.py` | Deep Agents 离线循环，接入任务指引、跨文件检索、未确认诊断、候选门控、可关闭策略工具和停止报告 |
 | `task_strategy.py` | 基础/增强共享的明确修复任务指引与主机任务上下文；增强按开关追加，不证明模型效果 |
@@ -203,7 +208,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `backends.py` | 版本绑定的 HTTP 模拟请求/作业对象、客户端意图与查询/取消/产物校验；本机真实执行适配器尚未实现 |
 | `remote_service.py` | SQLite 持久化的 FastAPI 模拟作业服务和显式测试工作者状态；保留作协议反例测试，不是计划中的运行服务 |
 | `runtime.py` | 当前仅观察 PATH/模块/环境变量存在性；不启动 SDK/设备 |
-| `cli.py` | 参数与命令分发；repair / resume 只允许受管固定响应或模拟协议演示，恢复按账本对齐模拟响应 |
+| `cli.py` | 参数与命令分发；repair / resume 只允许受管固定响应或模拟协议演示，aggregate / export / verify-export 同样经受管入口 |
 | `__init__.py` | Python 包入口 |
 
 ## 查看与检查
@@ -211,12 +216,11 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 从仓库根目录运行：
 
 ```powershell
-python scripts/dfx.py --help
 .\scripts\local.ps1 Status
 .\scripts\local.ps1 Init
 .\scripts\local.ps1 Run -Task test -TestPath tests/test_sdk_compat.py
 .\scripts\local.ps1 Run -Task docs
-.\scripts\test_local_runtime.ps1 -Suite Paths
+.\scripts\local.ps1 Run -Task test -TestPath tests/test_cleanup.py
 ```
 
 受管 pytest 可运行 `-Task test -TestPath tests/test_agent_loop.py` 检查闭环。受管离线演示的输入约定见 [原型说明](src/dfx_agent/README.md)；它只使用固定响应或进程内模拟传输和合成判据，不启动真实模型或应用。盘点工具用法见其 README，真实任务输入必须显式提供经核验的清单。

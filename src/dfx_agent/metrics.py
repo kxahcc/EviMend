@@ -21,6 +21,7 @@ from .agent import _tools
 from .conditions import ConditionStore
 from .context_compaction import CompactionPolicy
 from .contracts import IDENTIFIER, require_hash
+from .evidence_io import local_evidence_path
 from .model_calls import ModelCallStore, canonical, sha256
 from .model_provider import _tool_descriptors
 from .models import context_profile
@@ -476,7 +477,7 @@ def _paired(manifest: EvaluationManifest, rows: list[dict[str, Any]]) -> list[di
 def aggregate_evaluation(manifest: EvaluationManifest, root: Path) -> dict[str, Any]:
     """Validate all declared inputs; missing cells remain unknown in the denominator."""
     manifest = EvaluationManifest.model_validate_json(canonical(manifest.model_dump(mode="json")))
-    root = root.absolute()
+    root = local_evidence_path(root)
     paths = _input_paths(manifest, root)
     snapshots = {path: _tree_snapshot(path) for path in paths if path.exists()}
     for task in manifest.tasks:

@@ -67,7 +67,7 @@ SDK 的两种离线模型共用 `ToolAuthorizationMiddleware`：主机把工具�
 
 响应须有单一 assistant choice、消息身份及合法终止字段。invalid arguments 保存为 invalid_tool_calls；截断或终止原因不一致的工具不能交给动作执行。`AccountedProviderModel` 在保存响应和 usage 后，对整条 format_error 停止，不执行同一响应中其余合法工具，也不暗中请求修正。HTTP、超时、超限或无法解析的响应使用固定安全原因；已派发但未取得可保存消息的调用保持 unknown，不保存异常正文中的私有内容。
 
-收到消息后保存规范化消息及哈希、提供方消息 ID、工具名称/ID/参数摘要与格式问题。wire 的非 null 原始 usage 完整保留为 response_metadata.dfx_provider_usage_raw；prompt_tokens/completion_tokens/total_tokens 须为非负整数、合计一致并与 usage_metadata 的 input/output/total 对应，才能标为 known。原值缺失/null 为 missing，存在但无效或映射不一致为 invalid；账本保存原值摘要，不以类型强制转换或文本长度补估。格式错误仍是完成的一次调用，不能丢掉其 usage。原始消息只留本机受管状态，不进入 Git 或默认汇总导出；text_only、模型自称成功和工具参数不产生执行事实。
+收到消息后保存规范化消息及哈希、提供方消息 ID、工具名称/ID/参数摘要与格式问题。wire 的非 null 原始 usage 完整保留为 response_metadata.dfx_provider_usage_raw；prompt_tokens/completion_tokens/total_tokens 须为非负整数、合计一致并与 usage_metadata 的 input/output/total 对应，才能标为 known。原值缺失/null 为 missing，存在但无效或映射不一致为 invalid；账本保存原值摘要，不以类型强制转换或文本长度补估。格式错误仍是完成的一次调用，不能丢掉其 usage。原始消息用于本机受管恢复，不进入 Git 或普通聚合报告；显式本机私有 Export 保留相关账本原字节并披露完整消息范围，不自动外发。text_only、模型自称成功和工具参数不产生执行事实。
 
 session schema 8 冻结 model_profile、context_profile（含主机压缩策略和摘要提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略和合成 registry 指纹；续跑须全部一致，旧会话 schema 1–7 不续跑，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
 
@@ -159,7 +159,29 @@ EvaluationManifest schema 1 固定 offline_synthetic 范围、唯一 evaluation_
 
 ModelCallStore、ToolActionStore 和 CheckLedger 显式 read_only=True：不创建文件/目录、表或 sidecar，写方法及执行入口一律拒绝。ReplayOnlyExecutor 只持有协议摘要，check 始终拒绝；不读取预期答案。SQLite 以只读不可变连接回读，非空 WAL/journal 拒绝，不自动合并。聚合检查原路径链、链接/硬链、完整源树字节和文件身份，前后变化拒绝；主机 JSON 严格检查，源码 JSON 仅校验原字节。停止标记和前后检查不替代对外部并发写入者的锁。
 
-汇总保留全部定位、候选、失败、压缩与成本，缺项不补零；成对 unknown 不作失败收益，repeat 与任务/谱系分别计数。应用指标全部 null，accepted 始终 false，具体分母和成对资格以 [评测口径](preparation/metrics-and-gates.md#当前离线聚合的口径) 为准。受管 aggregate 只写新的工作目录，不能覆盖或写入输入树，打印有限回执并保存终态；强制中断未写终态时保留该未知目录并阻止自动清理。证据 Export 属于下一独立工作包。
+汇总保留全部定位、候选、失败、压缩与成本，缺项不补零；成对 unknown 不作失败收益，repeat 与任务/谱系分别计数。应用指标全部 null，accepted 始终 false，具体分母和成对资格以 [评测口径](preparation/metrics-and-gates.md#当前离线聚合的口径) 为准。受管 aggregate 只写新的工作目录，不能覆盖或写入输入树，打印有限回执并保存终态；强制中断未写终态时保留该未知目录并阻止自动清理。本机私有证据 Export 按下节保存同一矩阵及回读依据，不改变应用接受语义。
+
+### 1.3.4 停止记录的本机私有证据导出
+
+W10 的离线 Export 消费 EvaluationManifest schema 1；当前实现的合成验收结果由 STATUS 维护。目标是完整保留既有记录并能从包内重建同一离线摘要，不执行模型、工具、检查或 Graph 反序列化，不删除源输入。公开脱敏、真实应用汇总及正式提交仍是独立的后续工作。
+
+| 对象 | 必须字段与绑定 |
+|---|---|
+| ExportPlan schema 1 | offline_synthetic、export_id、owner_id、manifest 相对路径及原字节摘要、aggregate 摘要、owner/config 摘要、隐私说明、source_snapshot、inventory、estimated_bytes、plan_id；plan_id 固定其余规范内容 |
+| source_snapshot | 每个显式 task/work 相对树的文件大小、身份、修改时刻和字节哈希，包括空目录；不存在的 work 明确为 null，不从目录发现结果或删掉缺失格子 |
+| inventory | 包内规范相对路径与 directory/file 类别，文件的 size/sha256；拒绝重复及大小写碰撞、链接、共享文件、额外/缺失节点和输入/目标祖先重叠 |
+| package.json | schema/scope/status、export/owner/plan 身份、manifest/aggregate 摘要、privacy、完整 plan、导出器模块/schema 来源与 package_sha256；内容哈希不是签名，也不升级来源可信度 |
+| 导出/Verify 回执 | 有限的身份、状态、包摘要和预计字节、隐私说明；控制台不打印原消息、完整清单或私有 schema 输入，完整记录留在本机包内 |
+
+预览核对当前仓库与 owner、资源配置、无其他活动/历史未知作业、任务快照和匹配的 offline 终态。拒绝原路径链链接、硬链接/共享文件、未知顶层条目、凭据类文件、版本/协议错配，以及任何需要恢复的非空 SQLite WAL/journal。只读检查包括 Graph checkpoints.sqlite 的数据库完整性，不加载其中的序列化消息。保存位置固定为 state/export-plan-ID.json；可刷新通过校验的同 ID 旧计划，未知已有文件、manifest 及其 .new 路径重叠均拒绝，不能将保存计划变成覆写输入的入口。
+
+Apply 重新从原 manifest 派生范围并复核完整 PlanId，不直接使用可编辑计划中的任意路径。受管 tmp 的独立短 ex- 前缀目录是未发布暂存；它与所有输入必须分离。payload 镜像原 task_path/work_path，保存任务日志/源码和现有 work 的完整基准、草稿、全部候选与补丁、Graph/模型/动作账本、检查、诊断、义务、决策、条件、采值和压缩产物。终态缺报告的目录仍保留全部现有字节；不存在的 work 不建空壳，not_run/missing 与未知费用保留在原矩阵中。
+
+evaluation.json 是原 manifest 字节，aggregate-report.json 是源端重算的完整摘要。复制按 inventory 校验每个文件及空目录；清单和汇总在写入前再次匹配已预留的大小及哈希，拒绝复制期间增长后再超额写入。前后复查源树、owner/config 和缺失状态；包内重聚合必须与源端全文及报告摘要一致。容量满足后仅发布新的 runs/exports/ID，目标出现或输入漂移即拒绝；失败暂存未发布且源输入保留。Windows 长路径处理仅在项目接口内进行，不改系统配置。
+
+Verify 的证据输入只依赖包内字节：重新核对 package/plan、清单、全部现有证据树及只读 SQLite，再重聚合并复查包前后不变。受管工作进程仍须核验当前环境的 owner、依赖锁与自身租约；包中 owner_id 仅记录导出来源实例，经过格式检查后作为预期包来源交给核验器，不要求等于当前运行环境实例。Clean all 后重新 Prepare/Init，在兼容的项目实现与锁定环境中仍可核验保留的旧包；不改写包、原输入或旧运行记录，仅产生当前受管日志与租约。来源 ID 和内容哈希不认证制作者、不授权接管或清理旧资源，也不证明 Graph 恢复、摘要忠实度、真实因果、业务功能或应用修复效果。历史 session 未记录的 Git/lock/SDK 执行版本继续 null，不以当前导出器版本补写。
+
+privacy 明确 local_only=true、redacted=false、share_ready=false，并披露源码/候选、故障日志、原模型消息、工具参数/结果、Graph、失败尝试和成本。名称守卫拒绝凭据类材料不代表已证明内容没有秘密；当前包不得作为可公开材料或自动外发。单包/共同容量和清理保护由第 5 节约束，Export 不证明全部清理目标已保全，也不自动授权删除源证据。
 
 ## 2. 控制器转换规格
 
@@ -375,14 +397,14 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 ## 5. 本机资源与清理契约
 
-本节规定目标字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。LocalOwner、CleanupPlan 与 CleanupReceipt 已由 W01 的 PowerShell 管理入口部分实现；W02/W03 已为合成、Init、测试与质量 Run 建立 Job 限制、活动标记与生效限额记录。下表完整的 ProcessLease/EffectiveResourcePolicy/LocalUsage schema、正式 Agent 和本机应用作业接入仍待实现，现有 runtime.py 不包含这些能力。
+本节规定目标字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。LocalOwner、CleanupPlan 与 CleanupReceipt 已由 W01 的 PowerShell 管理入口部分实现；W02/W03 已建立 Job 限制、活动标记与生效限额记录，并沿用到离线 Agent、聚合及 Export。私有导出对象见第 1.3.4 节，实际验收见 STATUS。下表完整的 ProcessLease/EffectiveResourcePolicy/LocalUsage schema、正式 Agent 和本机应用作业接入仍待实现，现有 runtime.py 不包含这些能力。
 
 | 对象 | 必须字段 / 约束 |
 |---|---|
 | LocalOwner | schema_version、project_instance_id、repo_real_path、managed_real_path、created_at；路径与当前仓库匹配，不把 owner 文件当任意删除权限 |
 | EffectiveResourcePolicy | policy_sha256、解析后的绝对路径、生效的 CPU/提交内存/进程数/墙钟限制、磁盘预算与预留线、enforcement_capabilities；无效范围/未知字段拒绝，不接受 NaN/负数或大于 1 的比例 |
 | ProcessLease | project_instance_id、run_id、Job 标识、supervisor PID/创建时间/路径、进程成员、启动时间、截止时间、状态；PID 必须和创建时间一起核验，Job 句柄只存在于运行进程 |
-| LocalUsage | 测量时刻、各类字节、磁盘空闲、可用物理内存、受管 committed memory、峰值与执行能力；逻辑大小不能冒充精确可释放物理空间，未知不填 0 |
+| LocalUsage | 测量时刻、各类字节、磁盘空闲、可用物理内存、受管 committed memory、峰值与执行能力；managed 与 exports 分别报告、合计受共同预算约束，逻辑大小不能冒充精确可释放物理空间，未知不填 0 |
 | CleanupPlan | plan_id、实例 ID、scope、规范目标列表、估计字节、保留项、证据导出状态、本机未结构建/设备动作及历史远程标记、目标身份/状态摘要；Apply 前重新核验，不能直接信任可编辑 JSON 中的路径 |
 | CleanupReceipt | 实际删除/保留/失败项、时间、关联 plan_id、剩余占用；部分失败不记完整成功，重复执行可安全恢复 |
 
@@ -390,8 +412,10 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 资源中断不得归因成补丁功能错误：result 使用 inconclusive 或 blocked，并记录 failure_kind=resource_limit / timeout / interrupted 及原因；已产生候选和所有成本保留。任务停止归入 budget_exhausted（资源/时间上限）、blocked（保护器不兼容或环境不可用）或 unresolved（用户停止），不新增另一套成功语义。操作系统内存上限触发可能导致分配失败而非自动退出，管理器仍须检测并结束/报告。
 
-Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/state 前要有可核对导出或用户明确丢弃，不能先清证据再补报告。受管 Job 外的既有设备服务须单独核验归属和停止能力；云端模型请求已发送但本机失联时仍按模型账本保留未知费用与结果，不假定 Stop 能撤销请求。
+单个导出包的预计完整字节受 limits.max_export_package_bytes 约束，数值只在配置维护；所有受管任务的预检/监测把 managed 与 exports 合计纳入既有 managed_disk_budget_bytes，并核对卷空闲预留。Export 复制前预估完整包、清单和报告；逐次写入检查卷剩余空间及已写/待写账面量，完工再扫实际占用。已复制字节不能再次作为新增预留，分配失败或超限不发布包；磁盘监测不承诺内核硬配额。
+
+Stop 不隐式删除文件；Clean 不隐式杀未知进程。当前非空 work 即使全部终态，清理预览及 Apply 仍须明确 -DiscardEvidence；cache/tmp/all 检测到 task.json、source-manifest.json、package.json 或 ex-* 未发布导出目录时同样要求明确丢弃。all 中 artifacts/state 证据仍阻止无丢弃授权的清理。Export 仅覆盖 manifest 声明范围，不覆盖所有其他运行和管理记录，不自动解锁整树清理；用户应先核验需保留的包，再在具体清理请求中决定是否丢弃原记录，不能先清证据再补报告。已导出包由普通清理保留。受管 Job 外的既有设备服务须单独核验归属和停止能力；云端模型请求已发送但本机失联时仍按模型账本保留未知费用与结果，不假定 Stop 能撤销请求。
 
 ## 6. 关联与待完成规格
 
-工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录、有限条件结果到修复决策和候选的离线交接、mock wire 模型边界、主机结果摘要与只读离线聚合已有合成入口；受管导出、真实提供方、真实值采集、其余规则检查、可信应用验证接纳与本机执行控制仍待闭合和实测。
+工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录、有限条件结果到修复决策和候选的离线交接、mock wire 模型边界、主机结果摘要、只读离线聚合和本机私有 Export 已有代码入口，导出本批验收以 STATUS 为准；正式应用汇总、执行版本来源、公开脱敏/提交、真实提供方、真实值采集、其余规则检查、可信应用验证接纳与本机执行控制仍待闭合和实测。

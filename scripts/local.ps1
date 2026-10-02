@@ -1,6 +1,6 @@
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet('Status', 'Prepare', 'Clean', 'Run', 'Stop', 'Init')][string]$Action,
+    [ValidateSet('Status', 'Prepare', 'Clean', 'Run', 'Stop', 'Init', 'Export')][string]$Action,
     [ValidateSet('cache', 'testcache', 'tmp', 'work', 'env', 'all')][string]$Scope = 'cache',
     [switch]$Apply,
     [string]$PlanId,
@@ -12,6 +12,8 @@ param(
     [string]$OfflineWorkId,
     [string]$EvaluationManifestPath,
     [string]$EvaluationWorkId,
+    [string]$ExportId,
+    [switch]$Verify,
     [switch]$Resume,
     [ValidateSet('idle', 'child', 'noisy', 'memory')][string]$Scenario = 'idle',
     [ValidateRange(1, 120)][int]$Seconds = 3,
@@ -190,6 +192,29 @@ function Get-ManagedBytes([string[]]$Targets = @(), [bool]$VerifyLinks = $false)
     return $bytes
 }
 
+function Get-ExportBytes() {
+    Assert-PathChain $script:ExportPath
+    [long]$bytes = 0
+    if (-not [IO.Directory]::Exists($script:ExportPath)) { return $bytes }
+    $pending = [Collections.Generic.Stack[string]]::new()
+    $pending.Push($script:ExportPath)
+    while ($pending.Count -gt 0) {
+        $folder = $pending.Pop()
+        Assert-PathChain $folder
+        foreach ($entry in [IO.DirectoryInfo]::new($folder).EnumerateFileSystemInfos()) {
+            $item = Get-Item -LiteralPath $entry.FullName -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $null -ne $item.LinkType) {
+                throw 'Export directory contains a link; refusing resource accounting'
+            }
+            Assert-PathChain $item.FullName
+            if ($item -is [IO.DirectoryInfo]) { $pending.Push($item.FullName) }
+            elseif ($item -is [IO.FileInfo]) { $bytes += [long]$item.Length }
+            else { throw 'Export directory contains an unsupported entry' }
+        }
+    }
+    return $bytes
+}
+
 function Get-Targets([string]$SelectedScope) {
     $children = switch ($SelectedScope) {
         'cache' { @('cache', 'tmp') }
@@ -224,6 +249,31 @@ function Assert-Quiescent([string]$SelectedScope, [bool]$AllowDiscard) {
             $state = Get-Content -LiteralPath $marker -Raw -Encoding UTF8 | ConvertFrom-Json
             if ($state.status -notin @('finished', 'failed', 'canceled')) {
                 throw "Work item is not terminal: $($run.Name)"
+            }
+        }
+        if (-not $AllowDiscard -and @([IO.Directory]::EnumerateFileSystemEntries((Join-Path $script:Root 'work'))).Count -gt 0) {
+            throw 'Evidence remains in work; review an export and explicitly use -DiscardEvidence'
+        }
+    }
+    if ($SelectedScope -in @('cache', 'tmp', 'all') -and -not $AllowDiscard) {
+        $temporary = Join-Path $script:Root 'tmp'
+        if ([IO.Directory]::Exists($temporary)) {
+            $pending = [Collections.Generic.Stack[string]]::new()
+            $pending.Push($temporary)
+            while ($pending.Count -gt 0) {
+                $folder = $pending.Pop()
+                Assert-PathChain $folder
+                foreach ($entry in [IO.DirectoryInfo]::new($folder).EnumerateFileSystemInfos()) {
+                    Assert-PathChain $entry.FullName
+                    if ($entry.Name -in @('task.json', 'source-manifest.json', 'package.json') -or
+                        ($entry -is [IO.DirectoryInfo] -and $entry.Name -like 'ex-*')) {
+                        throw 'Evidence remains in tmp; review it and explicitly use -DiscardEvidence'
+                    }
+                    if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                        throw 'Reparse point blocks temporary evidence inspection'
+                    }
+                    if ($entry -is [IO.DirectoryInfo]) { $pending.Push($entry.FullName) }
+                }
             }
         }
     }
@@ -309,7 +359,8 @@ function Get-RunLimits() {
         [Math]::Ceiling([double]$drive.TotalSize * [double]$limits.min_free_disk_fraction))
     if ($drive.AvailableFreeSpace -lt $diskReserve) { throw 'Insufficient free disk for reserve' }
     [long]$managedBytes = Get-ManagedBytes -VerifyLinks $true
-    if ($managedBytes -gt [long]$limits.managed_disk_budget_bytes) { throw 'Managed disk budget exceeded' }
+    [long]$exportBytes = Get-ExportBytes
+    if (($managedBytes + $exportBytes) -gt [long]$limits.managed_disk_budget_bytes) { throw 'Managed and export disk budget exceeded' }
     return [pscustomobject]@{
         cpu_percent = [int]$limits.cpu_rate_percent; max_processes = [uint32]$limits.max_active_processes
         memory_bytes = $memoryCap; disk_reserve_bytes = [long]$diskReserve
@@ -322,19 +373,47 @@ function Get-RunLimits() {
 }
 
 $aggregateManifest = $null; $aggregateWork = $null
+$exportManifest = $null; $exportPlan = $null; $exportPackage = $null
+if ($Action -eq 'Export') {
+    if ($PSBoundParameters.ContainsKey('Task') -or $TestPath -or $OfflineTaskPath -or $OfflineScriptPath -or
+        $OfflineWorkId -or $Resume -or $EvaluationWorkId -or $DiscardEvidence -or
+        $PSBoundParameters.ContainsKey('Scope') -or $PSBoundParameters.ContainsKey('Scenario')) {
+        throw 'Export does not accept task, test, offline, resume, cleanup or aggregate work parameters'
+    }
+    if ($ExportId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') { throw 'ExportId must be a safe ID' }
+    $exportPlan = Join-Path $script:StatePath ('export-plan-' + $ExportId + '.json')
+    $exportPackage = Join-Path $script:ExportPath $ExportId
+    Assert-PathChain $exportPlan
+    Assert-PathChain $exportPackage
+    if ($Verify) {
+        if ($EvaluationManifestPath -or $Apply -or $PlanId) { throw 'Export verification accepts only ExportId' }
+        if (-not [IO.Directory]::Exists($exportPackage)) { throw 'Export package is missing' }
+    } else {
+        if ($Apply) {
+            if ($PlanId -cnotmatch '^[a-f0-9]{64}$') { throw 'Applying an export requires the reviewed lowercase SHA256 PlanId' }
+            if (-not [IO.File]::Exists($exportPlan)) { throw 'Reviewed export plan is missing' }
+        } elseif ($PlanId) { throw 'Export PlanId requires -Apply' }
+        $exportManifest = Resolve-EvaluationManifest $EvaluationManifestPath
+        if (Test-Path -LiteralPath $exportPackage) { throw 'Export target already exists; choose a new ID' }
+    }
+} elseif ($PSBoundParameters.ContainsKey('ExportId') -or $PSBoundParameters.ContainsKey('Verify')) {
+    throw 'Export parameters require the Export action'
+}
 if ($PSBoundParameters.ContainsKey('EvaluationManifestPath') -or
     $PSBoundParameters.ContainsKey('EvaluationWorkId') -or $Task -eq 'aggregate') {
-    if ($Action -ne 'Run' -or $Task -ne 'aggregate') { throw 'Evaluation parameters require Run -Task aggregate' }
-    if ($TestPath -or $OfflineTaskPath -or $OfflineScriptPath -or $OfflineWorkId -or $Resume) {
-        throw 'Aggregate does not accept test, offline or resume parameters'
+    if ($Action -ne 'Export') {
+        if ($Action -ne 'Run' -or $Task -ne 'aggregate') { throw 'Evaluation parameters require Run -Task aggregate' }
+        if ($TestPath -or $OfflineTaskPath -or $OfflineScriptPath -or $OfflineWorkId -or $Resume) {
+            throw 'Aggregate does not accept test, offline or resume parameters'
+        }
+        if ($EvaluationWorkId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') {
+            throw 'EvaluationWorkId must be a new safe ID'
+        }
+        $aggregateManifest = Resolve-EvaluationManifest $EvaluationManifestPath
+        $aggregateWork = Join-Path $script:Root ('work/aggregate-' + $EvaluationWorkId)
+        Assert-PathChain $aggregateWork
+        if (Test-Path -LiteralPath $aggregateWork) { throw 'Aggregate work already exists; choose a new ID' }
     }
-    if ($EvaluationWorkId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') {
-        throw 'EvaluationWorkId must be a new safe ID'
-    }
-    $aggregateManifest = Resolve-EvaluationManifest $EvaluationManifestPath
-    $aggregateWork = Join-Path $script:Root ('work/aggregate-' + $EvaluationWorkId)
-    Assert-PathChain $aggregateWork
-    if (Test-Path -LiteralPath $aggregateWork) { throw 'Aggregate work already exists; choose a new ID' }
 }
 
 if ($Action -eq 'Status') {
@@ -348,9 +427,7 @@ if ($Action -eq 'Status') {
         $folder = Join-Path $script:Root $name
         $sizes[$name] = if ([IO.Directory]::Exists($folder)) { Get-ManagedBytes @($folder) } else { 0L }
     }
-    $exportBytes = if ([IO.Directory]::Exists($script:ExportPath)) {
-        [long](@([IO.DirectoryInfo]::new($script:ExportPath).EnumerateFiles('*', [IO.SearchOption]::AllDirectories) | Measure-Object -Property Length -Sum)[0].Sum)
-    } else { 0L }
+    $exportBytes = Get-ExportBytes
     $activeState = 'none'
     if ([IO.File]::Exists($script:ActivePath)) {
         try {
@@ -365,7 +442,7 @@ if ($Action -eq 'Status') {
         active_marker = [IO.File]::Exists((Join-Path $script:StatePath 'active.json'))
         active_state = $activeState
         remote_jobs_unknown = [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
-        resource_enforcement = 'job_guarded_setup_quality_offline_agent_and_metrics'
+        resource_enforcement = 'job_guarded_setup_quality_offline_agent_metrics_and_export'
         cleanup_available = $activeState -eq 'none' -and -not [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
     } | ConvertTo-Json -Depth 5
     exit 0
@@ -438,20 +515,29 @@ try {
     }
 
     $owner = Read-Owner
-    if ($Action -in @('Run', 'Init')) {
+    if ($Action -in @('Run', 'Init', 'Export')) {
         if ([IO.File]::Exists($script:ActivePath)) { throw 'Unresolved active marker; use Stop before Run' }
         if ([IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))) { throw 'Unresolved remote job marker blocks Run' }
         Assert-PathChain (Join-Path $script:Root 'tmp')
         Assert-PathChain (Join-Path $script:Root 'artifacts')
         [IO.Directory]::CreateDirectory((Join-Path $script:Root 'tmp')) | Out-Null
         [IO.Directory]::CreateDirectory((Join-Path $script:Root 'artifacts')) | Out-Null
+        if ($Action -eq 'Export') {
+            Assert-PathChain $script:ExportPath
+            [IO.Directory]::CreateDirectory($script:ExportPath) | Out-Null
+        }
         $savedTemp = $env:TEMP; $savedTmp = $env:TMP; $savedTestPath = $env:DFX_TEST_PATH
         $savedOfflineTask = $env:DFX_OFFLINE_TASK; $savedOfflineScript = $env:DFX_OFFLINE_SCRIPT
         $savedOfflineWork = $env:DFX_OFFLINE_WORK; $savedOfflineResume = $env:DFX_OFFLINE_RESUME
         $savedMetricsManifest = $env:DFX_METRICS_MANIFEST; $savedMetricsWork = $env:DFX_METRICS_WORK
+        $savedExportManifest = $env:DFX_EXPORT_MANIFEST; $savedExportId = $env:DFX_EXPORT_ID
+        $savedExportOwner = $env:DFX_EXPORT_OWNER; $savedExportPlan = $env:DFX_EXPORT_PLAN
+        $savedExportApply = $env:DFX_EXPORT_APPLY; $savedExportPlanId = $env:DFX_EXPORT_PLAN_ID
+        $savedExportVerify = $env:DFX_EXPORT_VERIFY; $savedExportPackage = $env:DFX_EXPORT_PACKAGE
+        $savedExportRunId = $env:DFX_EXPORT_RUN_ID
         $job = $null; $markerCreated = $false
         $runId = [Guid]::NewGuid().ToString()
-        $taskKind = if ($Action -eq 'Init') { 'bootstrap' } elseif ($Task -ne 'synthetic') { $Task } else { $Scenario }
+        $taskKind = if ($Action -eq 'Init') { 'bootstrap' } elseif ($Action -eq 'Export') { 'export' } elseif ($Task -ne 'synthetic') { $Task } else { $Scenario }
         $logPath = Join-Path $script:Root ("artifacts/$runId.log")
         $recordPath = Join-Path $script:Root ("artifacts/$runId.json")
         $outcome = 'failed'; $reason = $null; $childPid = 0
@@ -461,7 +547,7 @@ try {
                 Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local_job.cs') -Raw -Encoding UTF8) -ErrorAction Stop
             }
             $effective = Get-RunLimits
-            if ($taskKind -in @('test', 'docs', 'ruff', 'pyright', 'offline', 'aggregate')) {
+            if ($taskKind -in @('test', 'docs', 'ruff', 'pyright', 'offline', 'aggregate', 'export')) {
                 $environmentPath = Join-Path $script:StatePath 'environment.json'
                 if (-not [IO.File]::Exists($environmentPath)) { throw 'Managed environment is not initialized' }
                 $environment = Get-Content -LiteralPath $environmentPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -508,10 +594,17 @@ try {
             if ($taskKind -eq 'aggregate') {
                 $env:DFX_METRICS_MANIFEST = $aggregateManifest; $env:DFX_METRICS_WORK = $aggregateWork
             }
+            if ($taskKind -eq 'export') {
+                $env:DFX_EXPORT_MANIFEST = $exportManifest; $env:DFX_EXPORT_ID = $ExportId
+                $env:DFX_EXPORT_OWNER = $owner.project_instance_id; $env:DFX_EXPORT_PLAN = $exportPlan
+                $env:DFX_EXPORT_APPLY = if ($Apply) { '1' } else { '0' }; $env:DFX_EXPORT_PLAN_ID = $PlanId
+                $env:DFX_EXPORT_VERIFY = if ($Verify) { '1' } else { '0' }; $env:DFX_EXPORT_PACKAGE = $exportPackage
+                $env:DFX_EXPORT_RUN_ID = $runId
+            }
             $job = [DfxLocal.BoundedJob]::new($effective.cpu_percent, $effective.memory_bytes, $effective.max_processes)
             $exe = (Get-Process -Id $PID).Path
             if (-not [IO.File]::Exists($exe)) { throw 'PowerShell executable identity unavailable' }
-            $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } elseif ($taskKind -eq 'offline') { 'local_agent.ps1' } elseif ($taskKind -eq 'aggregate') { 'local_metrics.ps1' } else { 'local_synthetic.ps1' }
+            $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } elseif ($taskKind -eq 'offline') { 'local_agent.ps1' } elseif ($taskKind -eq 'aggregate') { 'local_metrics.ps1' } elseif ($taskKind -eq 'export') { 'local_export.ps1' } else { 'local_synthetic.ps1' }
             $workerPath = Join-Path $PSScriptRoot $workerName
             Assert-PathChain $workerPath
             $job.Start($exe, $workerPath, $taskKind, $logPath, $script:Repo, $Seconds,
@@ -548,7 +641,7 @@ try {
                 }
                 $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($script:Root))
                 if ($drive.AvailableFreeSpace -lt $effective.disk_reserve_bytes -or
-                    (Get-ManagedBytes) -gt $effective.disk_budget_bytes) {
+                    ((Get-ManagedBytes) + (Get-ExportBytes)) -gt $effective.disk_budget_bytes) {
                     $outcome = 'failed'; $reason = 'disk_limit'; $job.Terminate(); break
                 }
                 Start-Sleep -Seconds $effective.monitor_seconds
@@ -573,6 +666,11 @@ try {
             $env:DFX_OFFLINE_TASK = $savedOfflineTask; $env:DFX_OFFLINE_SCRIPT = $savedOfflineScript
             $env:DFX_OFFLINE_WORK = $savedOfflineWork; $env:DFX_OFFLINE_RESUME = $savedOfflineResume
             $env:DFX_METRICS_MANIFEST = $savedMetricsManifest; $env:DFX_METRICS_WORK = $savedMetricsWork
+            $env:DFX_EXPORT_MANIFEST = $savedExportManifest; $env:DFX_EXPORT_ID = $savedExportId
+            $env:DFX_EXPORT_OWNER = $savedExportOwner; $env:DFX_EXPORT_PLAN = $savedExportPlan
+            $env:DFX_EXPORT_APPLY = $savedExportApply; $env:DFX_EXPORT_PLAN_ID = $savedExportPlanId
+            $env:DFX_EXPORT_VERIFY = $savedExportVerify; $env:DFX_EXPORT_PACKAGE = $savedExportPackage
+            $env:DFX_EXPORT_RUN_ID = $savedExportRunId
             $logTruncated = $null -ne $job -and $job.LogExceeded
             if ($logTruncated -and $reason -notin @('stop_requested', 'timeout')) {
                 $outcome = 'failed'; $reason = 'log_limit'

@@ -104,8 +104,9 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 | conditions.py | 对主机固定合成输入计算首批有限条件，核对绑定/单位/操作点/实际版本，保存不可改写结果并在回读时重算 | 已接入固定响应 SDK；不求值表达式、不自动提取运行值或修改诊断，fixture 不是执行证据 |
 | models.py | 固定响应和 mock wire 模型经统一账本接入 SDK；可选独立摘要调用与求解视图、总预算和分用途恢复 | 真实传输待接入；不借 SDK 隐式摘要或重试绕开费用与原版保护 |
 | context_compaction.py | 完整工具组切分、冻结来源、摘要身份、实际发送视图及只读核验 | 保留 Graph 历史；摘要是模型推断，有限输入超限停止，不保证归纳忠实度或修复效果 |
-| metrics.py / evidence_io.py | 显式任务/组/repeat 矩阵、停止记录的只读重算、不可变账本及离线成本汇总 | 合成结果不代表应用成绩；缺证据保留未知，版本、工具和协议错配拒绝，导出仍待实现 |
-| model_calls.py | 稳定调用意图、SQLite 请求/响应/usage 账本、格式分类和不确定窗口的合成契约 | 固定响应模型已使用；尚未接入真实提供方，原始响应只留项目受管状态用于恢复 |
+| metrics.py / evidence_io.py | 显式任务/组/repeat 矩阵、停止记录的只读重算、不可变账本及离线成本汇总 | 合成结果不代表应用成绩；缺证据保留未知，版本、工具和协议错配拒绝 |
+| exporting.py | 显式矩阵的本机私有证据包、预览/Apply 计划、全部源树字节清单和包内重聚合 | 不执行模型、工具或 Graph 反序列化，不删源；不证明公开脱敏、应用效果或整树清理覆盖，验收证据见 STATUS |
+| model_calls.py | 稳定调用意图、SQLite 请求/响应/usage 账本、格式分类和不确定窗口的合成契约 | 固定响应模型已使用；尚未接入真实提供方，原始响应仅用于本机恢复及显式私有证据导出 |
 | agent.py | 已有 Deep Agents 固定响应循环、受控工具、策略开关和恢复入口 | 基础/增强共享通用工具与逐调用授权；不提供真实应用成功终止 |
 | task_strategy.py | 显式修复任务策略与主机身份上下文，接入 SDK system_prompt 和启动消息 | 强基线包含日志、上游定位、保行为修法和反馈；增强仅按开关追加，不声称自主推理已有效 |
 | source_search.py | 跨文件单行字面检索、有限分页、版本与原始坐标 | 只搜已核验原版/冻结候选；不搜草稿、不解释数据流，不通过文本存在确认根因或运行值 |
@@ -393,32 +394,32 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 
 本机承担 Agent 控制、代码工作副本、HarmonyOS 构建、设备/模拟器回放和效果评测，不使用远程应用执行主机。基础模型拟由本机受管程序调用云端大模型 API；当前不安装模型权重、不安排小模型微调，也不启动真实调用。模型账号、具体型号、请求参数、外发数据边界和费用预算待确定。本机 SDK/模拟器是后续执行条件，不代表现在可以安装：先盘点容量、依赖和设备，再实现受管安装、运行、停止、证据保留和清理。现有轻量配置不能直接作为大型 SDK 或模拟器任务的已验收限额。
 
-采用一个项目专属运行目录和一个 PowerShell 管理入口。用户能查看占用、停止本项目进程、清理缓存或完全移除运行环境；源码、Git、原始数据和已导出证据不会被普通清理删除。W01 实现目录归属与按计划清理，W02 实现 Job 进程保护与 Stop，W03 将同一保护用于 Init、pytest、文档/Ruff/Pyright 检查，W05 接入固定响应离线 Agent 的 repair/resume。真实模型与应用任务仍未接入受管 Run。
+采用一个项目专属运行目录和一个 PowerShell 管理入口。用户能查看占用、停止本项目进程、清理缓存或完全移除运行环境；源码、Git、原始数据和已导出证据不会被普通清理删除。W01 实现目录归属与按计划清理，W02 实现 Job 进程保护与 Stop，W03 将同一保护用于 Init、pytest、文档/Ruff/Pyright 检查，W05 接入固定响应离线 Agent 的 repair/resume。W09/W10 沿用该保护完成只读聚合和本机私有证据导出；离线导出的实际验收进度只在 STATUS 记录。真实模型与应用任务仍未接入受管 Run。
 
 “集中目录”不等于进程隔离，Python 虚拟环境不限制 CPU/内存。操作系统限制只覆盖管理入口创建的工作进程树，不覆盖 Codex、编辑器、用户其他程序，以及未纳入 Job 的既有设备服务；我们不能保证整台电脑绝不满载。Job Object 不提供 GPU 显存硬配额；若模拟器需要 GPU，必须另有监测与可确认停止机制才运行。磁盘采用容量预检与监测，不是内核硬配额；任意恶意代码不在本机执行，Job Object 也不是安全沙箱。
 
 ### 9.2 文件归属与安装边界
 
-受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。`execution.application_target=local` 是后续位置决定；`allow_local_harmony_sdk=false`、`allow_model_experiments=false` 和 `allow_application_experiments=false` 仍是当前禁用状态，不能解释成“应用会在远程跑”。`enforcement_status=offline_agent_guarded` 表示固定合成 Run、Init、pytest、质量检查和固定响应离线 Agent 使用相同 Job 保护；真实模型与应用执行仍未接入。运行时生效限制写入本地活动记录，不另维护一份项目进度台账。
+受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。`execution.application_target=local` 是后续位置决定；`allow_local_harmony_sdk=false`、`allow_model_experiments=false` 和 `allow_application_experiments=false` 仍是当前禁用状态，不能解释成“应用会在远程跑”。`enforcement_status=offline_agent_guarded` 表示固定合成 Run、Init、pytest、质量检查、固定响应离线 Agent、只读聚合和 Export 使用相同 Job 保护；真实模型与应用执行仍未接入。运行时生效限制写入本地活动记录，不另维护一份项目进度台账。
 
 | 位置 | 内容 | 清理性质 |
 |---|---|---|
 | .dfx-local/tools/、python/、env/ | 固定版本便携 uv、项目 Python、项目虚拟环境 | 可按依赖锁重新建立；清理不卸载系统 Python |
-| .dfx-local/cache/、tmp/ | uv/pip/检查工具缓存，下载与解压临时目录 | 空闲后可清理；下次可能重新下载 |
-| .dfx-local/work/ | 每个 run 的可写源码副本、候选 diff、SQLite 检查点、检查意图与报告 | 结束并处理证据后可清理；不共享可写硬链接到 data_B |
+| .dfx-local/cache/、tmp/ | uv/pip/检查工具缓存，下载/解压临时目录，以及任务快照和未发布导出暂存 | 普通缓存空闲后可清理；检测到任务快照或导出暂存时须明确丢弃授权，不能一概按缓存删除 |
+| .dfx-local/work/ | 每个 run 的可写源码副本、候选 diff、SQLite 检查点、检查意图与报告 | 终态只证明运行结束；非空 work 清理仍须明确丢弃授权，不共享可写硬链接到 data_B |
 | 待盘点的本机 SDK/构建/设备缓存 | 后续项目专属路径及实际占用待定；如需外部安装位置，先建立明确 owner、限额和清理边界 | 当前不归 `.dfx-local` 清理器管理，不把系统既有 SDK 当成本项目文件删除 |
 | .dfx-local/artifacts/、state/ | 受限进程日志、资源记录、管理状态 | 为证据/恢复数据，不按缓存自动删 |
 | .dfx-local/owner.json | schema、仓库绝对路径、随机项目实例 ID、创建时间 | 管理入口生成，用于校验归属；不是删除授权本身 |
-| runs/exports/ | 用户保留的报告、补丁和证据导出包及哈希清单 | 普通清理保留；独立显示大小，不能无上限自动导出 |
+| runs/exports/ | 显式矩阵的本机私有证据包及清理回执 | 普通清理保留、独立显示大小；单包上限及与 managed 共用的磁盘预算约束累计占用，不视为已脱敏公开材料 |
 | data_B/、archive/、既有 runs/ | 用户数据、历史归档与旧原型产物 | 报告现有占用但不接管、不移动、不默认清理 |
 
 默认管理目录固定在仓库内；首次实现不支持随意更改为任意盘符根目录。若 SDK/构建缓存实测超出受管目录和磁盘预算，须先设计并验收项目专属的新位置与清理边界，再修改配置；不能直接改全局安装器或借用其他盘根目录。虚拟环境不承诺复制后可用。项目总占用报告分开列管理目录、未来项目专属 SDK/缓存、保留数据和导出包，不能只报 .dfx-local 造成“已全部清理”的误解。
 
-入口脚本 scripts/local.ps1 已实现 Prepare/Status/Clean/Stop/Init，以及固定合成、仓库测试、质量检查、固定响应离线 Agent 与只读聚合的 Run；scripts/local_job.cs 创建和核验 Windows Job。Prepare 不下载依赖；Init 只在 Job 内通过固定来源和 SHA-256 安装便携 uv/CPython 并同步锁定环境。Run 接受固定任务、仓库测试路径或已审查快照与固定脚本，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装全局 Python 包、系统工具或后台服务。真实模型与应用任务仍待接入。
+入口脚本 scripts/local.ps1 提供 Prepare/Status/Clean/Stop/Init、固定合成/仓库测试/质量检查/离线 Agent/只读聚合的 Run，以及本机私有 Export/Verify；scripts/local_job.cs 创建和核验 Windows Job，scripts/local_export.ps1 在 Job 内调用固定导出接口。Prepare 不下载依赖；Init 只在 Job 内通过固定来源和 SHA-256 安装便携 uv/CPython 并同步锁定环境。Run 接受固定任务、仓库测试路径或已审查快照与固定脚本，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装全局 Python 包、系统工具或后台服务。导出内部使用 Windows 长路径接口，不改注册表或用户 PATH。真实模型与应用任务仍待接入，各入口验收证据见 STATUS。
 
 安装时通过显式子进程环境设置 UV_CACHE_DIR、UV_PROJECT_ENVIRONMENT、UV_PYTHON_INSTALL_DIR、UV_PYTHON_BIN_DIR、UV_TOOL_DIR/UV_TOOL_BIN_DIR、TEMP/TMP 与 PYTHONPYCACHEPREFIX；Pyright 后备 Node 目录和 Ruff 缓存也路由到项目根。pytest 使用受管 basetemp，关闭持久 pytest 缓存和字节码写入，并在退出时删除自己的临时目录，避免不同 Windows 账户交替运行时产生不可访问目录。变量只在该子进程树生效，不改用户级 PATH、注册表、Shell profile、Conda base 或全局 pip。uv 固定版本/下载哈希，关闭 Python 注册表安装；环境同步使用 `uv sync --locked` 和项目 Python。正式 Agent 任务也须遵循同样入口，不用普通 `uv run` 绕过限制。
 
-既有 Python/Git/ripgrep 可只读调用，但不由清理器接管；不存在时把新增工具放项目目录。若依赖需要不能受控的安装器、全局写入或后台服务，则报告不兼容，不自动提权全局安装。凭据通过进程环境传入，不写入 manifest、日志或导出包。第三方包可能绕过约定路径，安装验收要观察已知用户缓存位置的新增写入；“未观察到”不是系统级零写入证明。
+既有 Python/Git/ripgrep 可只读调用，但不由清理器接管；不存在时把新增工具放项目目录。若依赖需要不能受控的安装器、全局写入或后台服务，则报告不兼容，不自动提权全局安装。正式适配的凭据须通过进程环境传入，不写入 manifest、日志或导出包；当前固定/mock 模型入口不接受真实凭据。原始源码、日志和消息本身可能含私密内容，Export 的名称守卫不能证明其中没有秘密，不能直接作为公开包。第三方包可能绕过约定路径，安装验收要观察已知用户缓存位置的新增写入；“未观察到”不是系统级零写入证明。
 
 ### 9.3 资源限制怎样生效
 
@@ -428,8 +429,8 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 |---|---|---|
 | CPU、进程数 | Windows Job Object 对受管工作进程树设置 CPU hard cap 和活动进程数上限 | 无法建立/核验限制则拒绝工作进程继续运行，不能悄悄变为无限制 |
 | 内存 | Job 的 committed memory 上限取配置绝对上限与物理内存比例的较小值；启动预留系统可用内存，运行时监测 | 分配可能失败；记录资源原因并停止任务。它不是对全机 RSS 或系统文件缓存的硬限制 |
-| 并发 | 一个管理根的互斥锁与运行租约；合成、安装、测试、质量和离线 Agent 任务串行 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
-| 磁盘 | 受管任务预检和监测管理目录逻辑大小及卷剩余空间；下载前估算，uv ZIP 流式限定字节 | 超过预算或预留线则拒绝；后续工作目录复制仍须专门估算新增和临时空间 |
+| 并发 | 一个管理根的互斥锁与运行租约；合成、安装、测试、质量、离线 Agent、聚合和 Export 串行 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
+| 磁盘 | 所有受管任务预检和监测 managed 与 exports 合计逻辑大小及卷剩余空间；下载前估算，uv ZIP 流式限定字节；Export 另估算完整包和暂存新增 | 超过共同预算、导出单包上限或预留线则拒绝；不能通过不断换 Export ID 绕过累计限制，未来应用副本仍须单独估算 |
 | 日志 | 受管任务的 stdout/stderr 经管道按字节上限保存，超额立即终止 Job 并继续排空 | 不在内存或磁盘无限堆积输出；留存日志标记截断 |
 | 时间 | 单调时钟截止时间 + 子命令超时，采用资源配置与任务预算中的较严值 | 先请求退出，宽限结束后终止本任务 Job，记录 timeout/inconclusive |
 
@@ -439,11 +440,11 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 
 Stop 优先通过当前用户可访问的控制通道请求管理器停止，再使用经归属核对的 Job 终止受管进程。记录 PID、创建时间、可执行路径和实例 ID，不能按 python/node/java 进程名批量杀进程；PID 重用或失联时先核验，无法确认归属就报告，不扩大终止范围。默认前台运行，不遗留后台常驻进程；确需后台助手时隐藏窗口且纳入同一生命周期。
 
-磁盘剩余空间须在监测周期中复查，也须在新写入/解压/下载前检查；ZIP 的声明大小不可信，按实际流出字节限制。外部工具在两次观测间仍可能突增，或其他应用占满磁盘，因此不承诺目录级绝对硬上限。超限停止后保留一个预先准备、大小受限的结束记录；无足够空间时给出终端错误，不伪造保存成功。若本机不能提供所需的隔离或配额，真实应用任务保持 blocked，不以无保护的安装/运行替代。
+磁盘剩余空间须在监测周期中复查，也须在新写入/解压/下载前检查；ZIP 的声明大小不可信，按实际流出字节限制。Export 的单包上限只读取 configs/local-runtime.json 的 limits.max_export_package_bytes；managed 与 exports 共同使用既有 managed_disk_budget_bytes。复制前核对完整文件、清单和报告的预计新增字节；复制时检查卷剩余空间及已写/待写账面量，完工重扫实际占用，避免重复预留已复制部分。外部工具在两次观测间仍可能突增，或其他应用占满磁盘，因此不承诺目录级绝对硬上限。超限停止后保留一个预先准备、大小受限的结束记录；无足够空间时给出终端错误，不伪造保存成功。若本机不能提供所需的隔离或配额，真实应用任务保持 blocked，不以无保护的安装/运行替代。
 
 ### 9.4 统一命令与清理协议
 
-下面列出统一接口。Prepare/Status/Clean/Stop/Init 与固定合成、测试、质量、固定响应离线 Agent Run 已可用；真实模型/应用 Run 与 Export 是待实现目标。
+下面列出统一接口。已有离线实现包括 Prepare/Status/Clean/Stop/Init、固定合成/测试/质量/离线 Agent/聚合 Run 及私有 Export/Verify；是否完成相应验收以 STATUS 为准。真实模型/应用 Run 尚未接入。
 
 | 目标调用 | 行为 |
 |---|---|
@@ -455,11 +456,19 @@ Stop 优先通过当前用户可访问的控制通道请求管理器停止，再
 | .\scripts\local.ps1 Run -Task docs/ruff/pyright | 在受管环境运行固定文档、Lint 或类型检查 |
 | .\scripts\local.ps1 Run -Task offline -OfflineTaskPath TASK -OfflineScriptPath SCRIPT -OfflineWorkId ID | 在受管环境运行固定响应、合成判据的离线闭环；同一 ID 可加 -Resume 恢复，详情见原型说明 |
 | .\scripts\local.ps1 Stop | 停止本项目受管工作树并核验退出；保留文件和证据，释放进程资源 |
-| .\scripts\local.ps1 Export -RunId ID | 输出受限体积、含哈希的证据包，先核对复制所需剩余空间；不导出密钥 |
+| .\scripts\local.ps1 Export -EvaluationManifestPath MANIFEST -ExportId ID | 默认受管预览，披露私有内容范围与预计字节，保存固定计划并返回 PlanId；不创建最终包 |
+| .\scripts\local.ps1 Export -EvaluationManifestPath MANIFEST -ExportId ID -Apply -PlanId HASH | 复核计划和源树，在私有暂存区复制、核验并发布新 runs/exports/ID；不覆盖目标或删除源 |
+| .\scripts\local.ps1 Export -ExportId ID -Verify | 只从既有包核验完整清单与重聚合结果，不读取原输入，不执行模型或应用 |
 | .\scripts\local.ps1 Clean -Scope cache/testcache/tmp/work/env/all | 默认只生成路径、估算字节、保留项、阻塞项和 plan_id，不删除 |
 | .\scripts\local.ps1 Clean -Apply -PlanId ID | 执行仍有效、范围匹配的清理计划；资源/路径变化则要求重新生成计划 |
 
-cache 清理缓存及临时文件；testcache 仅清理旧 pytest/pycache，tmp 仅清理临时目录；work 只清理已结束且不再用于恢复的工作副本；env 删除 tools/python/env，不触碰用户其他环境；all 移除整个 .dfx-local，需要先导出每份应保留的任务证据并核对哈希，或由用户明确选择丢弃这些记录。是否允许丢弃由具体用户清理请求确定，不因目录被 Git 忽略就默认授权。Stop 不等于 Clean；停止不会删除证据，删缓存也不保证释放运行内存。
+cache 清理缓存及 tmp；testcache 仅清理旧 pytest/pycache，tmp 仅处理临时目录；work 要先核对每个工作项为终态，非空时还须在预览和 Apply 请求中明确使用 -DiscardEvidence。cache/tmp/all 检测到任务快照或未发布导出暂存时同样要求明确丢弃；env 删除 tools/python/env，不触碰用户其他环境。all 移除整个 .dfx-local，artifacts/state 等证据仍阻止无丢弃授权的清理。一个矩阵包不覆盖其他运行、管理日志和全部 state，Export 不自动放行任何证据清理；先核验需保留的包，再由具体清理请求决定是否丢弃原记录。不得因目录被 Git 忽略而推定授权。Stop 不等于 Clean；停止不会删除证据，删缓存也不保证释放运行内存。
+
+私有导出的输入是既有 EvaluationManifest。预览绑定 manifest 原字节、项目实例/owner、资源配置、完整矩阵及现有任务/work 树的路径、文件身份和哈希；缺失路径也固定，拒绝活动/历史未知作业、未终态、链接/共享文件、未知顶层及凭据类文件。计划只放固定 state/export-plan-ID.json，可以刷新合法的同 ID 旧计划，不能覆写未知文件、manifest 或输入树；Apply 重新派生全部范围和 PlanId，不能直接信任可编辑计划里的路径。
+
+Apply 在受管 tmp 的独立 ex- 前缀目录构建暂存包，payload 保持原 task_path/work_path 相对布局。evaluation.json 保留输入原字节，aggregate-report.json 保存源端重算结果，package.json 绑定文件字节清单和计划；清单包含空目录及全部现有失败尝试，不为缺失 work 建空壳。模型/动作账本和 Graph SQLite 均只读检查，非空 WAL/journal 拒绝而不自动恢复。包内再次聚合须与源端全文一致，源树/归属再核对且容量满足后才发布新的 runs/exports/ID；失败暂存仍未发布，不删除源证据。
+
+Verify 的证据输入只取包内清单、哈希、源码/候选与账本以及重聚合结果，不反序列化或执行 Graph，不调用模型、工具或检查。执行入口仍核验当前环境 owner、依赖锁和自身租约；包的 owner_id 是导出来源实例，允许与当前实例不同。Clean all 保留的包可在重新 Prepare/Init 建立兼容受管环境后只读核验，无需恢复原任务或接管旧资源，不改写包、原输入和旧运行记录；仅保存当前受管日志/租约。来源 ID 与哈希均不是制作者认证或清理授权。包包含原始消息、源码和日志，标明未脱敏、仅本机私有、不可直接分享；内容一致不证明因果正确或可信业务验收。导出器目前只声明自身模块/schema 来源，不能补写旧 session 的 Git/lock/SDK 执行版本。应用包、执行版本来源和公开脱敏/正式提交仍按 W08 后的门槛实施。
 
 清理必须在所有工作进程退出、设备动作结束、文件锁释放且历史未结作业已核对之后执行。先取得独占维护锁，阻止新任务进入；检查 owner、当前仓库、受管目录和目标真实绝对路径，拒绝路径链上的链接与目录外目标。目标内部可存在 uv/Python 安装生成的链接，但只接受解析后仍在管理根内的目标，清理时先删除链接本身，不跟随其遍历或删除目录外文件。计划绑定根 ID、范围、目标状态；执行前和递归遍历时再核验，遇到变化终止。不运行全局 pip/uv 缓存清理，也不使用 git clean -xfd。
 
@@ -469,13 +478,13 @@ cache 清理缓存及临时文件；testcache 仅清理旧 pytest/pycache，tmp 
 
 ### 9.5 必须先验证的保护与资料依据
 
-W01 路径与清理通过隔离合成树的 37 条断言；W02 保护器通过 25 条隔离合成断言，包括进程派生、管理器崩溃、内存分配失败、持续输出、超时、第二次启动、PID 身份不符和路径攻击。W03 重复 Init 通过 10 条断言，固定响应 SDK 检查通过 1 项；项目管理根的 testcache/tmp 曾按受管预览计划执行清理，没有处理 data_B 或已安装环境。临时测试阈值只缩小不放大；未启动真实模型或应用任务。保护器测试不证明未来 HarmonyOS 安装器、设备服务、模拟器或 GPU 任务已受其覆盖；这些在 W08 前单独验收。
+本机保护通过隔离合成树核验路径、清理、进程派生、管理器崩溃、内存分配失败、持续输出、超时、并发互斥及进程身份。清理反例现由受管 pytest 执行既有 W01 脚本，并覆盖终态记录、任务快照和未发布导出保留。导出还核对实际工作进程祖先，兼容 Windows 虚拟环境启动器增加的进程层级，不能仅凭直接父进程判断。具体通过数量和最近环境观察统一见 STATUS，历史证据保留在 sessions。临时测试阈值只缩小不放大；未启动真实模型或应用任务。保护器测试不证明未来 HarmonyOS 安装器、设备服务、模拟器或 GPU 任务已受其覆盖；这些在 W08 前单独验收。
 
 2026-09-21 核对了 [uv 环境变量](https://docs.astral.sh/uv/reference/environment/)、[Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)、[CPU rate control](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information) 与 [扩展内存限制](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information) 官方说明。2026-09-23 进一步核对了 [CreatePipe](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createpipe)、[ReadFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile) 和 [句柄继承](https://learn.microsoft.com/en-us/windows/win32/ipc/pipe-handle-inheritance) 的官方说明。资料说明所用机制；实际通过情况以本地合成测试记录为准。
 
 ## 10. 详细设计与接手边界
 
-当前已确定算法、模块职责、本机资源/清理方案和分步验收任务。W01–W03 的本机管理和 SDK 接入、W04 的首批对象、W05 的固定响应离线闭环与模型账本接入、W06 的模拟 HTTP 作业协议、W07 的受控策略分支、P0 动作/接受契约、逐工具授权/恢复、因果记录与有限条件结果到修复决策交接已完成合成验证。可信采值与操作绑定的来源、接口和迁移设计见第 3.2.1 节及模块规格；独立合成绑定、凭据和不可改写登记已有实现，真实来源及新条件计算尚未接入。其余规则计算、正式模型适配、真实应用任务、独立业务反馈和设备恢复仍待编码和验证。资源数值对受管 Init/测试/质量/离线 Agent 任务生效，不代表真实模型或设备任务已受管；具体进度见 STATUS。
+当前已确定算法、模块职责、本机资源/清理方案和分步验收任务。W01–W03 的本机管理和 SDK 接入、W04 的首批对象、W05 的固定响应离线闭环与模型账本接入、W06 的模拟 HTTP 作业协议、W07 的受控策略分支、P0 动作/接受契约、逐工具授权/恢复、因果记录与有限条件结果到修复决策交接已完成合成验证。W09/W10 的只读聚合和私有导出消费这些持久记录，其实际验收结果统一见 STATUS，不作为应用效果证据。可信采值与操作绑定的来源、接口和迁移设计见第 3.2.1 节及模块规格；独立合成绑定、凭据和不可改写登记已有实现，真实来源及新条件计算尚未接入。其余规则计算、正式模型适配、真实应用任务、独立业务反馈和设备恢复仍待编码和验证。资源数值对受管 Init/测试/质量/离线 Agent/聚合/Export 生效，不代表真实模型或设备任务已受管；具体进度见 STATUS。
 
 接手者按 [实施计划](../project-work-plan.md) 的工作包顺序推进，先读当前包的输入、输出和反例用例；每次交付一个可检查的变更。实现中的局部选择可按契约自行决定；更换框架、放宽本机限制、改变评测判据或开启真实实验不属于随意实现细节，须按已授权边界处理并同步主文档。设计不能保证任何具体模型零错误，但可以使偏离易于发现、每步可回退。
 

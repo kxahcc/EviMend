@@ -12,6 +12,16 @@ from .analysis import analyze_task
 from .runtime import doctor
 from .task import CaseCatalog, prepare_task
 
+_EXPORT_SAFE_REASONS = {
+    "another active task blocks evidence export": "activity lease mismatch",
+    "export owner differs from this prepared project": "project owner mismatch",
+    "managed export directories are not prepared": "export directories missing",
+    "export requires the current managed runtime policy": "runtime policy mismatch",
+    "resource accounting found an external or export link": "storage contains an unsupported link",
+    "export would exceed shared storage budget or free disk reserve": "storage budget or reserve exhausted",
+    "evidence tree has an unregistered top-level entry": "unregistered evidence entry",
+}
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -31,12 +41,24 @@ def main() -> None:
     aggregate.add_argument("--manifest", required=True, type=Path)
     aggregate.add_argument("--root", required=True, type=Path)
     aggregate.add_argument("--output", required=True, type=Path)
+    export = sub.add_parser("export", help="Managed preview or application of a private local evidence export")
+    export.add_argument("--manifest", required=True, type=Path)
+    export.add_argument("--root", required=True, type=Path)
+    export.add_argument("--export-id", required=True)
+    export.add_argument("--owner-id", required=True)
+    export.add_argument("--plan", required=True, type=Path)
+    export.add_argument("--apply", action="store_true")
+    export.add_argument("--plan-id")
+    verify_export = sub.add_parser("verify-export", help="Managed read-only verification of a saved evidence package")
+    verify_export.add_argument("--package", required=True, type=Path)
+    verify_export.add_argument("--owner-id", required=True)
     for name in ("repair", "resume"):
         offline = sub.add_parser(name, help="Managed fixed-response or mock-wire demonstration only")
         offline.add_argument("--task", required=True, type=Path)
         offline.add_argument("--work", required=True, type=Path)
         offline.add_argument("--run-id", required=True)
         offline.add_argument("--fixed-script", "--script", dest="fixed_script", required=True, type=Path)
+    args = None
     try:
         args = parser.parse_args()
         if args.command == "doctor":
@@ -57,6 +79,35 @@ def main() -> None:
             result = {"schema_version": report["schema_version"], "scope": report["scope"],
                       "evaluation_id": report["evaluation_id"], "output": str(args.output),
                       "row_count": len(report["rows"])}
+        elif args.command in ("export", "verify-export"):
+            if os.environ.get("DFX_MANAGED_EXPORT") != "offline-v1":
+                parser.error("export/verify-export require the managed offline export entry point")
+            from .exporting import apply_export, preview_export, save_export_plan
+            from .exporting import verify_export as verify_package
+
+            if args.command == "verify-export":
+                receipt = verify_package(args.package)
+                if receipt.get("owner_id") != args.owner_id:
+                    parser.error("Export package owner does not match the expected package origin")
+            elif args.apply:
+                if not args.plan_id:
+                    parser.error("Applying an export requires the reviewed plan ID")
+                receipt = apply_export(args.manifest, args.root, args.export_id, args.owner_id, args.plan, args.plan_id)
+            else:
+                if args.plan_id:
+                    parser.error("Plan ID requires --apply")
+                receipt = preview_export(args.manifest, args.root, args.export_id, args.owner_id)
+                save_export_plan(receipt, args.plan)
+            result = {key: receipt[key] for key in ("schema_version", "scope", "status", "export_id", "owner_id", "plan_id",
+                                                   "estimated_bytes", "privacy", "output", "package_path", "package_sha256",
+                                                   "aggregate_sha256") if key in receipt}
+            if args.command == "export" and not args.apply:
+                result["status"] = "preview"
+                result["output"] = str(args.root / "runs" / "exports" / args.export_id)
+            elif "package_path" in result:
+                result["output"] = result["package_path"]
+            if len(json.dumps(result, ensure_ascii=True, indent=2)) > 4096:
+                parser.error("Export receipt exceeds the bounded console response")
         else:
             from .agent import run_fixed_agent, run_provider_agent
             from .model_calls import ModelCallStore
@@ -87,5 +138,10 @@ def main() -> None:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(result, ensure_ascii=True, indent=2))
-    except (OSError, ValueError, KeyError, TypeError, ValidationError, zipfile.BadZipFile) as exc:
+    except Exception as exc:
+        if args is not None and args.command in ("export", "verify-export"):
+            reason = _EXPORT_SAFE_REASONS.get(str(exc), "evidence validation failed")
+            parser.error("Export evidence rejected: " + reason + "; private input details omitted from the console")
+        if not isinstance(exc, (OSError, ValueError, KeyError, TypeError, ValidationError, zipfile.BadZipFile)):
+            raise
         parser.error(str(exc))

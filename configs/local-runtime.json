@@ -14,6 +14,7 @@
     "job_memory_fraction_of_physical": 0.25,
     "min_free_memory_bytes": 2147483648,
     "managed_disk_budget_bytes": 10737418240,
+    "max_export_package_bytes": 268435456,
     "min_free_disk_bytes": 10737418240,
     "min_free_disk_fraction": 0.10,
     "monitor_interval_seconds": 2,
