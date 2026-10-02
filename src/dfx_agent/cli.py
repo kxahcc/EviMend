@@ -59,6 +59,7 @@ def main() -> None:
         offline.add_argument("--run-id", required=True)
         offline.add_argument("--fixed-script", "--script", dest="fixed_script", required=True, type=Path)
     args = None
+    resume_rejection_type = None
     try:
         args = parser.parse_args()
         if args.command == "doctor":
@@ -109,13 +110,21 @@ def main() -> None:
             if len(json.dumps(result, ensure_ascii=True, indent=2)) > 4096:
                 parser.error("Export receipt exceeds the bounded console response")
         else:
-            from .agent import run_fixed_agent, run_provider_agent
+            from .agent import (
+                ResumeAdmissionRejected,
+                preflight_resume,
+                run_fixed_agent,
+                run_provider_agent,
+            )
             from .model_calls import ModelCallStore
             from .offline_script import load_offline_script
             from .workspace import CandidateWorkspace
 
             if os.environ.get("DFX_MANAGED_AGENT") != "offline-v1":
                 raise ValueError("repair/resume require the managed offline entry point")
+            resume_rejection_type = ResumeAdmissionRejected
+            if args.command == "resume":
+                preflight_resume(args.task, args.work, args.run_id)
             script = load_offline_script(args.fixed_script)
             options = {**script.options(), "resume": args.command == "resume", "policy_features": script.features(),
                        "compaction_policy": script.compaction_policy()}
@@ -129,7 +138,7 @@ def main() -> None:
                     store_path = workspace.root / "model-calls.sqlite"
                     if not store_path.is_file() or store_path.is_symlink():
                         raise ValueError("resume model ledger is missing or linked")
-                    offset = ModelCallStore(store_path).usage_summary(workspace.task_id, args.run_id)["completed_calls"]
+                    offset = ModelCallStore(store_path, read_only=True).usage_summary(workspace.task_id, args.run_id)["completed_calls"]
                 result = run_provider_agent(args.task, args.work, args.run_id, script.adapter(response_offset=offset),
                                             script.executor(), **options)
         if args.command in ("doctor", "analyze") and args.output:
@@ -139,6 +148,8 @@ def main() -> None:
             args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(result, ensure_ascii=True, indent=2))
     except Exception as exc:
+        if args is not None and args.command == "resume" and resume_rejection_type is not None and isinstance(exc, resume_rejection_type):
+            parser.exit(3, "Resume rejected before execution: " + str(exc) + "\n")
         if args is not None and args.command in ("export", "verify-export"):
             reason = _EXPORT_SAFE_REASONS.get(str(exc), "evidence validation failed")
             parser.error("Export evidence rejected: " + reason + "; private input details omitted from the console")

@@ -1,6 +1,6 @@
 # 项目蓝图与开发导览
 
-状态：当前开发入口。最后维护：2026-10-02。
+状态：当前开发入口。最后维护：2026-10-03。
 职责：先用通俗语言说明要做什么、如何做和重点在哪，再提供文件导航。这里是设计的概览；具体技术决策以开发设计为准，实际进度以 STATUS 为准。
 
 ## 1. 我们最终要做出什么
@@ -96,7 +96,9 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 
 管理入口 scripts/local.ps1 提供 Prepare、Status、Clean、Stop、Init、固定合成/测试/质量/离线 Agent/只读聚合的受限 Run，以及私有证据 Export。任务先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local，managed 与 exports 共同受磁盘预算约束。真实模型/本机应用任务仍未接入；[本机配置](configs/local-runtime.json) 的位置标记为 local，安装/实验开关仍关闭。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
-Export 从显式评测清单保留任务源码、全部候选、账本和失败记录：先预览内容与计划，再按 PlanId 应用，最后只读 Verify 从包内重建同一摘要。包含原始消息和私密源码，不能直接公开；导出不删除源，也不自动放行清理。终态 work、任务快照及未发布暂存仍须在具体清理请求中明确丢弃。实际验收看 STATUS；真实应用汇总、执行版本来源和公开脱敏另待后续接入，使用命令见 [原型说明](src/dfx_agent/README.md)。
+每次新离线运行保存执行源码指纹、依赖锁和实际 Python/依赖版本。恢复先核对兼容性，报告和聚合只读取当时保存的事实；旧记录的缺失版本保持未知。Git 的初始观察与续跑身份分开，日常改文档不会改变执行源码的兼容身份。完整约束见 [模块规格](docs/design-contracts.md)。
+
+Export 从显式评测清单保留任务源码、全部候选、账本和失败记录：先预览内容与计划，再按 PlanId 应用，最后只读 Verify 从包内重建同一摘要。包含原始消息和私密源码，不能直接公开；导出不删除源，也不自动放行清理。终态 work、任务快照及未发布暂存仍须在具体清理请求中明确丢弃。实际验收看 STATUS；真实应用汇总、工具链/设备来源和公开脱敏另待后续接入，使用命令见 [原型说明](src/dfx_agent/README.md)。
 
 ## 6. 怎样一步步把它做出来
 
@@ -159,6 +161,7 @@ Export 从显式评测清单保留任务源码、全部候选、账本和失败�
 | `tests/test_context_compaction.py`、`tests/test_compaction_loop.py` | 主机压缩的完整工具组、冻结来源、独立费用、格式失败、未知结果、恢复及实际 SDK 交接的合成验收 |
 | `tests/test_readonly_evidence.py`、`tests/test_metrics.py`、`tests/test_metrics_cli.py` | 不可变账本、完整分母/未知项/重复运行、配置漂移及受管聚合入口的合成验收 |
 | `tests/test_exporting.py`、`tests/test_export_cli.py`、`tests/test_cleanup.py` | 完整私有证据包、计划/输入保存、包内重聚合、篡改/容量、受管导出入口及证据清理拒绝的合成验收 |
+| `tests/test_provenance.py`、`tests/test_provenance_loop.py`、`tests/test_provenance_reporting.py`、`tests/test_provenance_metrics.py` | 运行来源自洽、源码/依赖漂移拒绝、SDK/CLI 提前门控、旧记录只读兼容及混合汇总的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
@@ -197,6 +200,7 @@ Export 从显式评测清单保留任务源码、全部候选、账本和失败�
 | `reporting.py` | 从版本、诊断、模型/工具账本和检查重建最终摘要，核验补丁及可验证报告字段；不执行模型或应用 |
 | `metrics.py` | 按显式 task/variant/repeat 清单只读核验停止记录，汇总初始定位、全部候选及完整成本；应用指标未知 |
 | `evidence_io.py` | 不可变只读 SQLite 连接，拒绝缺文件、链接/硬链及未合并日志；不修复或新建账本 |
+| `provenance.py` | 运行源码/依赖锁及实际 Python/依赖版本观察、自洽哈希和恢复兼容检查；初始 Git 不用于填补历史或认证二进制 |
 | `exporting.py` | 显式矩阵的私有计划/证据包、完整字节清单及包内重聚合核验；保留原消息与全部尝试，不执行 Graph、不删源、不自动授权清理 |
 | `model_calls.py` | 持久模型请求账本、响应回放、格式/usage 分类及崩溃窗口拒绝重发；已用于固定响应路径，尚未接入真实提供方 |
 | `agent.py` | Deep Agents 离线循环，接入任务指引、跨文件检索、未确认诊断、候选门控、可关闭策略工具和停止报告 |

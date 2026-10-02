@@ -32,7 +32,8 @@ try {
     $exitCode = $LASTEXITCODE
 } finally {
     Pop-Location
-    if ([IO.Directory]::Exists($work)) {
+    # A rejected resume is a read-only refusal, not a new terminal execution.
+    if ([IO.Directory]::Exists($work) -and -not ($command -eq 'resume' -and $exitCode -eq 3)) {
         [pscustomobject]@{ schema_version = 1; status = if ($exitCode -eq 0) { 'finished' } else { 'failed' }
             task = 'offline'; run_id = $runId; finished_at = [DateTimeOffset]::UtcNow.ToString('o') } |
             ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $work 'run-state.json') -Encoding UTF8

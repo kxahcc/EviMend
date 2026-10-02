@@ -26,6 +26,7 @@ from .model_calls import ModelCallStore, canonical, sha256
 from .model_provider import _tool_descriptors
 from .models import context_profile
 from .policies import PolicyFeatures
+from .provenance import validate_session_provenance
 from .reporting import read_completion
 from .source_search import search_limits
 from .task import CaseSelection, digest, require_relative_reference, verify_task
@@ -290,7 +291,10 @@ def _session(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVari
                 "max_candidates", "max_tool_calls", "capabilities", "protocol_sha256", "observations_sha256",
                 "policy_features", "model_profile", "context_profile", "system_prompt_sha256",
                 "task_message_sha256", "tool_schema_sha256", "search_limits"}
-    if set(value) != required or value["schema_version"] != 8 or value["run_id"] != cell.run_id:
+    provenance = validate_session_provenance(value)
+    if provenance is not None:
+        required.add("execution_provenance")
+    if set(value) != required or value["run_id"] != cell.run_id:
         raise ValueError("session schema or identity differs")
     if not isinstance(value["started_at"], str) or datetime.fromisoformat(value["started_at"]).tzinfo is None:
         raise ValueError("session time must have a timezone")
@@ -401,6 +405,13 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVariant,
     value["terminal_status"] = state["status"]
     if not (work / "agent-report.json").exists():
         value["missing_reason"] = "completion_missing"
+        session_path = work / "session.json"
+        if session_path.exists():
+            saved = _load(session_path)
+            if validate_session_provenance(saved) is not None:
+                workspace = CandidateWorkspace.reopen(root / task.task_path, work, cell.run_id)
+                session = _session(task, cell, variant, configuration, workspace)
+                value["execution_provenance"] = validate_session_provenance(session)
         return value
     workspace = CandidateWorkspace.reopen(root / task.task_path, work, cell.run_id)
     session = _session(task, cell, variant, configuration, workspace)
@@ -419,7 +430,38 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVariant,
     for name in ("cost", "latest_candidate_id", "latest_candidate_check_status", "context_compactions",
                  "verification", "timing", "facts_sha256", "summary_sha256", "unresolved_reasons"):
         value[name] = completion[name]
+    if "execution_provenance" in completion:
+        value["execution_provenance"] = completion["execution_provenance"]
     return value
+
+
+def _provenance_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    captured = [row for row in rows if "execution_provenance" in row]
+    if not captured:
+        # Preserve old export report hashes: unknown is never backfilled from
+        # the reader's Git checkout, dependency versions or source files.
+        return {"git_commit": None, "lock_sha256": None, "sdk_version": None,
+                "status": "not_recorded_in_source_session"}
+    compatibility = {row["execution_provenance"]["compatibility_sha256"] for row in captured}
+    if len(compatibility) != 1:
+        raise ValueError("execution compatibility differs between evaluation cells")
+    records: dict[str, dict[str, Any]] = {}
+    for row in captured:
+        provenance = row["execution_provenance"]
+        key = provenance["provenance_sha256"]
+        if key not in records:
+            records[key] = {"provenance_sha256": key, "execution_provenance": provenance, "run_ids": []}
+        elif canonical(records[key]["execution_provenance"]) != canonical(provenance):
+            raise ValueError("execution provenance hash identifies different records")
+        records[key]["run_ids"].append(row["run_id"])
+    for record in records.values():
+        record["run_ids"].sort()
+    unknown = sorted(row["run_id"] for row in rows if "execution_provenance" not in row)
+    return {"status": "partial" if unknown else "observed", "expected_runs": len(rows),
+            "captured_runs": len(captured), "unknown_runs": len(unknown), "unknown_run_ids": unknown,
+            "captured_records": [{"compatibility_sha256": next(iter(compatibility)),
+                                  "run_ids": sorted(row["run_id"] for row in captured),
+                                  "records": [records[key] for key in sorted(records)]}]}
 
 
 def _variant_summary(variant: EvaluationVariant, rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -516,8 +558,7 @@ def aggregate_evaluation(manifest: EvaluationManifest, root: Path) -> dict[str, 
              "lineage_group_count": len({task.lineage_group_id for task in manifest.tasks}), "rows": rows,
              "variants": [_variant_summary(variant, [row for row in rows if row["variant_id"] == variant.variant_id])
                           for variant in manifest.variants], "paired_comparisons": _paired(manifest, rows),
-             "execution_provenance": {"git_commit": None, "lock_sha256": None, "sdk_version": None,
-                                      "status": "not_recorded_in_source_session"},
+             "execution_provenance": _provenance_summary(rows),
              "application_metrics": {name: None for name in ("root_cause_hit_at_1", "root_cause_hit_at_3",
                  "line_label_coverage", "repair_success_rate", "functional_correctness", "regression_rate",
                  "first_candidate_pass_rate", "monetary_cost", "localization_ms", "repair_ms")}}

@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-03",
+  "started_date": "2026-10-02",
+  "work_package": "W05/W09 execution provenance",
+  "objective": "Freeze actual host source and runtime facts, gate writable resume on compatibility, preserve initial observations and read-only legacy reports/packages.",
+  "source_start_commit": "eaa5cb8",
+  "scope": "offline_synthetic",
+  "real_model_calls": 0,
+  "application_executions": 0,
+  "dependency_installations": 0,
+  "implementation": [
+    "Stdlib-only provenance records raw source file hashes/sizes, repository input hashes, actual Python/distribution metadata, and optional initial Git facts; separate compatibility and whole-record digests.",
+    "New session9/report6/completion3 pairing; old8/5/2 read-only, never upgraded or backfilled. Resume checks compatibility before writable ledgers, Graph or model execution; Git-only changes preserve the original observation.",
+    "Standard entry inventories before CLI imports. Inventory initialization and corrupt read-only admission facts reject resume without changing saved work terminal state. Execution failures after admission retain failed semantics.",
+    "New/mixed aggregate provenance reports captured and unknown runs separately; incompatible known execution rejected. Legacy-only canonical aggregate and W10 package verification unchanged.",
+    "Terminal resume now derives offered_tools from saved call facts, so zero-call resumed reports can be reverified, aggregated and exported; historical artifacts are not rewritten."
+  ],
+  "validation": {
+    "mode": "14 selected test files through sequential managed jobs; latest successful result per file, not one full-suite run",
+    "passed": 423,
+    "skipped": 3,
+    "skip_reason": "Windows symbolic-link privilege unavailable",
+    "tests": [
+      {
+        "path": "tests/test_provenance.py",
+        "run_id": "e7f97cdc-fefe-488b-b149-3d66f0a51b49",
+        "passed": 55,
+        "skipped": 1
+      },
+      {
+        "path": "tests/test_provenance_loop.py",
+        "run_id": "c97ac003-3c90-4aa7-9b76-2039df93a545",
+        "passed": 24,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_provenance_reporting.py",
+        "run_id": "aa07f6cd-9b6a-43b9-abfd-ad8da7e39862",
+        "passed": 11,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_provenance_metrics.py",
+        "run_id": "d1013e96-8597-47ad-90f9-b20a00cd1077",
+        "passed": 17,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_reporting.py",
+        "run_id": "1a828fc2-4e30-47b9-b35f-fe73b568661a",
+        "passed": 45,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_metrics.py",
+        "run_id": "03f48afd-4ad4-43fe-a2c1-ef1e54ff5565",
+        "passed": 64,
+        "skipped": 1
+      },
+      {
+        "path": "tests/test_compaction_loop.py",
+        "run_id": "e69c47d8-8700-42c8-8ed4-8220623fda74",
+        "passed": 13,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_condition_handoff.py",
+        "run_id": "30e7e700-3284-482a-94d1-002f222b658d",
+        "passed": 30,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_exporting.py",
+        "run_id": "be88ab11-7408-45e7-93d1-94db4d7b23df",
+        "passed": 64,
+        "skipped": 1
+      },
+      {
+        "path": "tests/test_export_cli.py",
+        "run_id": "9c780a88-3e65-4738-8432-cb636199627a",
+        "passed": 40,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_provider_loop.py",
+        "run_id": "8bd11189-ef61-4c60-a4a8-6038fefac1e6",
+        "passed": 17,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_agent_loop.py",
+        "run_id": "d637d404-01cc-4e79-9fd7-3275135b7d66",
+        "passed": 12,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_offline_cli.py",
+        "run_id": "078e2445-20c9-46a3-bfc0-992de5845088",
+        "passed": 7,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_context_boundary.py",
+        "run_id": "68bd916c-c797-45fc-ac7e-3eaadd69f3dd",
+        "passed": 24,
+        "skipped": 0
+      }
+    ],
+    "ruff_run_id": "286cfac3-4419-47ed-b2cb-0eda07b794de",
+    "pyright_run_id": "6e6814aa-9fda-4ea2-880f-db61a304c6fd",
+    "docs": "passed; managed run 106b88eb-7cff-4644-8845-86c5d8d5f5c2 checked 14 registered documents",
+    "intermediate_findings": [
+      "Review found pre-CLI inventory and corrupt admission facts could incorrectly overwrite saved terminal state; repaired and tested.",
+      "Missing report previously allowed invalid/old sessions carrying new provenance to degrade to unknown; repaired and tested.",
+      "Initial Ruff/import-format and Pyright definite-assignment checks failed; fixed, final checks passed.",
+      "Initial standard-entry test subprocess used mismatched Windows stderr encoding; explicit UTF-8 removed the warning.",
+      "First managed resumed report failed aggregation due empty turn-local offered_tools; preserved failed artifacts, corrected saved-fact derivation, reran under a new ID."
+    ]
+  },
+  "smoke": {
+    "run_id": "provenance-final-20261002",
+    "managed_run": "aa8d4ca0-64a2-4758-a9a3-423a92a9f2e1",
+    "managed_resume": "70fec5a7-2e35-459c-a527-6bcb77cd85fa",
+    "managed_aggregate": "7ace9e30-eeab-42d0-87ec-9b0fb98f9e29",
+    "managed_export_preview": "f62fdf4f-5b2e-4955-a95e-776fd3817aef",
+    "managed_export_apply": "a3d1d8de-9ece-44c5-bb7b-81cac5b7e4cf",
+    "managed_export_verify": "71f0fc14-34fb-4a7e-b0cd-ee9178e3d151",
+    "model_calls": 1,
+    "known_tokens": 15,
+    "model_calls_this_resume": 0,
+    "rows": 2,
+    "captured_runs": 1,
+    "unknown_runs": 1,
+    "application_metrics": null,
+    "compatibility_sha256": "70397d4a75b08ecde7d563fc0e4504cdffbe40867bba7a623e26c027a67ecb3d",
+    "provenance_sha256": "3760a98bc62aede6cf806200bb8455abc29e00fbf4e9cc84f719138cd0bd8b60",
+    "git_observation": "unavailable; fields remain null",
+    "package_path": "runs/exports/provenance-final-20261002",
+    "package_bytes": 105324,
+    "plan_id": "4b84915100237069a5c70ecae1d37b3a9934af47c77877defa4e2a046ad3f2a7",
+    "package_sha256": "5911d8ee194069e3f7214a50cb36584430285b325389d6f2a30a5e527375fe74",
+    "aggregate_sha256": "bd790da8ca0c244fc963c05364bcdec9b91e4325913984d4e143c2ec8d0c2d15",
+    "legacy_package_verify": "85300491-d75b-4c7f-a97c-fbafa72d6541",
+    "legacy_package_sha256": "6c323bbcd0b639114791fdcdc71dcbaf763cfe83baa27ffd024864cce01b5042",
+    "legacy_aggregate_sha256": "c69eb89d380816e8eff94f82638e493964b81022ecb1267337d8e8eb6301428c",
+    "legacy_resume_rejected": "e011550f-66de-4c88-a35b-c4cffa643dbe",
+    "legacy_managed_exit": 2,
+    "legacy_cli_exit_contract": 3,
+    "legacy_run_state_unchanged": true,
+    "legacy_run_state_sha256": "ff1b62d28b93743b8ef4100be3fbd30512b41db1a7c6ccd335777d6402efbe32"
+  },
+  "resources": {
+    "observed_date": "2026-10-03",
+    "managed_and_export_bytes": 317802753,
+    "export_bytes": 172138,
+    "tmp_bytes": 7973,
+    "active_state": "none",
+    "global_environment_changes": 0,
+    "resource_configuration_changes": 0
+  },
+  "limitations": [
+    "Installed metadata and raw-byte hashes do not authenticate binaries or imported memory; full uncommitted host source/environment preservation remains required for formal reproducibility.",
+    "Git capture was unavailable in the managed smoke; no current commit was fabricated into saved provenance.",
+    "No autonomous model/app repair, cross-task memory, evolved Skills, root-cause or repair performance validated."
+  ],
+  "next": "W07 design closure for obligation-driven context, conditional experience transfer and validated Skill evolution, before more infrastructure expansion."
+}

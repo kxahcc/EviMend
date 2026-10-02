@@ -1,6 +1,6 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-02。
+状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-03。
 职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选交接、模型账本、逐工具授权、动作恢复和主机终止摘要已接入固定响应与可配置 mock wire 的共享离线循环；应用接受门、模拟 HTTP 协议及策略分支已有合成实现。可信采值、算子适用性和因果关系的实际检验、云端模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
@@ -69,7 +69,13 @@ SDK 的两种离线模型共用 `ToolAuthorizationMiddleware`：主机把工具�
 
 收到消息后保存规范化消息及哈希、提供方消息 ID、工具名称/ID/参数摘要与格式问题。wire 的非 null 原始 usage 完整保留为 response_metadata.dfx_provider_usage_raw；prompt_tokens/completion_tokens/total_tokens 须为非负整数、合计一致并与 usage_metadata 的 input/output/total 对应，才能标为 known。原值缺失/null 为 missing，存在但无效或映射不一致为 invalid；账本保存原值摘要，不以类型强制转换或文本长度补估。格式错误仍是完成的一次调用，不能丢掉其 usage。原始消息用于本机受管恢复，不进入 Git 或普通聚合报告；显式本机私有 Export 保留相关账本原字节并披露完整消息范围，不自动外发。text_only、模型自称成功和工具参数不产生执行事实。
 
-session schema 8 冻结 model_profile、context_profile（含主机压缩策略和摘要提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略和合成 registry 指纹；续跑须全部一致，旧会话 schema 1–7 不续跑，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
+session schema 9 冻结 model_profile、context_profile（含主机压缩策略和摘要提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略、合成 registry 和下述执行来源；续跑须配置与执行兼容身份一致。旧 session 8 只能按原契约只读核验，不自动升级、续跑或补写版本；schema 1–7 不进入当前恢复入口，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
+
+execution_provenance 是嵌入 session 的 schema 1 主机记录，不是模型可提交对象。source_inventory 记录 src/dfx_agent 下全部 Python 源码及 scripts/dfx.py、local_agent.ps1、local.ps1、local_job.cs 的规范相对路径、大小和原字节 SHA-256；文档、测试、历史 session、数据和缓存不属于这份运行源码清单。repository_inputs 固定 uv.lock、pyproject.toml、.python-version、configs/local-runtime.json 的原字节大小与哈希。runtime 保存实际 Python 实现、版本、cache_tag、平台、机器架构和 importlib.metadata 读到的已安装 distribution 名称/版本，不把锁中声明的版本冒充实际安装版本。Git 保存初始 HEAD、全仓 dirty、状态字节摘要及条目数；不可用时明确为未知，不猜测干净状态。
+
+source_inventory_sha256 固定源码清单；compatibility_sha256 固定清单、repository_inputs 和 runtime；provenance_sha256 固定包含初始 Git 观察的完整记录。读取时严格核对字段、类型、范围和三层摘要自洽性。Git 观察不进入兼容摘要，因此文档/测试修改或仅含文档的提交不会单独阻止续跑；执行源码未提交变更仍由原字节清单捕获。兼容的续跑保留原 session 和初始 Git 事实，不用当前 HEAD 或 dirty 覆写历史。清单只保存路径、大小和哈希，不自动复制主机源码内容、未提交 diff 或安装环境；它能支持同库漂移检测，不能独立重建尚未保全的主机修改。正式 W08 比较仍须固定并保全可重建的主机代码和环境材料。内容哈希不是签名，安装版本来自元数据，不提供第三方包二进制完整性或内存中全部已加载代码的证明。
+
+标准 scripts/dfx.py 入口在导入 CLI 前建立受限源码基线，导入后复核；Agent 新运行在创建工作区前捕获来源，续跑先只读核验已有工作区/session 和当前兼容身份，再接入可写账本、Graph 或动作。CLI 对两种 resume 都先预检；mock 响应偏移只读 ModelCallStore，不创建表或修改 WAL。完整 session 配置也须在可写检查与账本启用前匹配。ResumeAdmissionRejected 使用 CLI 退出码 3，工作进程保留原终态；已获准执行后发生的失败仍保存 failed 终态及已登记事实。结束前再次核对兼容身份，途中漂移不生成混合版本的终止报告，已产生调用和成本保留。前后快照不是外部文件锁或内存执行认证；真实 HarmonyOS 工具链、运行工程与设备版本仍由 W08 独立绑定。
 
 context_profile 定义有限上下文和可选主机压缩：默认 disabled 时，两种模型在 reserve 之前核对完整序列化消息的 UTF-8 字节上限；enabled 时先按 CompactionPolicy 触发并核验完整历史，system 与首次任务消息固定保留，assistant 多工具及全部对应结果为不可拆的一组。只压缩较早闭合前缀，保留近期完整组；孤立、重复、缺失结果或不支持结构在摘要调用前拒绝。Graph 原历史不删改，实际 solver 视图仍须满足 models.py 的硬限额；必须保留的尾部或摘要输入过大时明确停止。首版重新摘要完整前缀，不支持滚动摘要；策略参数唯一维护在 context_compaction.py，字节限额不代表提供方 Token 窗口。
 
@@ -139,7 +145,7 @@ W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈
 
 ### 1.3.2 主机终止摘要与结果核验
 
-`agent-report.json` 使用 report schema 5，completion 为 schema 2 的 host_summary，由 `reporting.py` 的 build_completion 在运行结束后读取持久事实生成，不采信模型结尾的“修好了”。它核对基准原字节、登记诊断/义务/决策/条件、候选源码/manifest/diff、检查意图与结果、模型账本和工具动作的归属/请求/回执，以及压缩原消息、摘要响应与实际 solver 视图的关联。context_compactions 保留有效/无效、未请求/等待/未知、结果是否落盘及 solver 绑定状态，facts_sha256 固定这些输入，summary_sha256 固定派生摘要；哈希表示内容一致，不提升证据来源。
+`agent-report.json` 的新运行使用 report schema 6，completion 为 schema 3 的 host_summary，与 session 9 严格配对；旧 session 8/report 5/completion 2 按原规则回读，禁止交叉配对或给旧记录补写来源。`reporting.py` 的 build_completion 在运行结束后读取持久事实生成摘要，不采信模型结尾的“修好了”。它核对基准原字节、登记诊断/义务/决策/条件、候选源码/manifest/diff、检查意图与结果、模型账本和工具动作的归属/请求/回执，以及压缩原消息、摘要响应与实际 solver 视图的关联。新 report/completion 的 execution_provenance 必须等于已验证的 session 来源；回读不捕获当前 Git、源码或安装环境来替换它。context_compactions 保留有效/无效、未请求/等待/未知、结果是否落盘及 solver 绑定状态，facts_sha256 固定包含保存来源的输入，summary_sha256 固定派生摘要；哈希表示内容一致，不提升证据来源。
 
 定位按工具动作账本排序：initial 是首次允许 edit_source 之前、已有完成回执的首个登记诊断；首次允许编辑即形成 cutoff，即使该编辑后来失败，也不能用后续诊断补成初次预测。latest 是最后一个有完成回执的登记诊断，candidate_linked 是最新候选实际关联的诊断；三者可以不同。已登记但没有可核对动作顺序的诊断列为 unsequenced，不猜测其先后。各定位保持 model_inference/root_cause_confirmation=unknown，包含候选根因位置及原证据；没有 ground truth 判断就不生成定位准确率。
 
@@ -147,7 +153,7 @@ W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈
 
 cost 从模型和动作账本汇总所有登记调用、已知 Token、missing/invalid usage、未发出/结果未知调用、拒绝动作与检查请求，并以 calls_by_kind 区分求解与摘要等用途，分用途次数之和仍是统一总分母。只有全部登记调用完成且 usage 完整时 total_tokens 才有数值；否则保持 null，同时保留已知 subtotal 和未知计数。没有实测依据的 monetary_cost、localization_ms 和 repair_ms 保持 null，不能用脚本长度、合成响应或零值代替真实成本和耗时。
 
-`read_completion` 只回读并重新核验，不运行模型、工具或检查。它核对 report 的归属/schema、整个 completion，以及 report_validation.verified_top_level_fields 列出的候选、检查、累计模型/工具成本、动作、决策、条件等顶层字段；policy_features 有会话依据时、offered_tools 有模型调用依据时才列为可核验。adapter_error_reason 与各 *_this_turn 成本差分当前属于 unverified_top_level_fields；stopped_reason 是重新计算的输入，部分原因须有账本依据，但不是完整重建的停止过程。调用成功不表示整个任意报告字段、应用结果或模型语义已被验证。
+`read_completion` 只回读并重新核验，不运行模型、工具或检查。它核对 report 的归属/schema、整个 completion，以及 report_validation.verified_top_level_fields 列出的候选、检查、累计模型/工具成本、动作、决策、条件等顶层字段；新记录的 execution_provenance 纳入核验，policy_features 有会话依据时、offered_tools 有模型调用依据时才列为可核验。adapter_error_reason 与各 *_this_turn 成本差分当前属于 unverified_top_level_fields；stopped_reason 是重新计算的输入，部分原因须有账本依据，但不是完整重建的停止过程。调用成功不表示整个任意报告字段、应用结果或模型语义已被验证。
 
 后续聚合只消费与持久事实匹配的摘要，并分别记录初次定位、最终定位、首次候选和最新候选，不删除失败或未知项；真实应用指标仍须共同接受协议与独立 oracle。受管导出须保留重新核验所需的明确产物、版本和来源；仅复制一份 agent-report.json 不能代替可复现证据。
 
@@ -155,7 +161,9 @@ cost 从模型和动作账本汇总所有登记调用、已知 Token、missing/i
 
 EvaluationManifest schema 1 固定 offline_synthetic 范围、唯一 evaluation_id、共同 RunConfiguration、任务、策略组、repeat 和完整格子。任务绑定 task.json 原字节哈希、源码/日志、协议与条件输入摘要，schema 2 必须提供哈希一致的 CaseSelection；schema 1 的案例和谱系仅为声明。格子绑定 task/variant/repeat、唯一 run_id 与可空的工作目录。全部矩阵恰有一格，拒绝重复 run、任务/日志身份及祖先/后代目录重叠；格式容量在矩阵展开前检查。不得选择性发现成功目录或根据结果删格子。
 
-既有工作必须有匹配的 schema 1 offline 终态 finished/failed/canceled。目录缺失或终态无报告列 missing，work_path=null 列 not_run，费用未知且保留分母；现有损坏记录拒绝整批。核验 session 8 的任务、协议、主机输入、共同预算/能力/模型/上下文/工具/检索配置、策略开关和重新生成的提示；只构造主机工具描述，不执行闭包，核对 session 与实际 solver 的两种工具格式。随后使用 read_completion 核对 report 5/completion 2。普通 solver 原始请求体未保存，不能声称重建全部历史请求参数；Git/lock/SDK 历史执行版本未记录，保持 null。
+既有工作必须有匹配的 schema 1 offline 终态 finished/failed/canceled。目录缺失或终态无报告列 missing，work_path=null 列 not_run，费用未知且保留分母；现有损坏记录拒绝整批。核验 session 8 或 9 的任务、协议、主机输入、共同预算/能力/模型/上下文/工具/检索配置、策略开关和重新生成的提示；只构造主机工具描述，不执行闭包，核对 session 与实际 solver 的两种工具格式。随后使用 read_completion 核对对应的 report/completion。session 9 的来源按保存结构及摘要核验并传入行记录，不要求等于回读主机；终态缺报告但有 session 9 时仍须核验其配置和来源，费用与修复结果继续未知。普通 solver 原始请求体未保存，不能声称重建全部历史请求参数；session 8 未记录的执行版本继续 null。
+
+只有旧来源的矩阵保持原 schema 1 汇总结构与内容，不改变既有导出包的 aggregate 摘要。存在新来源时，按保存的兼容身份及完整来源摘要列出 captured_records、关联 run_ids、captured_runs 和 unknown_runs/unknown_run_ids；旧记录、未运行和缺来源格子继续未知，不将它们删除或补零。所有已捕获来源的 compatibility_sha256 必须一致，不同初始 Git 观察可分别保留；已知执行源码、锁或实际环境漂移拒绝整批比较。来源覆盖并不产生应用成功资格。
 
 ModelCallStore、ToolActionStore 和 CheckLedger 显式 read_only=True：不创建文件/目录、表或 sidecar，写方法及执行入口一律拒绝。ReplayOnlyExecutor 只持有协议摘要，check 始终拒绝；不读取预期答案。SQLite 以只读不可变连接回读，非空 WAL/journal 拒绝，不自动合并。聚合检查原路径链、链接/硬链、完整源树字节和文件身份，前后变化拒绝；主机 JSON 严格检查，源码 JSON 仅校验原字节。停止标记和前后检查不替代对外部并发写入者的锁。
 
@@ -179,7 +187,7 @@ Apply 重新从原 manifest 派生范围并复核完整 PlanId，不直接使用
 
 evaluation.json 是原 manifest 字节，aggregate-report.json 是源端重算的完整摘要。复制按 inventory 校验每个文件及空目录；清单和汇总在写入前再次匹配已预留的大小及哈希，拒绝复制期间增长后再超额写入。前后复查源树、owner/config 和缺失状态；包内重聚合必须与源端全文及报告摘要一致。容量满足后仅发布新的 runs/exports/ID，目标出现或输入漂移即拒绝；失败暂存未发布且源输入保留。Windows 长路径处理仅在项目接口内进行，不改系统配置。
 
-Verify 的证据输入只依赖包内字节：重新核对 package/plan、清单、全部现有证据树及只读 SQLite，再重聚合并复查包前后不变。受管工作进程仍须核验当前环境的 owner、依赖锁与自身租约；包中 owner_id 仅记录导出来源实例，经过格式检查后作为预期包来源交给核验器，不要求等于当前运行环境实例。Clean all 后重新 Prepare/Init，在兼容的项目实现与锁定环境中仍可核验保留的旧包；不改写包、原输入或旧运行记录，仅产生当前受管日志与租约。来源 ID 和内容哈希不认证制作者、不授权接管或清理旧资源，也不证明 Graph 恢复、摘要忠实度、真实因果、业务功能或应用修复效果。历史 session 未记录的 Git/lock/SDK 执行版本继续 null，不以当前导出器版本补写。
+Verify 的证据输入只依赖包内字节：重新核对 package/plan、清单、全部现有证据树及只读 SQLite，再重聚合并复查包前后不变。session/report 已嵌入的新执行来源随原字节保存，无需升级 package schema 或添加来源 sidecar；回读只验证保存来源的结构和哈希，不将其与当前 Git、运行源码或环境兼容身份强制匹配。受管工作进程仍须核验当前环境的 owner、依赖锁与自身租约；包中 owner_id 仅记录导出来源实例，经过格式检查后作为预期包来源交给核验器，不要求等于当前运行环境实例。Clean all 后重新 Prepare/Init，在支持对应历史契约的项目实现与受管环境中仍可核验保留的旧包；不改写包、原输入或旧运行记录，仅产生当前受管日志与租约。来源 ID 和内容哈希不认证制作者、不授权接管或清理旧资源，也不证明 Graph 恢复、摘要忠实度、真实因果、业务功能或应用修复效果。历史 session 未记录的 Git/lock/SDK 执行版本继续 null，不以当前导出器版本补写。
 
 privacy 明确 local_only=true、redacted=false、share_ready=false，并披露源码/候选、故障日志、原模型消息、工具参数/结果、Graph、失败尝试和成本。名称守卫拒绝凭据类材料不代表已证明内容没有秘密；当前包不得作为可公开材料或自动外发。单包/共同容量和清理保护由第 5 节约束，Export 不证明全部清理目标已保全，也不自动授权删除源证据。
 
@@ -418,4 +426,4 @@ Stop 不隐式删除文件；Clean 不隐式杀未知进程。当前非空 work 
 
 ## 6. 关联与待完成规格
 
-工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录、有限条件结果到修复决策和候选的离线交接、mock wire 模型边界、主机结果摘要、只读离线聚合和本机私有 Export 已有代码入口，导出本批验收以 STATUS 为准；正式应用汇总、执行版本来源、公开脱敏/提交、真实提供方、真实值采集、其余规则检查、可信应用验证接纳与本机执行控制仍待闭合和实测。
+工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录、有限条件结果到修复决策和候选的离线交接、mock wire 模型边界、主机结果摘要、执行来源冻结、只读离线聚合和本机私有 Export 已有代码入口，实际验收以 STATUS 为准；正式应用汇总、可重建主机材料与应用工具链来源、公开脱敏/提交、真实提供方、真实值采集、其余规则检查、可信应用验证接纳与本机执行控制仍待闭合和实测。

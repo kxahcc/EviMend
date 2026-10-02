@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -57,7 +58,12 @@ from .policies import (
     PolicyFeatures,
     rule_guidance,
 )
-from .reporting import build_completion
+from .provenance import (
+    capture_execution_provenance,
+    ensure_execution_compatible,
+    validate_session_provenance,
+)
+from .reporting import _owned_file, build_completion
 from .source_search import SourceSearch, search_limits
 from .task import digest, verify_task
 from .task_strategy import build_system_prompt, build_task_message
@@ -385,6 +391,40 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             record_obligation, link_failed_check, evaluate_condition]
 
 
+class ResumeAdmissionRejected(ValueError):
+    """The saved work has not been admitted for any new execution."""
+
+
+def _resume_session(task: Path, work: Path, run_id: str) -> dict[str, Any]:
+    absolute = work.absolute()
+    for path in reversed((absolute, *absolute.parents)):
+        info = path.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or
+                getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+            raise ValueError("resume work path is not an ordinary directory chain")
+    workspace = CandidateWorkspace.reopen(task, work, run_id)
+    path = _owned_file(workspace, workspace.root / "session.json")
+    if path.stat().st_size > 16_777_216:
+        raise ValueError("resume session exceeds the evidence format limit")
+    session = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(session, dict) or session.get("run_id") != run_id:
+        raise ValueError("resume session identity differs")
+    saved = validate_session_provenance(session)
+    if saved is None:
+        raise ValueError("legacy execution provenance is unknown; session is read-only")
+    ensure_execution_compatible(saved)
+    return session
+
+
+def preflight_resume(task: Path, work: Path, run_id: str) -> dict[str, Any]:
+    """Reject incompatible saved execution facts before any writable run resource."""
+    try:
+        return _resume_session(task, work, run_id)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ResumeAdmissionRejected(
+            "resume execution provenance or session identity differs; legacy sessions are read-only") from exc
+
+
 def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     executor: OfflineExecutor, *, resume: bool = False, max_calls: int = 20,
                     max_known_tokens: int = 4000, max_seconds: float = 60,
@@ -403,50 +443,55 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         raise ValueError("unsupported offline capability")
     policy_features = policy_features or PolicyFeatures()
     compaction_policy = compaction_policy or CompactionPolicy()
-    task_info = verify_task(task)
-    workspace = (CandidateWorkspace.reopen(task, work, run_id) if resume
-                 else CandidateWorkspace(task, work, run_id))
-    ledger = CheckLedger(workspace, executor)
-    session_path = workspace.root / "session.json"
-    session: dict[str, Any] = {}
-    if resume:
-        session = json.loads(session_path.read_text(encoding="utf-8"))
-        if session.get("schema_version") != 8:
-            raise ValueError("resume budget or session identity differs")
-        conditions = ConditionStore(workspace)
-        if observations is not None and observations.fingerprint() != conditions.observations_sha256:
-            raise ValueError("resume condition inputs differ")
-        started_at = datetime.fromisoformat(session["started_at"])
-        if started_at.tzinfo is None:
-            raise ValueError("session start time has no timezone")
-    else:
-        conditions = ConditionStore(workspace, observations or SyntheticObservations([]))
-        started_at = datetime.now(UTC)
-    tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
-                   task_info["crash_sha256"], policy_features, capabilities, conditions)
-    system_prompt = build_system_prompt(policy_features)
-    model_profile = (provider_adapter.profile() if provider_adapter is not None else
-                     {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
-    session_identity = {"schema_version": 8, "run_id": run_id, "started_at": started_at.isoformat(),
-                        "max_calls": max_calls, "max_known_tokens": max_known_tokens,
-                        "max_seconds": max_seconds, "max_candidates": max_candidates,
-                        "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
-                        "protocol_sha256": executor.protocol_sha256,
-                        "observations_sha256": conditions.observations_sha256,
-                        "policy_features": policy_features.model_dump(), "model_profile": model_profile,
-                        "context_profile": context_profile(compaction_policy),
-                        "system_prompt_sha256": digest(system_prompt.encode("utf-8")),
-                        "task_message_sha256": digest(build_task_message(
-                            task_id=workspace.task_id, run_id=run_id,
-                            source_snapshot_sha256=workspace.source_snapshot_sha256,
-                            capabilities=capabilities, resume=False).encode("utf-8")),
-                        "tool_schema_sha256": digest(canonical([
-                            {"name": item.name, "description": item.description,
-                             "schema": item.args_schema.model_json_schema()} for item in tools
-                        ]).encode("utf-8")), "search_limits": search_limits()}
+    session = preflight_resume(task, work, run_id) if resume else {}
+    execution_provenance = session["execution_provenance"] if resume else capture_execution_provenance()
+    try:
+        task_info = verify_task(task)
+        workspace = (CandidateWorkspace.reopen(task, work, run_id) if resume
+                     else CandidateWorkspace(task, work, run_id))
+        ledger = CheckLedger(workspace, executor, read_only=resume)
+        session_path = workspace.root / "session.json"
+        if resume:
+            conditions = ConditionStore(workspace)
+            if observations is not None and observations.fingerprint() != conditions.observations_sha256:
+                raise ResumeAdmissionRejected("resume condition inputs differ")
+            started_at = datetime.fromisoformat(session["started_at"])
+            if started_at.tzinfo is None:
+                raise ResumeAdmissionRejected("session start time has no timezone")
+        else:
+            conditions = ConditionStore(workspace, observations or SyntheticObservations([]))
+            started_at = datetime.now(UTC)
+        tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
+                       task_info["crash_sha256"], policy_features, capabilities, conditions)
+        system_prompt = build_system_prompt(policy_features)
+        model_profile = (provider_adapter.profile() if provider_adapter is not None else
+                         {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
+        session_identity = {"schema_version": 9, "run_id": run_id, "started_at": started_at.isoformat(),
+                            "execution_provenance": execution_provenance,
+                            "max_calls": max_calls, "max_known_tokens": max_known_tokens,
+                            "max_seconds": max_seconds, "max_candidates": max_candidates,
+                            "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
+                            "protocol_sha256": executor.protocol_sha256,
+                            "observations_sha256": conditions.observations_sha256,
+                            "policy_features": policy_features.model_dump(), "model_profile": model_profile,
+                            "context_profile": context_profile(compaction_policy),
+                            "system_prompt_sha256": digest(system_prompt.encode("utf-8")),
+                            "task_message_sha256": digest(build_task_message(
+                                task_id=workspace.task_id, run_id=run_id,
+                                source_snapshot_sha256=workspace.source_snapshot_sha256,
+                                capabilities=capabilities, resume=False).encode("utf-8")),
+                            "tool_schema_sha256": digest(canonical([
+                                {"name": item.name, "description": item.description,
+                                 "schema": item.args_schema.model_json_schema()} for item in tools
+                            ]).encode("utf-8")), "search_limits": search_limits()}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        if resume:
+            raise ResumeAdmissionRejected("resume saved facts or configuration differ") from exc
+        raise
     if resume:
         if session != session_identity:
-            raise ValueError("resume budget or session identity differs")
+            raise ResumeAdmissionRejected("resume budget or session identity differs")
+        ledger.read_only = False
     else:
         _atomic_json(session_path, session_identity)
     remaining_seconds = (started_at + timedelta(seconds=max_seconds) - datetime.now(UTC)).total_seconds()
@@ -555,10 +600,12 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         status, error = "unresolved", "action_result_unknown"
     elif any(item["rejection"] == "budget_exhausted" for item in action_records):
         status, error = "budget_exhausted", error or "action_budget"
+    ensure_execution_compatible(execution_provenance)
     completion = build_completion(workspace, ledger, model_calls, actions, stopped_reason=error)
     status = completion["suggested_status"]
     report: dict[str, Any] = {
-        "schema_version": 5, "task_id": workspace.task_id, "run_id": run_id,
+        "schema_version": 6, "task_id": workspace.task_id, "run_id": run_id,
+        "execution_provenance": execution_provenance,
         "source_snapshot_sha256": workspace.source_snapshot_sha256,
         "status": status, "application_verification": "not_run",
         "candidates": candidates, "checks": checks,
@@ -574,7 +621,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         "known_tokens_this_turn": model.known_tokens - prior_tokens,
         "missing_usage_calls_this_turn": model.missing_usage_calls - prior_missing,
         "policy_features": policy_features.model_dump(),
-        "offered_tools": sorted(set(model.offered_tools)),
+        "offered_tools": (completion["execution_facts"]["offered_tools"]
+                          if completion["execution_facts"]["offered_tools"] is not None
+                          else sorted(set(model.offered_tools))),
         "stopped_reason": error, "completion": completion,
         "adapter_error_reason": getattr(model, "request_error_reason", None),
     }

@@ -117,7 +117,7 @@ def test_mock_summary_has_no_tools_keeps_graph_and_counts_all_costs(
     report = run_provider_agent(task, work, "run1", scripted_adapter([
         *read_replies(), wire_response(3, text=SUMMARY), wire_response(4),
     ], requests), check_executor, compaction_policy=policy())
-    assert report["schema_version"] == 5 and report["completion"]["schema_version"] == 2
+    assert report["schema_version"] == 6 and report["completion"]["schema_version"] == 3
     assert report["stopped_reason"] is None and report["status"] == "unresolved"
     assert report["model_calls"] == len(requests) == 4
     assert report["known_tokens"] == report["completion"]["cost"]["total_tokens"] == 60
@@ -148,7 +148,7 @@ def test_mock_summary_has_no_tools_keeps_graph_and_counts_all_costs(
     assert not (work / "base/conversation_history").exists()
     assert not (work / "base/large_tool_results").exists()
     session = json.loads((work / "session.json").read_text(encoding="utf-8"))
-    assert session["schema_version"] == 8
+    assert session["schema_version"] == 9
     assert verified_completion(task, work, check_executor) == report["completion"]
     no_resend: list[dict] = []
     resumed = run_provider_agent(task, work, "run1", scripted_adapter([], no_resend), check_executor,

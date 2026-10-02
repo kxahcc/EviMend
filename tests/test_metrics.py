@@ -408,7 +408,7 @@ def test_present_but_corrupt_evidence_rejects_the_entire_evaluation(base_evaluat
         (work / "model-calls.sqlite-wal").write_bytes(b"unfinished WAL data")
     elif problem == "duplicate-json-key":
         text = report_path.read_text(encoding="utf-8")
-        report_path.write_text('{"schema_version":5,' + text[1:], encoding="utf-8")
+        report_path.write_text('{"schema_version":6,' + text[1:], encoding="utf-8")
     else:
         text = report_path.read_text(encoding="utf-8")
         report_path.write_text('{"untrusted_extra":NaN,' + text[1:], encoding="utf-8")

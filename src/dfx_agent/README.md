@@ -1,6 +1,6 @@
 # 离线证据与修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-02。
+状态：当前使用说明。最后维护：2026-10-03。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
 当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 支持固定响应和模拟模型协议，已把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实云端传输、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。导出是未脱敏的本机私有包，正式应用汇总、执行版本来源和公开脱敏/提交仍待接入，实际验收见 STATUS。
@@ -81,7 +81,7 @@ schema 2 用于检查实际模型协议交接，仍是进程内模拟，不连�
 
 失败后 `link_failed_check` 返回反馈及 feedback_id，再决策时成对传该 feedback_id 与原 candidate_id；主机重新核对已保存失败检查、候选源码哈希和原观察。`decisions/<ID>.json` 保存建议及上下文摘要；`inspect_analysis(decision_id=...)` 可回读，默认列出决策和反馈 ID。`register_candidate` 可选成对传 decision_id/direction_id，核对同诊断、所选提议方向及声明义务；建议不强迫模型采用某一修法。失败与义务的关联仍是推断，只建议重审相关方向。
 
-`agent-report.json` 的 schema 5 记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。completion schema 2 区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
+`agent-report.json` 的 schema 6/completion 3 绑定 session 9 中保存的 execution_provenance，记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
 
 `reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，保留完整核验依据使用受管私有 Export。
 
@@ -97,9 +97,15 @@ schema 2 用于检查实际模型协议交接，仍是进程内模拟，不连�
 
 configuration 的 model_profile_sha256、context_profile_sha256 和 search_limits_sha256 分别取 `sha256(canonical(session[字段]))`，tool_schema_sha256 取 session 同名值，再列出共同 capabilities/max_calls/max_known_tokens/max_seconds/max_candidates/max_tool_calls。canonical/sha256 由 model_calls.py 提供；不要对随意缩进或不同排序的 JSON 直接取这些配置哈希。聚合会重算任务提示及实际主机/solver 工具定义，核对所有 session 与同组预算；普通 solver 原始请求体未保存，不声称完整历史请求重建。
 
-缺目录、缺报告、失败和未知成本均保留在分母；损坏证据拒绝整批，不跳过。首次与最新定位/候选分开，repeat 与任务/谱系分开，不宣称独立样本。所有应用指标为 null、accepted=false。schema 8 未记录历史 Git/lock/SDK 版本，报告也保持 unknown；从现有记录生成清单不能证明当时预登记，正式实验须先冻结清单与完整执行来源。程序 API 为 load_evaluation_manifest / aggregate_evaluation / write_evaluation_report；写入只允许新报告且不能与输入重叠。
+缺目录、缺报告、失败和未知成本均保留在分母；损坏证据拒绝整批，不跳过。首次与最新定位/候选分开，repeat 与任务/谱系分开，不宣称独立样本。所有应用指标为 null、accepted=false。全旧 session 8 数据维持原汇总形状及历史版本 null；存在新来源时，逐行保留原记录，按 compatibility_sha256 列出来源与未知项，已知兼容身份不一致拒绝合并。缺报告的新来源仍须绑定匹配工作区和会话，不能据此补零费用或成功。从现有记录生成清单不能证明当时预登记，正式实验须先冻结清单与完整应用执行来源。程序 API 为 load_evaluation_manifest / aggregate_evaluation / write_evaluation_report；写入只允许新报告且不能与输入重叠。
 
-`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile；`session.json` 使用 schema 8，旧 schema 1–7 会话拒绝续跑，须保留旧证据并另建工作 ID。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile，以及新 session 9 的兼容来源身份。旧 schema 1–8 不续跑，不自动升级，须保留证据并另建工作 ID。来源准入拒绝时 CLI 返回 3，工作进程保留原终态；已准入后运行失败仍记录 failed。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+
+### 运行来源与恢复兼容
+
+`provenance.py` 在新运行创建工作目录前读取受限主机源码清单、uv.lock、pyproject.toml、.python-version 与本机配置，记录文件大小/原字节哈希、实际 Python 标识和安装依赖的 distribution metadata 版本。标准入口在导入 CLI 前冻结主机源码基线，导入后及运行前后复核。Git commit、dirty 和状态摘要只保存初始观察；续跑比较源码、仓库输入和实际环境组成的 compatibility_sha256，不因只改文档/测试或纯文档提交拒绝，也不覆盖原 Git 事实。
+
+恢复来源预检早于可写账本、条件登记、Graph 和模型调用；mock 响应偏移用只读账本取得。记录分层核验源码清单、兼容摘要与完整 provenance_sha256，自洽不等于认证制作者。只读报告/聚合/Verify 不捕获当前环境来回填历史来源；W10 包原样携带嵌入的 session/report，无需新 sidecar。清单不保存主机源码全文或未提交 diff，依赖版本不证明已加载二进制完整性；快照不锁住外部写入者。正式实测仍须提供冻结的主机实现、安装环境和应用工具链/设备依据。
 
 ### 私有证据导出：预览、应用、包内核验
 
@@ -129,7 +135,7 @@ Verify 仍须使用当前已初始化的受管环境，核对其 owner、依赖�
 
 两种离线模型共享 context_profile：关闭 SDK 自动摘要和人类消息/工具结果卸载，避免它们写入冻结原版或绕过调用恢复。默认不压缩，序列化消息超限以 context_limit 停止，格式不支持以 context_format_unsupported 停止；字节限额定义在 models.py，与云端 Token 窗口不同。可选主机压缩由 context_compaction.py 的 CompactionPolicy 配置，保留原 Graph 全历史、system、启动任务和近期完整工具组，只替换模型发送视图中的较早闭合前缀。首版重新摘要全部前缀；摘要输入、输出或必须保留的尾部过大仍停止，不支持无限历史。
 
-脚本顶层可添加 `"context_compaction":{"policy":{"enabled":true}}`；默认参数及约束以 CompactionPolicy 为准。固定响应 schema 1 还须按实际摘要顺序提供独立 `responses`，每项 `{"text":"归纳文字","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`；缺失列表在需要新摘要时停止。mock schema 2 禁止独立列表，摘要响应与 solver 响应在 model.responses 中按所有实际请求顺序交错。程序入口对应 `compaction_policy=CompactionPolicy(...)`，固定入口额外接受 compaction_responses；策略及提示指纹在 session 8 冻结，恢复不得替换。此配置仍不允许真实模型。
+脚本顶层可添加 `"context_compaction":{"policy":{"enabled":true}}`；默认参数及约束以 CompactionPolicy 为准。固定响应 schema 1 还须按实际摘要顺序提供独立 `responses`，每项 `{"text":"归纳文字","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`；缺失列表在需要新摘要时停止。mock schema 2 禁止独立列表，摘要响应与 solver 响应在 model.responses 中按所有实际请求顺序交错。程序入口对应 `compaction_policy=CompactionPolicy(...)`，固定入口额外接受 compaction_responses；策略及提示指纹在 session 9 冻结，恢复不得替换。此配置仍不允许真实模型。
 
 摘要使用无工具请求、独立 compaction-model-N 身份及统一预算，work/compactions 保存冻结原消息、有效摘要视图和 solver 绑定。摘要先保存 usage，再验证非空 text_only、输出限额和确实缩短；返回工具或无效归纳以 context_summary_invalid 停止，不重试、不执行摘要工具。结果未落 Graph 前恢复只回放已完成摘要，已发出未保存不重发；摘要耗尽额度后没有免费 solver。摘要包装的 authority 始终是 model_inference，“已通过”不能生成检查事实；reporting.read_completion 同时重建核验来源、响应及有效发送视图。合成验收用 test_context_compaction.py 与 test_compaction_loop.py，归纳质量和模型效果仍待实测。
 

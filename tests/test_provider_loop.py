@@ -71,7 +71,7 @@ def test_wire_task_strategy_tools_and_accounted_intent_are_identical(tmp_path: P
     adapter = scripted_adapter([wire_response(1)], requests)
     report = run_provider_agent(task, work, "run1", adapter,
                                 FixedTextExecutor("src/main.ets", "value=good\n"))
-    assert report["schema_version"] == 5
+    assert report["schema_version"] == 6
     assert report["model_calls"] == 1 and report["known_tokens"] == 15, report["adapter_error_reason"]
     assert report["uncertain_model_calls"] == 0
     assert report["completion"]["latest_candidate_id"] is None
@@ -98,7 +98,7 @@ def test_wire_task_strategy_tools_and_accounted_intent_are_identical(tmp_path: P
         "body_sha256": sha256(canonical(body)), "profile_sha256": sha256(canonical(adapter.profile())),
     }))
     session = json.loads((work / "session.json").read_text(encoding="utf-8"))
-    assert session["schema_version"] == 8 and session["model_profile"] == adapter.profile()
+    assert session["schema_version"] == 9 and session["model_profile"] == adapter.profile()
 
 
 def test_provider_search_diagnosis_and_failed_candidate_revision(tmp_path: Path) -> None:
