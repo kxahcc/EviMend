@@ -31,6 +31,7 @@ from .actions import (
     ToolAuthorizationMiddleware,
 )
 from .conditions import ConditionRequest, ConditionStore, SyntheticObservations
+from .context_compaction import CompactionPolicy, CompactionStore
 from .contracts import (
     IDENTIFIER,
     Diagnosis,
@@ -391,7 +392,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     capabilities: frozenset[str] | None = None,
                     policy_features: PolicyFeatures | None = None,
                     observations: SyntheticObservations | None = None,
-                    provider_adapter: ChatCompletionsAdapter | None = None) -> dict[str, Any]:
+                    provider_adapter: ChatCompletionsAdapter | None = None,
+                    compaction_policy: CompactionPolicy | None = None,
+                    compaction_responses: list[AIMessage] | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
         raise ValueError("budgets must be positive")
@@ -399,6 +402,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     if not capabilities <= OFFLINE_CAPABILITIES:
         raise ValueError("unsupported offline capability")
     policy_features = policy_features or PolicyFeatures()
+    compaction_policy = compaction_policy or CompactionPolicy()
     task_info = verify_task(task)
     workspace = (CandidateWorkspace.reopen(task, work, run_id) if resume
                  else CandidateWorkspace(task, work, run_id))
@@ -407,7 +411,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     session: dict[str, Any] = {}
     if resume:
         session = json.loads(session_path.read_text(encoding="utf-8"))
-        if session.get("schema_version") != 7:
+        if session.get("schema_version") != 8:
             raise ValueError("resume budget or session identity differs")
         conditions = ConditionStore(workspace)
         if observations is not None and observations.fingerprint() != conditions.observations_sha256:
@@ -423,14 +427,14 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     system_prompt = build_system_prompt(policy_features)
     model_profile = (provider_adapter.profile() if provider_adapter is not None else
                      {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
-    session_identity = {"schema_version": 7, "run_id": run_id, "started_at": started_at.isoformat(),
+    session_identity = {"schema_version": 8, "run_id": run_id, "started_at": started_at.isoformat(),
                         "max_calls": max_calls, "max_known_tokens": max_known_tokens,
                         "max_seconds": max_seconds, "max_candidates": max_candidates,
                         "max_tool_calls": max_tool_calls, "capabilities": sorted(capabilities),
                         "protocol_sha256": executor.protocol_sha256,
                         "observations_sha256": conditions.observations_sha256,
                         "policy_features": policy_features.model_dump(), "model_profile": model_profile,
-                        "context_profile": context_profile(),
+                        "context_profile": context_profile(compaction_policy),
                         "system_prompt_sha256": digest(system_prompt.encode("utf-8")),
                         "task_message_sha256": digest(build_task_message(
                             task_id=workspace.task_id, run_id=run_id,
@@ -454,6 +458,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                max_known_tokens=max_known_tokens,
                                deadline=time.monotonic() + max(0, remaining_seconds),
                                call_store=model_calls, task_id=workspace.task_id, run_id=run_id,
+                               compactor=CompactionStore(workspace.root, workspace.task_id, run_id,
+                                                         compaction_policy, model_profile),
+                               compaction_responses=compaction_responses or [],
                                **provider_arguments)
     register_harness_profile(model._llm_type, HarnessProfile(
         excluded_tools=frozenset({"ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute", "task",
@@ -480,6 +487,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
             checkpointer=saver, subagents=[],
             middleware=middleware,
         )
+        previous: list[AIMessage] = []
         if resume:
             checkpoint = graph.get_state(config)
             pending_graph = bool(checkpoint.next)
@@ -490,13 +498,29 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
             previous_count = 0
             pending_graph = False
         summary = model_calls.usage_summary(workspace.task_id, run_id)
-        if previous_count > summary["completed_calls"]:
+        solver_records = model_calls.records(workspace.task_id, run_id, kind="solver")
+        if [item.intent.call_id for item in solver_records] != [f"model-{index + 1}" for index in range(len(solver_records))]:
+            raise ValueError("solver ledger sequence differs")
+        if previous_count > len(solver_records):
             raise ValueError("model ledger is missing checkpointed responses")
+        if resume:
+            for index, checkpoint_message in enumerate(previous):
+                record = solver_records[index]
+                if (record.state != "completed" or
+                        checkpoint_message.response_metadata.get("dfx_model_call_id") != record.intent.call_id):
+                    raise ValueError("checkpoint model identity differs from solver ledger")
+                saved, _ = model_calls.replay(record.intent)
+                checkpoint_value, saved_value = checkpoint_message.model_dump(mode="json"), saved.model_dump(mode="json")
+                if saved.id is None:
+                    # LangChain adds a response ID after our durable provider boundary.
+                    checkpoint_value["id"] = None
+                if canonical(checkpoint_value) != canonical(saved_value):
+                    raise ValueError("checkpoint response differs from solver receipt")
         model.turn_calls = previous_count
         model.calls = summary["reserved_calls"]
         model.known_tokens = summary["known_total_tokens"]
         model.missing_usage_calls = summary["missing_usage_calls"] + summary["invalid_usage_calls"]
-        pending_model_call = summary["reserved_calls"] > previous_count
+        pending_model_call = len(solver_records) > previous_count
         prior_calls, prior_tokens, prior_missing = model.calls, model.known_tokens, model.missing_usage_calls
         try:
             if resume and (pending_model_call or pending_graph):
@@ -534,7 +558,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     completion = build_completion(workspace, ledger, model_calls, actions, stopped_reason=error)
     status = completion["suggested_status"]
     report: dict[str, Any] = {
-        "schema_version": 4, "task_id": workspace.task_id, "run_id": run_id,
+        "schema_version": 5, "task_id": workspace.task_id, "run_id": run_id,
         "source_snapshot_sha256": workspace.source_snapshot_sha256,
         "status": status, "application_verification": "not_run",
         "candidates": candidates, "checks": checks,

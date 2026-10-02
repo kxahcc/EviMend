@@ -9,7 +9,7 @@
 
 设计可以先确定算法步骤、数据对象、工具边界、控制器分支和验证义务。需要实测才能决定的是：策略是否有效、哪些案例可稳定复现、模型与预算如何取值，以及业务判据是否充分。当前不把这些待验证问题写成已证实结论。
 
-开发优先完成 W05 的通用任务能力：模型任务指引、跨文件检索、可配置模型边界、诊断和补丁交接、验证反馈、恢复与可核验终止报告。固定响应与 mock-only Chat Completions 两种入口共用闭环；后者用于检查实际请求字节和 SDK 交接，不代表已经连通云端。当前有限上下文路径关闭 SDK 隐式压缩和卸载，先保持原版与账本完整。W05 后续先设计/验收独立产物位置、摘要记账与恢复的受管压缩，再预实现 W09 的结果聚合和 W10 的受管证据导出，真实执行和比较仍经 W08。可信采值的有限源码解析和运行观察按下方独立子包推进，不作为基础 Agent 尝试修复或离线结果汇总的前置条件。
+开发优先完成 W05 的通用任务能力：模型任务指引、跨文件检索、可配置模型边界、诊断和补丁交接、验证反馈、恢复与可核验终止报告。固定响应与 mock-only Chat Completions 两种入口共用闭环；后者用于检查实际请求字节和 SDK 交接，不代表已经连通云端。SDK 隐式压缩和卸载保持关闭；可选主机压缩只调整发送视图，统一摘要费用与恢复，保护原历史和基准。W05 的合成边界验收后预实现 W09 的结果聚合和 W10 的受管证据导出，真实执行和比较仍经 W08。可信采值的有限源码解析和运行观察按下方独立子包推进，不作为基础 Agent 尝试修复或离线结果汇总的前置条件。
 
 ## 阶段与依赖
 
@@ -72,7 +72,7 @@
 | W02 / W01 | scripts/local_job.cs 的最小 Win32 封装，local.ps1 的受管 Run/Stop、资源监测和日志限额；无需项目 Python | 同一自检脚本 -Suite Processes：小规模父子进程退出、控制器崩溃、CPU/内存设置查询与轻量行为验证、超时、输出上限、并发互斥、PID 重用；限制不可用则拒绝 Run，不得仅输出警告后继续 |
 | W03 / W02 | Init 固定便携 uv/CPython，pyproject/uv.lock，检查目录路由；Deep Agents 最小兼容脚本及固定响应模型 | -Suite Bootstrap 验证所有受控路径及重复 Init；锁定同步成功后以 mock 模型检查编辑、候选登记、全调用计费、关闭委派与 SQLite 恢复。记录真实版本；需要大改 SDK 内部就报告具体 API 冲突 |
 | W04 / W03 | src/dfx_agent/contracts.py、workspace.py，结构化对象、引用校验和从基准建立候选；继续复用 task/logs/sources | tests/test_contracts.py、test_workspace.py：错误行号、推断冒充执行、错误版本、候选应用失败、检查前登记、回退、源数据未改、快照无可写共享链接 |
-| W05 / W04 | models.py、model_provider.py、model_calls.py、agent.py、task_strategy.py、source_search.py、verification.py、reporting.py、offline_script.py 和 CLI repair/resume：两种离线入口共用诊断、补丁、反馈、恢复和终止报告。mock-only 配置只检验文字/工具 Chat Completions 边界，不接受凭据或真实端点 | tests/test_agent_loop.py、test_task_strategy.py、test_source_search.py、test_task_handoff.py、test_model_provider.py、test_provider_loop.py、test_reporting.py、test_offline_script.py、test_offline_cli.py：实际 SDK 指引/工具交接、检索和失败修订通过；请求规范字节/消息/工具/参数/profile 身份一致；未知格式发送前拒绝，已发出但无结果禁止盲重试；无效工具响应计账后停止，原始 usage 的 known/missing/invalid 不丢失。session 7 固定配置与预算，report 4 的 completion 能按持久事实回读核验，初次定位不被事后诊断替换，最新候选失败不能被历史通过掩盖，未知 Token/耗时不补零；CLI 严格区分脚本 schema 1/2，恢复不重置额度。全部只证明离线软件行为，不能证明自主推理或应用成功 |
+| W05 / W04 | models.py、model_provider.py、model_calls.py、context_compaction.py、agent.py、task_strategy.py、source_search.py、verification.py、reporting.py、offline_script.py 和 CLI repair/resume：两种离线入口共用诊断、补丁、反馈、恢复和终止报告；主机压缩使用独立来源/结果/发送视图产物。mock-only 不接受凭据或真实端点 | 既有循环、模型边界、报告和 CLI 测试，以及 test_context_boundary.py、test_context_compaction.py、test_compaction_loop.py：实际 SDK 指引/工具交接、检索和失败修订；完整工具组不可拆、原版/Graph 不变、摘要无工具且独立身份、总费用一致；摘要已完成但 Graph 未保存可回放，发出未知不重试，非法摘要记账后停止，末额度不产生免费 solver；来源/结果/发送视图篡改拒绝。session 8 固定配置与预算，report 5/completion 2 按持久事实核验初次定位、最新候选和压缩关联；未知 Token/耗时不补零；CLI schema 1/2 严格载入，恢复不重置额度。全部只证明合成软件行为，不能证明自主推理、摘要忠实度或应用成功 |
 | W06 / W05 | backends.py 和 remote_service.py 的 HTTP 模拟服务，提交/查询/取消/能力/产物及独立作业状态持久化；只验证通用协议语义 | tests/test_remote_contract.py 用本地短时模拟服务：重复幂等键、提交后丢响应、服务重启、取消未确认、产物哈希错、离线；测试结束无后台进程；不得让每次 poll 产生新作业 |
 | W07 / W05、W06 | policies.py、四类 Skill 与受控注册配置；义务和反例引用、直接/查证路径、策略开关 | tests/test_policies.py：相同修法不探针、错误推断不硬拒、无区分力不执行、业务反例改变修法、旧版本不误用、未知类别回通用路径；基础组工具不削弱。此包只证明分支行为 |
 | W08 / W06，本机资源与实验条件已就绪 | 先只读盘点本机硬件、磁盘、现有 HarmonyOS 工具/设备及案例构建依赖；按第 9 节完成受管 SDK/构建/设备作业入口、停止和清理验收。再核对并冻结正式任务清单/谱系划分、独立业务协议，接入真实模型，先执行基础 Agent | 按 P2 门槛核对原故障、正常行为、签名/产物版本；案例目录哈希不代替实测接纳。基础闭环逐例产出可追溯记录；容量或受管限制不满足则保留 blocked，不编造结果，不绕过入口安装 SDK/启动模拟器 |

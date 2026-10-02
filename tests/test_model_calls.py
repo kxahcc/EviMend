@@ -166,3 +166,96 @@ def test_summary_rejects_changed_ledger_identity(tmp_path: Path) -> None:
         connection.execute("UPDATE model_calls SET run_id=? WHERE call_id=?", ("other_run", "call1"))
     with pytest.raises(ModelCallConflict, match="stored request identity changed"):
         store.usage_summary("task1", "other_run")
+
+
+def test_records_keep_reservation_order_all_states_and_interleaved_kinds(tmp_path: Path) -> None:
+    store = ModelCallStore(tmp_path / "calls.db")
+    store.reserve(intent("z-solver"), max_calls=10)
+    invoke_accounted(store, intent("a-compaction", kind="context_compaction"), response, max_calls=10)
+    store.reserve(intent("m-solver"), max_calls=10)
+    store.dispatch("m-solver")
+    store.mark_unknown("m-solver", "response_lost")
+    store.reserve(intent("b-compaction", kind="context_compaction"), max_calls=10)
+    store.dispatch("b-compaction")
+    invoke_accounted(store, intent("f-format", kind="format_repair"), response, max_calls=10)
+    store.reserve(intent("r-retry", kind="sdk_retry"), max_calls=10)
+
+    records = store.records("task1", "run1")
+    assert [item.intent.call_id for item in records] == [
+        "z-solver", "a-compaction", "m-solver", "b-compaction", "f-format", "r-retry"]
+    assert [item.state for item in records] == [
+        "reserved", "completed", "unknown", "dispatched", "completed", "reserved"]
+    assert records[1] == store.get("a-compaction")
+    assert records[1].observation is not None
+    assert records[1].observation.tool_calls[0].arguments_sha256 == sha256('{"path":"src/Main.ets"}')
+    assert records[2].observation is None and records[2].uncertainty_reason == "response_lost"
+    assert [item.intent.call_id for item in store.records("task1", "run1", kind="solver")] == [
+        "z-solver", "m-solver"]
+    assert [item.intent.call_id for item in store.records("task1", "run1", kind="context_compaction")] == [
+        "a-compaction", "b-compaction"]
+    assert [item.intent.call_id for item in store.records("task1", "run1", kind="format_repair")] == ["f-format"]
+    assert [item.intent.call_id for item in store.records("task1", "run1", kind="sdk_retry")] == ["r-retry"]
+    assert store.usage_summary("task1", "run1") == {
+        "reserved_calls": 6, "completed_calls": 2, "uncertain_calls": 2,
+        "missing_usage_calls": 0, "invalid_usage_calls": 0, "known_input_tokens": 24,
+        "known_output_tokens": 8, "known_total_tokens": 32}
+
+
+def test_records_use_exact_owner_and_do_not_expand_an_empty_match(tmp_path: Path) -> None:
+    store = ModelCallStore(tmp_path / "calls.db")
+    store.reserve(intent("owned"), max_calls=2)
+    store.reserve(intent("other-run", run_id="run2", kind="context_compaction"), max_calls=2)
+    store.reserve(intent("other-task", task_id="task2", kind="context_compaction"), max_calls=2)
+    assert [item.intent.call_id for item in store.records("task1", "run1")] == ["owned"]
+    assert [item.intent.call_id for item in store.records("task1", "run2")] == ["other-run"]
+    assert [item.intent.call_id for item in store.records("task2", "run1")] == ["other-task"]
+    assert store.records("absent-task", "run1") == []
+    assert store.records("task1", "run1", kind="context_compaction") == []
+
+
+@pytest.mark.parametrize("kind", ["", "all", "SOLVER", "solver%", "solver OR 1=1"])
+def test_records_reject_unsupported_kind_without_widening(tmp_path: Path, kind: str) -> None:
+    store = ModelCallStore(tmp_path / "calls.db")
+    store.reserve(intent(), max_calls=1)
+    with pytest.raises(ValueError, match="invalid model call kind"):
+        store.records("task1", "run1", kind=kind)
+
+
+@pytest.mark.parametrize(("task_id", "run_id"), [("", "run1"), ("task1", ""), ("%", "run1"),
+                                                  ("task1", "run1' OR 1=1")])
+def test_records_reject_invalid_owner_without_widening(tmp_path: Path, task_id: str, run_id: str) -> None:
+    store = ModelCallStore(tmp_path / "calls.db")
+    store.reserve(intent(), max_calls=1)
+    with pytest.raises(ValueError, match="invalid model ledger owner"):
+        store.records(task_id, run_id)
+
+
+def test_records_are_read_only_fresh_values(tmp_path: Path) -> None:
+    path = tmp_path / "calls.db"
+    store = ModelCallStore(path)
+    invoke_accounted(store, intent(), response, max_calls=2)
+    store.reserve(intent("pending", kind="context_compaction"), max_calls=2)
+    with sqlite3.connect(path) as connection:
+        before_version = connection.execute("PRAGMA data_version").fetchone()[0]
+        before_rows = list(connection.iterdump())
+        first = store.records("task1", "run1")
+        second = store.records("task1", "run1")
+        assert first == second and first is not second
+        assert first[0] is not second[0]
+        assert first[0].intent is not second[0].intent
+        assert first[0].observation is not second[0].observation
+        first.clear()
+        assert store.records("task1", "run1") == second
+        assert store.records("task1", "run1", kind="context_compaction") == [second[1]]
+        assert connection.execute("PRAGMA data_version").fetchone()[0] == before_version
+        assert list(connection.iterdump()) == before_rows
+
+
+def test_records_validate_owned_records_before_kind_filter(tmp_path: Path) -> None:
+    path = tmp_path / "calls.db"
+    store = ModelCallStore(path)
+    store.reserve(intent("summary", kind="context_compaction"), max_calls=1)
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE model_calls SET request_sha256=? WHERE call_id=?", (sha256("changed"), "summary"))
+    with pytest.raises(ModelCallConflict, match="stored request identity changed"):
+        store.records("task1", "run1", kind="solver")

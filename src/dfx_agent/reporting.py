@@ -11,6 +11,7 @@ from typing import Any
 
 from .actions import ToolActionStore
 from .conditions import ConditionStore
+from .context_compaction import CompactionPolicy, CompactionStore
 from .contracts import CandidatePatch
 from .decisions import DecisionStore
 from .diagnostics import AnalysisStore
@@ -79,7 +80,7 @@ def _action_facts(workspace: CandidateWorkspace, actions: ToolActionStore,
     contents: dict[str, str] = {}
     for item in records:
         parent = model_calls.get(item["model_call_id"])
-        if (parent is None or parent.state != "completed" or
+        if (parent is None or parent.state != "completed" or parent.intent.kind != "solver" or
                 parent.intent.task_id != workspace.task_id or parent.intent.run_id != workspace.run_id):
             raise ValueError("report action has no completed model call for this run")
         message, _ = model_calls.replay(parent.intent)
@@ -174,6 +175,12 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
         raise ValueError("report baseline changed")
     session = _session(workspace, ledger)
     model_records = _model_facts(workspace, model_calls)
+    context = session.get("context_profile", {}) if session is not None else {}
+    compaction_policy = CompactionPolicy.model_validate(context.get("host_compaction", {}))
+    model_profile = (session["model_profile"] if session is not None else
+                     {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
+    compactions = CompactionStore(workspace.root, workspace.task_id, workspace.run_id,
+                                 compaction_policy, model_profile).audit(model_calls)
     action_records, receipts = _action_facts(workspace, actions, model_calls)
     decisions = [record.model_dump(mode="json") for record in DecisionStore(workspace).records().values()]
     conditions = ConditionStore(workspace)
@@ -235,7 +242,9 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
     budget_exhausted = budget_rejected or stopped_reason in ("model_budget", "action_budget", "wall_time")
     unknown = bool(usage["uncertain_calls"] or unknown_tools or pending_checks or undispatched_models)
     provider_failure = stopped_reason in ("provider_format_error", "provider_request_unsupported",
-                                         "context_limit", "context_format_unsupported")
+                                         "context_limit", "context_format_unsupported", "context_summary_invalid",
+                                         "context_compaction_input_limit", "fixed_compaction_responses_exhausted")
+    provider_failure = provider_failure or any(item["outcome"] == "invalid" for item in compactions)
     suggested_status = ("unresolved" if unknown or provider_failure else "budget_exhausted" if budget_exhausted else
                         "offline_checked" if latest_status == "pass" else "unresolved")
     unsequenced = sorted(set(bundles) - set(diagnosis_order))
@@ -276,6 +285,7 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
                           for identifier, bundle in sorted(bundles.items())},
              "obligations": {identifier: item.model_dump(mode="json") for identifier, item in sorted(obligations.items())},
              "candidate_artifacts": candidate_artifacts, "actions": action_records, "model_calls": model_records,
+             "context_compactions": compactions,
              "decisions": decisions, "condition_results": condition_results,
              "observations_sha256": observations_sha256,
              "session": session}
@@ -287,7 +297,7 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
                          "missing_usage_calls_this_turn"]
     (verified_fields if session is not None else unverified_fields).append("policy_features")
     (verified_fields if model_records else unverified_fields).append("offered_tools")
-    value = {"schema_version": 1, "task_id": workspace.task_id, "run_id": workspace.run_id,
+    value = {"schema_version": 2, "task_id": workspace.task_id, "run_id": workspace.run_id,
              "source_snapshot_sha256": workspace.source_snapshot_sha256,
              "authority": "host_summary", "suggested_status": suggested_status, "stopped_reason": stopped_reason,
              "localization": {"initial": None if initial_id is None else facts["analysis"][initial_id],
@@ -296,6 +306,7 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
                               "initial_cutoff_action_id": first_edit, "ordering": "tool_action_ledger",
                               "diagnosis_order": diagnosis_order, "unsequenced_diagnosis_ids": unsequenced},
              "candidate_artifacts": candidate_artifacts,
+             "context_compactions": compactions,
              "latest_candidate_id": None if latest is None else latest["candidate"]["candidate_id"],
              "latest_candidate_check_status": latest_status,
              "historical_passed_candidate_ids": [item["candidate"]["candidate_id"] for item in candidate_artifacts
@@ -313,6 +324,8 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
                               "pending_checks": pending_checks},
              "unresolved_reasons": reasons,
              "cost": {**usage, "usage_complete": usage_complete,
+                      "calls_by_kind": {kind: sum(record["intent"]["kind"] == kind for record in model_records)
+                                        for kind in ("solver", "context_compaction", "format_repair", "sdk_retry")},
                       "total_tokens": usage["known_total_tokens"] if usage_complete else None,
                       "monetary_cost": None, "tool_calls": len(action_records), "rejected_tool_calls": rejected_tools,
                       "uncertain_tool_calls": unknown_tools, "undispatched_model_calls": undispatched_models,
@@ -323,9 +336,9 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
 
 def read_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_calls: ModelCallStore,
                     actions: ToolActionStore) -> dict[str, Any]:
-    """Recompute a schema-4 report summary against current frozen facts, without rerunning them."""
+    """Recompute a schema-5 report summary against current frozen facts, without rerunning them."""
     report = json.loads(_owned_file(workspace, workspace.root / "agent-report.json").read_text(encoding="utf-8"))
-    if (not isinstance(report, dict) or report.get("schema_version") != 4 or report.get("task_id") != workspace.task_id or
+    if (not isinstance(report, dict) or report.get("schema_version") != 5 or report.get("task_id") != workspace.task_id or
             report.get("run_id") != workspace.run_id or
             report.get("source_snapshot_sha256") != workspace.source_snapshot_sha256):
         raise ValueError("completion report schema, task, run or snapshot differs")

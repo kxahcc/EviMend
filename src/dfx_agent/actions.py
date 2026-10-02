@@ -172,6 +172,8 @@ class ToolAuthorizationMiddleware(AgentMiddleware):
         if (parent is None or parent.state != "completed" or parent.intent.task_id != self.workspace.task_id or
                 parent.intent.run_id != self.workspace.run_id):
             raise ValueError("tool has no accounted model response")
+        if parent.intent.kind != "solver":
+            raise ValueError("derived model call cannot authorize tools")
         saved, observation = self.model_calls.replay(parent.intent)
         if (saved.model_dump(exclude={"id"}) != messages[-1].model_dump(exclude={"id"}) or
                 request.tool_call not in messages[-1].tool_calls or observation.format_status == "format_error"):

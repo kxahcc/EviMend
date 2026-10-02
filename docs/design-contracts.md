@@ -69,11 +69,15 @@ SDK 的两种离线模型共用 `ToolAuthorizationMiddleware`：主机把工具�
 
 收到消息后保存规范化消息及哈希、提供方消息 ID、工具名称/ID/参数摘要与格式问题。wire 的非 null 原始 usage 完整保留为 response_metadata.dfx_provider_usage_raw；prompt_tokens/completion_tokens/total_tokens 须为非负整数、合计一致并与 usage_metadata 的 input/output/total 对应，才能标为 known。原值缺失/null 为 missing，存在但无效或映射不一致为 invalid；账本保存原值摘要，不以类型强制转换或文本长度补估。格式错误仍是完成的一次调用，不能丢掉其 usage。原始消息只留本机受管状态，不进入 Git 或默认汇总导出；text_only、模型自称成功和工具参数不产生执行事实。
 
-session schema 7 冻结 model_profile、context_profile、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略和合成 registry 指纹；续跑须全部一致，旧会话 schema 1–6 不续跑，另建 run 保留历史。项目提示摘要不代表 SDK 拼接后的全部消息，每次请求仍按实际 wire 留指纹；Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
+session schema 8 冻结 model_profile、context_profile（含主机压缩策略和摘要提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略和合成 registry 指纹；续跑须全部一致，旧会话 schema 1–7 不续跑，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
 
-context_profile 定义当前有限上下文边界：两种模型在 reserve 之前核对完整序列化消息的 UTF-8 字节上限，超限以 context_limit 结束，无法序列化以 context_format_unsupported 结束，均不新增调用。SDK 的 SummarizationMiddleware 显式排除；必需的 FilesystemMiddleware 通过公开同类替换关闭人类消息与工具结果卸载，原 14 工具及授权保留。基础/增强同策略，不能在后台压缩、写入原版、重试或丢弃历史后继续。字节上限唯一维护在 models.py，不代表提供方 Token 窗口；受管压缩须另行设计无工具摘要调用、独立产物和派生调用恢复后验收。
+context_profile 定义有限上下文和可选主机压缩：默认 disabled 时，两种模型在 reserve 之前核对完整序列化消息的 UTF-8 字节上限；enabled 时先按 CompactionPolicy 触发并核验完整历史，system 与首次任务消息固定保留，assistant 多工具及全部对应结果为不可拆的一组。只压缩较早闭合前缀，保留近期完整组；孤立、重复、缺失结果或不支持结构在摘要调用前拒绝。Graph 原历史不删改，实际 solver 视图仍须满足 models.py 的硬限额；必须保留的尾部或摘要输入过大时明确停止。首版重新摘要完整前缀，不支持滚动摘要；策略参数唯一维护在 context_compaction.py，字节限额不代表提供方 Token 窗口。
 
-`offline_script.py` 的受限 loader 只接纳既有固定响应 schema 1 或 mock_chat_completions schema 2。脚本必须是普通文件，路径链拒绝链接/重解析点，文件拒绝多硬链接；读取前后核对身份、大小及修改时间并冻结读到的规范 JSON。字段、正数预算、策略和合成 expectation 严格校验，返回对象每次生成独立模型和响应流。CLI repair/resume 经现有受管离线入口分流；mock 续跑按已完成调用偏移响应流，完成调用仍由账本回放，次数与时间额度不重置。脚本 expectation 仅供合成执行器，不能作为应用 oracle 或进入真实求解上下文；该入口不开放云端实验。
+每个 solver 位点最多一个稳定 compaction-model-N 调用，kind=context_compaction、tool schema 为空，独立 prepare/invoke，不绑定或更改 SDK solver 工具。输入为明确引用的数据，归纳提示要求保留失败、未知和来源。work/compactions/model-N.plan.json 冻结完整原消息、哈希、范围、策略和模型 profile；同位点输入改变则拒绝，不能以新内容哈希绕开未知调用。摘要与求解共用 ModelCallStore、次数、已知 Token 和截止时间，无 SDK 隐式重试或免费摘要。已完成摘要在 Graph 落盘前崩溃可回放；reserved 尚未发出可按原请求发送，dispatched/unknown 不重发。摘要用掉最后额度后停止，不额外执行 solver。
+
+摘要响应先保存完整消息和 usage，再核验 text_only、非空 UTF-8、输出上限和实际缩短；工具调用、格式错误或不缩短的摘要以 context_summary_invalid 停止，不执行或自动修正。有效 result.json 保存带 authority=model_inference、范围与原消息哈希的 HumanMessage 包装及有效发送视图；solver.json 绑定其实际请求和账本。只读 audit 重建这些关联，拒绝篡改、错归属、链接、共享硬链接和孤立产物；摘要声明“通过”不生成检查、诊断确认或其他 host fact。摘要及派生调用不得作为 ToolActionStore 的工具授权父调用。SDK 的 SummarizationMiddleware 继续排除；必需的 FilesystemMiddleware 通过公开同类替换关闭消息与结果卸载。基础/增强使用相同配置，不把上下文能力差异算成领域方法收益。
+
+`offline_script.py` 的受限 loader 只接纳固定响应 schema 1 或 mock_chat_completions schema 2。可选 context_compaction.policy 接纳严格 CompactionPolicy；固定入口的 context_compaction.responses 是独立 text/usage 摘要列表，不消耗 solver 脚本。mock 入口禁止该独立列表，摘要和求解共用按实际请求排序的 wire 响应流。脚本必须是普通文件，路径链拒绝链接/重解析点，文件拒绝多硬链接；读取前后核对身份、大小及修改时间并冻结规范 JSON。字段、正数预算、策略和合成 expectation 严格校验，返回对象每次生成独立模型和响应流。CLI repair/resume 经现有受管离线入口分流；mock 续跑按全部已完成调用（包括摘要）偏移响应流，完成调用仍由账本回放，次数与时间额度不重置。脚本 expectation 仅供合成执行器，不能作为应用 oracle 或进入真实求解上下文；该入口不开放云端实验。
 
 ### 1.2.3 已登记诊断到修复决策
 
@@ -135,13 +139,13 @@ W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈
 
 ### 1.3.2 主机终止摘要与结果核验
 
-`agent-report.json` 使用 report schema 4，completion 为 schema 1 的 host_summary，由 `reporting.py` 的 build_completion 在运行结束后读取持久事实生成，不采信模型结尾的“修好了”。它核对基准原字节、登记诊断/义务/决策/条件、候选源码/manifest/diff、检查意图与结果，以及模型账本和工具动作的归属、请求与回执。facts_sha256 固定这些输入，summary_sha256 固定派生摘要；哈希表示内容一致，不提升证据来源。
+`agent-report.json` 使用 report schema 5，completion 为 schema 2 的 host_summary，由 `reporting.py` 的 build_completion 在运行结束后读取持久事实生成，不采信模型结尾的“修好了”。它核对基准原字节、登记诊断/义务/决策/条件、候选源码/manifest/diff、检查意图与结果、模型账本和工具动作的归属/请求/回执，以及压缩原消息、摘要响应与实际 solver 视图的关联。context_compactions 保留有效/无效、未请求/等待/未知、结果是否落盘及 solver 绑定状态，facts_sha256 固定这些输入，summary_sha256 固定派生摘要；哈希表示内容一致，不提升证据来源。
 
 定位按工具动作账本排序：initial 是首次允许 edit_source 之前、已有完成回执的首个登记诊断；首次允许编辑即形成 cutoff，即使该编辑后来失败，也不能用后续诊断补成初次预测。latest 是最后一个有完成回执的登记诊断，candidate_linked 是最新候选实际关联的诊断；三者可以不同。已登记但没有可核对动作顺序的诊断列为 unsequenced，不猜测其先后。各定位保持 model_inference/root_cause_confirmation=unknown，包含候选根因位置及原证据；没有 ground truth 判断就不生成定位准确率。
 
 候选按登记 ordinal 排序，保留全部 patch 引用及摘要、manifest、not_requested/pending/completed 检查状态和实际回执。latest_candidate_id 只指最后一个候选，最终状态依据它的检查，不选择历史上最好的一次：旧候选通过而最新候选失败或未查时，保留历史通过列表并报告当前 unresolved。未完成模型/工具/检查优先保持未知，模型格式或不支持请求同样 unresolved；预算耗尽按其停止条件报告。离线通过最多是 offline_checked；有已保存检查时 verification.level 为 offline_synthetic，否则为 not_run；accepted 始终 false，application_verification 始终 not_run。
 
-cost 从模型和动作账本汇总所有登记调用、已知 Token、missing/invalid usage、未发出/结果未知调用、拒绝动作与检查请求。只有全部登记调用完成且 usage 完整时 total_tokens 才有数值；否则保持 null，同时保留已知 subtotal 和未知计数。没有实测依据的 monetary_cost、localization_ms 和 repair_ms 保持 null，不能用脚本长度、合成响应或零值代替真实成本和耗时。
+cost 从模型和动作账本汇总所有登记调用、已知 Token、missing/invalid usage、未发出/结果未知调用、拒绝动作与检查请求，并以 calls_by_kind 区分求解与摘要等用途，分用途次数之和仍是统一总分母。只有全部登记调用完成且 usage 完整时 total_tokens 才有数值；否则保持 null，同时保留已知 subtotal 和未知计数。没有实测依据的 monetary_cost、localization_ms 和 repair_ms 保持 null，不能用脚本长度、合成响应或零值代替真实成本和耗时。
 
 `read_completion` 只回读并重新核验，不运行模型、工具或检查。它核对 report 的归属/schema、整个 completion，以及 report_validation.verified_top_level_fields 列出的候选、检查、累计模型/工具成本、动作、决策、条件等顶层字段；policy_features 有会话依据时、offered_tools 有模型调用依据时才列为可核验。adapter_error_reason 与各 *_this_turn 成本差分当前属于 unverified_top_level_fields；stopped_reason 是重新计算的输入，部分原因须有账本依据，但不是完整重建的停止过程。调用成功不表示整个任意报告字段、应用结果或模型语义已被验证。
 

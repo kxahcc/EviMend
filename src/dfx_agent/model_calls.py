@@ -12,7 +12,7 @@ import sqlite3
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from langchain_core.messages import AIMessage
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -229,6 +229,24 @@ class ModelCallStore:
         with closing(self._connect()) as connection:
             row = connection.execute("SELECT * FROM model_calls WHERE call_id=?", (call_id,)).fetchone()
         return self._record(row) if row is not None else None
+
+    def records(self, task_id: str, run_id: str, *, kind: str | None = None) -> list[ModelCallRecord]:
+        """Read every owned call in reservation order, optionally selecting its kind."""
+        if any(not isinstance(value, str) or not IDENTIFIER.fullmatch(value) for value in (task_id, run_id)):
+            raise ValueError("invalid model ledger owner")
+        if kind is not None and kind not in get_args(ModelCallIntent.model_fields["kind"].annotation):
+            raise ValueError("invalid model call kind")
+        with closing(self._connect()) as connection:
+            rows = connection.execute("SELECT call_id FROM model_calls WHERE task_id=? AND run_id=? ORDER BY rowid",
+                                      (task_id, run_id)).fetchall()
+        result: list[ModelCallRecord] = []
+        for row in rows:
+            record = self.get(row["call_id"])
+            if record is None or record.intent.task_id != task_id or record.intent.run_id != run_id:
+                raise ModelCallConflict("stored model call owner changed")
+            if kind is None or record.intent.kind == kind:
+                result.append(record)
+        return result
 
     def reserve(self, intent: ModelCallIntent, *, max_calls: int) -> ModelCallRecord:
         if max_calls < 1:

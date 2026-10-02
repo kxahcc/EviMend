@@ -42,7 +42,7 @@ def completion(case, *, stopped_reason=None):
 
 def save(case, value):
     workspace, _, _, _, report = case
-    report = {**report, "schema_version": 4, "completion": value,
+    report = {**report, "schema_version": 5, "completion": value,
               "status": value["suggested_status"], "stopped_reason": value["stopped_reason"]}
     report.update(model_calls=value["cost"]["reserved_calls"], known_tokens=value["cost"]["known_total_tokens"],
                   missing_usage_calls=value["cost"]["missing_usage_calls"] + value["cost"]["invalid_usage_calls"],

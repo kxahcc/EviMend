@@ -15,6 +15,13 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ConfigDict, Field
 
+from .context_compaction import (
+    SUMMARY_PROMPT,
+    CompactionPlan,
+    CompactionPolicy,
+    CompactionStore,
+    ContextCompactionError,
+)
 from .model_calls import (
     ModelCallBudget,
     ModelCallIntent,
@@ -34,10 +41,12 @@ class ModelLimit(RuntimeError):
 MAX_SERIALIZED_MESSAGES_BYTES = 1_048_576
 
 
-def context_profile() -> dict[str, Any]:
+def context_profile(policy: CompactionPolicy | None = None) -> dict[str, Any]:
     """The finite SDK context policy is frozen alongside the model profile."""
     return {"max_serialized_messages_bytes": MAX_SERIALIZED_MESSAGES_BYTES, "automatic_summarization": False,
-            "human_message_offload": False, "tool_result_offload": False, "implicit_model_retries": False}
+            "human_message_offload": False, "tool_result_offload": False, "implicit_model_retries": False,
+            "host_compaction": (policy or CompactionPolicy()).model_dump(mode="json"),
+            "compaction_prompt_sha256": sha256(SUMMARY_PROMPT)}
 
 
 def _check_context(messages: list[BaseMessage]) -> None:
@@ -66,6 +75,9 @@ class FixedResponseModel(BaseChatModel):
     offered_tools: list[str] = Field(default_factory=list)
     bound_tool_descriptors: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
     bound_tool_options: dict[str, Any] = Field(default_factory=dict, exclude=True)
+    compactor: CompactionStore | None = Field(default=None, exclude=True)
+    compaction_responses: list[AIMessage] = Field(default_factory=list, exclude=True)
+    active_compaction: CompactionPlan | None = Field(default=None, exclude=True)
 
     @property
     def _llm_type(self) -> str:
@@ -99,17 +111,81 @@ class FixedResponseModel(BaseChatModel):
             tool_names=tuple(item["name"] for item in self.bound_tool_descriptors),
         )
 
+    def _refresh_usage(self) -> None:
+        usage = self.call_store.usage_summary(self.task_id, self.run_id)
+        self.calls, self.known_tokens = usage["reserved_calls"], usage["known_total_tokens"]
+        self.missing_usage_calls = usage["missing_usage_calls"] + usage["invalid_usage_calls"]
+
+    def _guard_budget(self, intent: ModelCallIntent) -> None:
+        self._refresh_usage()
+        existing = self.call_store.get(intent.call_id)
+        if (existing is None and self.calls >= self.max_calls) or (
+            (existing is None or existing.state == "reserved") and self.known_tokens >= self.max_known_tokens
+        ):
+            raise ModelLimit("model_budget")
+        if time.monotonic() >= self.deadline:
+            raise ModelLimit("wall_time")
+
+    def _summary(self, plan: CompactionPlan) -> AIMessage:
+        intent = plan.summary_intent()
+        self._guard_budget(intent)
+        records = self.call_store.records(self.task_id, self.run_id, kind="context_compaction")
+        existing = self.call_store.get(intent.call_id)
+        index = next((index for index, item in enumerate(records) if item.intent.call_id == intent.call_id), len(records))
+        if (existing is None or existing.state == "reserved") and index >= len(self.compaction_responses):
+            raise ModelLimit("fixed_compaction_responses_exhausted")
+
+        def provide() -> AIMessage:
+            response = self.compaction_responses[index].model_copy(deep=True)
+            response.response_metadata = {**response.response_metadata, "dfx_model_call_id": intent.call_id}
+            return response
+
+        try:
+            message, _ = invoke_accounted(self.call_store, intent, provide, max_calls=self.max_calls)
+            return message
+        except ModelCallBudget as exc:
+            raise ModelLimit("model_budget") from exc
+        finally:
+            self._refresh_usage()
+
+    def _view(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        self.active_compaction = None
+        if self.compactor is not None:
+            try:
+                plan = self.compactor.select(messages, f"model-{self.turn_calls + 1}")
+                if plan is not None:
+                    message = self._summary(plan)
+                    messages = self.compactor.complete(plan, message, self.call_store)
+                    self.active_compaction = plan
+            except ContextCompactionError as exc:
+                raise ModelLimit(exc.reason) from exc
+        _check_context(messages)
+        return messages
+
+    def _reserve_solver(self, intent: ModelCallIntent, request: PreparedRequest | None = None) -> None:
+        self._guard_budget(intent)
+        try:
+            self.call_store.reserve(intent, max_calls=self.max_calls)
+            if self.active_compaction is not None and self.compactor is not None:
+                self.compactor.link(self.active_compaction, intent, request)
+        except ModelCallBudget as exc:
+            raise ModelLimit("model_budget") from exc
+        except ContextCompactionError as exc:
+            raise ModelLimit(exc.reason) from exc
+        finally:
+            self._refresh_usage()
+
     def _generate(self, messages: list[BaseMessage], stop: list[str] | None = None,
                   run_manager: Any = None, **kwargs: Any) -> ChatResult:
         if time.monotonic() >= self.deadline:
             raise ModelLimit("wall_time")
-        _check_context(messages)
+        messages = self._view(messages)
         intent = self._intent(messages, stop, kwargs)
         existing = self.call_store.get(intent.call_id)
-        if existing is None and (self.calls >= self.max_calls or self.known_tokens >= self.max_known_tokens):
-            raise ModelLimit("model_budget")
+        self._guard_budget(intent)
         if (existing is None or existing.state == "reserved") and self.turn_calls >= len(self.responses):
             raise ModelLimit("fixed_responses_exhausted")
+        self._reserve_solver(intent)
         try:
             def provide() -> AIMessage:
                 response = self.responses[self.turn_calls].model_copy(deep=True)
@@ -120,10 +196,7 @@ class FixedResponseModel(BaseChatModel):
         except ModelCallBudget as exc:
             raise ModelLimit("model_budget") from exc
         finally:
-            summary = self.call_store.usage_summary(self.task_id, self.run_id)
-            self.calls = summary["reserved_calls"]
-            self.known_tokens = summary["known_total_tokens"]
-            self.missing_usage_calls = summary["missing_usage_calls"] + summary["invalid_usage_calls"]
+            self._refresh_usage()
         self.turn_calls += 1
         return ChatResult(generations=[ChatGeneration(message=message)])
 
@@ -162,11 +235,38 @@ class AccountedProviderModel(FixedResponseModel):
             tool_names=tuple(item["function"]["name"] for item in request.tools),
         )
 
+    def _summary(self, plan: CompactionPlan) -> AIMessage:
+        try:
+            request = plan.summary_request()
+            if request is None:
+                raise ModelLimit("context_format_unsupported")
+        except AdapterError as exc:
+            self.request_error_reason = exc.reason
+            raise ModelLimit("context_compaction_input_limit") from exc
+        intent = plan.summary_intent()
+        self._guard_budget(intent)
+
+        def provide() -> AIMessage:
+            message = self.adapter.invoke(request).model_copy(deep=True)
+            message.response_metadata = {**message.response_metadata, "dfx_model_call_id": intent.call_id}
+            return message
+
+        try:
+            message, _ = invoke_accounted(self.call_store, intent, provide, max_calls=self.max_calls)
+            return message
+        except ModelCallBudget as exc:
+            raise ModelLimit("model_budget") from exc
+        except AdapterError as exc:
+            self.request_error_reason = exc.reason
+            raise ModelCallUncertain("compaction request has no saved response") from exc
+        finally:
+            self._refresh_usage()
+
     def _generate(self, messages: list[BaseMessage], stop: list[str] | None = None,
                   run_manager: Any = None, **kwargs: Any) -> ChatResult:
         if time.monotonic() >= self.deadline:
             raise ModelLimit("wall_time")
-        _check_context(messages)
+        messages = self._view(messages)
         try:
             request = self.adapter.prepare(messages, self.bound_tool_descriptors, stop=stop,
                                            bind_options=self.bound_tool_options, generate_options=kwargs)
@@ -174,9 +274,7 @@ class AccountedProviderModel(FixedResponseModel):
             self.request_error_reason = exc.reason
             raise ModelLimit("provider_request_unsupported") from exc
         intent = self._request_intent(request)
-        if self.call_store.get(intent.call_id) is None and (
-                self.calls >= self.max_calls or self.known_tokens >= self.max_known_tokens):
-            raise ModelLimit("model_budget")
+        self._reserve_solver(intent, request)
 
         def provide() -> AIMessage:
             message = self.adapter.invoke(request).model_copy(deep=True)
@@ -191,9 +289,7 @@ class AccountedProviderModel(FixedResponseModel):
             self.request_error_reason = exc.reason
             raise ModelCallUncertain("provider request has no saved response") from exc
         finally:
-            usage = self.call_store.usage_summary(self.task_id, self.run_id)
-            self.calls, self.known_tokens = usage["reserved_calls"], usage["known_total_tokens"]
-            self.missing_usage_calls = usage["missing_usage_calls"] + usage["invalid_usage_calls"]
+            self._refresh_usage()
         self.turn_calls += 1
         if observation.format_status == "format_error":
             raise ModelLimit("provider_format_error")

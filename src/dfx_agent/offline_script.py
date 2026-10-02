@@ -15,6 +15,7 @@ from langchain_core.messages import AIMessage
 from pydantic import ValidationError
 
 from .actions import TOOL_ACTIONS
+from .context_compaction import CompactionPolicy
 from .contracts import require_path
 from .model_provider import (
     AdapterTransportError,
@@ -95,11 +96,36 @@ def _usage(value: object) -> None:
         raise ValueError("invalid fixed-response usage")
 
 
+def _compaction(value: object, *, fixed_mode: bool) -> None:
+    if not isinstance(value, dict) or "policy" not in value or set(value) - {"policy", "responses"}:
+        raise ValueError("invalid offline context compaction fields")
+    try:
+        CompactionPolicy.model_validate(value["policy"])
+    except ValidationError:
+        raise ValueError("invalid offline context compaction policy") from None
+    if "responses" not in value:
+        return
+    if not fixed_mode:
+        raise ValueError("mock context compaction responses must use the shared wire stream")
+    responses = value["responses"]
+    if not isinstance(responses, list):
+        raise ValueError("fixed compaction responses must be a list")  # noqa: TRY004 -- Keep loader's validation contract.
+    for item in responses:
+        if (not isinstance(item, dict) or set(item) != {"text", "usage"} or
+                not isinstance(item["text"], str)):
+            raise ValueError("invalid fixed compaction response fields")
+        try:
+            item["text"].encode("utf-8")
+        except UnicodeError:
+            raise ValueError("invalid fixed compaction response text") from None
+        _usage(item["usage"])
+
+
 def _validate(value: object) -> Literal["fixed_response", "mock_chat_completions"]:
     if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value["schema_version"] not in (1, 2):
         raise ValueError("unsupported offline script schema")
     required = {"schema_version", "expected", "responses" if value["schema_version"] == 1 else "model"}
-    if not required <= set(value) or set(value) - required - {"policy_features", "limits"}:
+    if not required <= set(value) or set(value) - required - {"policy_features", "limits", "context_compaction"}:
         raise ValueError("invalid offline script fields")
     expected = value["expected"]
     if (not isinstance(expected, dict) or set(expected) != {"path", "text"} or
@@ -112,6 +138,8 @@ def _validate(value: object) -> Literal["fixed_response", "mock_chat_completions
     except ValueError:
         raise ValueError("invalid synthetic expectation path") from None
     _limits(value.get("limits", {}))
+    if "context_compaction" in value:
+        _compaction(value["context_compaction"], fixed_mode=value["schema_version"] == 1)
     try:
         PolicyFeatures.model_validate(value.get("policy_features", {}))
     except ValidationError:
@@ -159,6 +187,17 @@ class OfflineScript:
 
     def options(self) -> dict[str, int | float]:
         return json.loads(self._document).get("limits", {})
+
+    def compaction_policy(self) -> CompactionPolicy:
+        value = json.loads(self._document).get("context_compaction", {})
+        return CompactionPolicy.model_validate(value.get("policy", {}))
+
+    def compaction_responses(self) -> list[AIMessage]:
+        if self.mode != "fixed_response":
+            return []
+        value = json.loads(self._document).get("context_compaction", {})
+        return [AIMessage(content=item["text"], usage_metadata=item["usage"])
+                for item in value.get("responses", [])]
 
     def fixed_responses(self) -> list[AIMessage]:
         if self.mode != "fixed_response":

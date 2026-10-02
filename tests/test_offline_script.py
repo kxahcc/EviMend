@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -12,6 +13,8 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from test_model_provider import descriptors, wire_response
 
+from dfx_agent import cli
+from dfx_agent.context_compaction import CompactionPolicy
 from dfx_agent.model_provider import (
     MOCK_ENDPOINT,
     AdapterResponseError,
@@ -322,3 +325,188 @@ def test_symbolic_link_script_is_refused(tmp_path: Path) -> None:
         pytest.skip(f"Symbolic links unavailable: {exc}")
     with pytest.raises(ValueError, match="linked"):
         load_offline_script(linked)
+
+
+@pytest.mark.parametrize("document", [fixed_document, mock_document])
+def test_context_compaction_is_disabled_by_default(tmp_path: Path, document) -> None:
+    script = load_offline_script(write(tmp_path, document()))
+    assert script.compaction_policy() == CompactionPolicy()
+    assert script.compaction_policy().enabled is False
+    assert script.compaction_responses() == []
+
+
+def test_fixed_compaction_stream_is_independent_fresh_and_text_only(tmp_path: Path) -> None:
+    value = fixed_document()
+    value["context_compaction"] = {
+        "policy": {"enabled": True, "max_summary_bytes": 8},
+        "responses": [{"text": "单独的摘要", "usage": {"input_tokens": 5, "output_tokens": 2, "total_tokens": 7}},
+                      {"text": "", "usage": None}]}
+    script = load_offline_script(write(tmp_path, value))
+    policy = script.compaction_policy()
+    assert policy.enabled is True and policy.max_summary_bytes == 8
+    assert policy is not script.compaction_policy()
+    summaries = script.compaction_responses()
+    assert [item.content for item in summaries] == ["单独的摘要", ""]
+    assert all(not item.tool_calls and not item.invalid_tool_calls for item in summaries)
+    assert summaries[0].usage_metadata == {"input_tokens": 5, "output_tokens": 2, "total_tokens": 7}
+    assert summaries[1].usage_metadata is None
+    summaries[0].content = "mutated"
+    summaries[0].usage_metadata["total_tokens"] = 100
+    summaries.clear()
+    assert script.compaction_responses()[0].content == "单独的摘要"
+    assert script.compaction_responses()[0].usage_metadata["total_tokens"] == 7
+    assert len(script.fixed_responses()) == 2
+    assert script.fixed_responses()[0].tool_calls[0]["id"] == "call-1"
+    assert script.fixed_responses()[1].content == "done"
+
+
+@pytest.mark.parametrize("document", [fixed_document, mock_document])
+def test_compaction_policy_without_a_fixture_stream_is_valid(tmp_path: Path, document) -> None:
+    value = document()
+    value["context_compaction"] = {"policy": {"enabled": True}}
+    script = load_offline_script(write(tmp_path, value))
+    assert script.compaction_policy().enabled is True
+    assert script.compaction_responses() == []
+
+
+def test_mock_summary_and_solver_use_one_wire_stream_and_total_completed_offset(tmp_path: Path) -> None:
+    value = mock_document()
+    value["context_compaction"] = {"policy": {"enabled": True}}
+    value["model"]["responses"] = [wire_response(content="summary"), wire_response(content="solver")]
+    script = load_offline_script(write(tmp_path, value))
+    assert script.compaction_responses() == []
+    adapter = script.adapter()
+    request = adapter.prepare([HumanMessage(content="No fixtures in this context.")], [])
+    assert "summary" not in request.body and "solver" not in request.body
+    assert adapter.invoke(request).content == "summary"
+    assert adapter.invoke(request).content == "solver"
+    resumed = script.adapter(response_offset=1)
+    assert resumed.invoke(request).content == "solver"
+
+
+@pytest.mark.parametrize("responses", [[], [{"text": "", "usage": None}],
+                                     [{"text": "x" * 65_537, "usage": None}]])
+def test_loader_preserves_empty_and_oversized_summary_outputs_for_runtime_validation(
+        tmp_path: Path, responses: list) -> None:
+    value = fixed_document()
+    value["context_compaction"] = {"policy": {"enabled": True, "max_summary_bytes": 1}, "responses": responses}
+    script = load_offline_script(write(tmp_path, value))
+    assert [item.content for item in script.compaction_responses()] == [item["text"] for item in responses]
+
+
+@pytest.mark.parametrize("compaction", [None, [], {}, {"policy": {}, "extra": True},
+                                      {"policy": {}, "responses": None}, {"policy": {}, "responses": {}},
+                                      {"policy": {}, "responses": [1]},
+                                      {"policy": {}, "responses": [{"text": "summary"}]},
+                                      {"policy": {}, "responses": [{"usage": None}]},
+                                      {"policy": {}, "responses": [{"text": 1, "usage": None}]},
+                                      {"policy": {}, "responses": [{"text": "summary", "usage": None, "tool": "edit_source"}]}])
+def test_compaction_configuration_and_response_fields_are_closed(tmp_path: Path, compaction: object) -> None:
+    value = fixed_document()
+    value["context_compaction"] = compaction
+    with pytest.raises(ValueError, match="compaction"):
+        load_offline_script(write(tmp_path, value))
+
+
+@pytest.mark.parametrize("policy", [None, [], {"unknown": 1}, {"enabled": "true"}, {"enabled": 1},
+                                  {"trigger_bytes": 127}, {"trigger_bytes": 786_433}, {"retain_groups": 0},
+                                  {"retain_groups": 21}, {"max_summary_input_bytes": 127},
+                                  {"max_summary_input_bytes": 900_001}, {"max_summary_bytes": 0},
+                                  {"max_summary_bytes": 65_537}, {"max_summary_bytes": True}])
+def test_compaction_policy_uses_strict_host_contract(tmp_path: Path, policy: object) -> None:
+    value = fixed_document()
+    value["context_compaction"] = {"policy": policy}
+    with pytest.raises(ValueError, match="compaction policy"):
+        load_offline_script(write(tmp_path, value))
+
+
+@pytest.mark.parametrize("usage", [{}, {"input_tokens": True, "output_tokens": 1, "total_tokens": 2},
+                                 {"input_tokens": 1, "output_tokens": -1, "total_tokens": 0},
+                                 {"input_tokens": 1, "output_tokens": 1, "total_tokens": 3},
+                                 {"input_tokens": 1.0, "output_tokens": 1, "total_tokens": 2}])
+def test_compaction_usage_keeps_existing_fixed_response_rules(tmp_path: Path, usage: object) -> None:
+    value = fixed_document()
+    value["context_compaction"] = {"policy": {"enabled": True}, "responses": [{"text": "summary", "usage": usage}]}
+    with pytest.raises(ValueError, match="fixed-response usage"):
+        load_offline_script(write(tmp_path, value))
+
+
+@pytest.mark.parametrize("responses", [[], [{"text": "summary", "usage": None}]])
+def test_mock_mode_rejects_a_separate_compaction_response_stream(tmp_path: Path, responses: list) -> None:
+    value = mock_document()
+    value["context_compaction"] = {"policy": {"enabled": True}, "responses": responses}
+    with pytest.raises(ValueError, match="shared wire stream"):
+        load_offline_script(write(tmp_path, value))
+
+
+def test_compaction_text_rejects_invalid_utf8_scalar(tmp_path: Path) -> None:
+    value = fixed_document()
+    value["context_compaction"] = {"policy": {"enabled": True}, "responses": [{"text": "\ud800", "usage": None}]}
+    path = tmp_path / "invalid-summary.json"
+    path.write_text(json.dumps(value, ensure_ascii=True), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_offline_script(path)
+
+
+@pytest.mark.parametrize("mock_mode", [False, True])
+@pytest.mark.parametrize("command", ["repair", "resume"])
+def test_cli_forwards_explicit_compaction_policy_and_only_fixed_summary_fixtures(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+        mock_mode: bool, command: str) -> None:
+    from dfx_agent import agent
+
+    value = mock_document() if mock_mode else fixed_document()
+    value["context_compaction"] = {"policy": {"enabled": True, "max_summary_bytes": 20}}
+    if not mock_mode:
+        value["context_compaction"]["responses"] = [{"text": "summary fixture", "usage": None}]
+    path = write(tmp_path, value)
+    seen = {}
+
+    def run(*args, **options):
+        seen.update(options)
+        return {"synthetic_handoff": True}
+
+    monkeypatch.setattr(agent, "run_provider_agent" if mock_mode else "run_fixed_agent", run)
+    if mock_mode and command == "resume":
+        from test_agent_loop import task_snapshot
+
+        from dfx_agent.model_calls import ModelCallIntent, ModelCallStore
+        from dfx_agent.task import digest
+        from dfx_agent.workspace import CandidateWorkspace
+
+        task = task_snapshot(tmp_path)
+        workspace = CandidateWorkspace(task, tmp_path / "run", "run1")
+        store = ModelCallStore(workspace.root / "model-calls.sqlite")
+        for index, kind in enumerate(("context_compaction", "solver")):
+            intent = ModelCallIntent.model_validate({
+                "call_id": f"saved-{index}", "task_id": "task1", "run_id": "run1", "kind": kind,
+                "provider_id": "synthetic", "model_id": "offline", "prompt_sha256": digest(b"prompt"),
+                "tool_schema_sha256": digest(b"tools"), "parameters_sha256": digest(b"parameters"), "tool_names": ()})
+            store.reserve(intent, max_calls=3)
+            store.dispatch(intent.call_id)
+            store.complete(intent, AIMessage(content="saved"))
+        value["model"]["responses"] = [wire_response(content="saved summary"), wire_response(content="saved solver"),
+                                       wire_response(content="new response")]
+        path = write(tmp_path, value)
+
+        def run_after_offset(*args, **options):
+            seen.update(options)
+            adapter = args[3]
+            assert adapter.invoke(adapter.prepare([HumanMessage(content="next request")], [])).content == "new response"
+            return {"synthetic_handoff": True}
+
+        monkeypatch.setattr(agent, "run_provider_agent", run_after_offset)
+    else:
+        task = tmp_path / "task"
+    monkeypatch.setenv("DFX_MANAGED_AGENT", "offline-v1")
+    monkeypatch.setattr(sys, "argv", ["dfx", command, "--task", str(task), "--work", str(tmp_path / "run"),
+                                     "--run-id", "run1", "--script", str(path)])
+    cli.main()
+    assert json.loads(capsys.readouterr().out) == {"synthetic_handoff": True}
+    assert seen["compaction_policy"] == CompactionPolicy(enabled=True, max_summary_bytes=20)
+    assert seen["resume"] is (command == "resume")
+    if mock_mode:
+        assert "compaction_responses" not in seen
+    else:
+        assert len(seen["compaction_responses"]) == 1
+        assert seen["compaction_responses"][0].content == "summary fixture"

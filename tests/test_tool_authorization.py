@@ -7,18 +7,26 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from langchain.agents.middleware import ToolCallRequest
 from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.tools import tool
+from langgraph.prebuilt import ToolRuntime
 from test_agent_loop import candidate_id, response, task_snapshot
 from test_condition_handoff import inputs
 
-from dfx_agent.actions import ToolActionStore
+from dfx_agent.actions import (
+    OFFLINE_CAPABILITIES,
+    ToolActionStore,
+    ToolAuthorizationMiddleware,
+)
 from dfx_agent.agent import run_fixed_agent
 from dfx_agent.contracts import ActionProposal
 from dfx_agent.decisions import DecisionRequest
+from dfx_agent.model_calls import ModelCallIntent, ModelCallStore
 from dfx_agent.policies import PolicyFeatures, PolicyInput, RepairDirection
 from dfx_agent.task import digest, verify_task
 from dfx_agent.verification import FixedTextExecutor
-from dfx_agent.workspace import CandidateWorkspace
+from dfx_agent.workspace import CandidateWorkspace, TextEdit
 
 EDIT = {"path": "src/main.ets", "old": "bad", "new": "good"}
 
@@ -215,3 +223,53 @@ def test_tool_receipt_rejects_same_identity_with_changed_arguments(tmp_path: Pat
     with pytest.raises(ValueError, match="identity changed"):
         store.invoke(**parameters, request_sha256=digest(b"args2"))
     assert effects == 1
+
+
+@pytest.mark.parametrize("kind", ["context_compaction", "format_repair", "sdk_retry"])
+def test_derived_completed_model_call_cannot_dispatch_a_tool(tmp_path: Path, kind: str) -> None:
+    task = task_snapshot(tmp_path)
+    workspace = CandidateWorkspace(task, tmp_path / "run", "run1")
+    model_calls = ModelCallStore(workspace.root / "model-calls.sqlite")
+    actions = ToolActionStore(workspace.root / "tool-actions.sqlite")
+    middleware = ToolAuthorizationMiddleware(
+        workspace, model_calls, actions, capabilities=OFFLINE_CAPABILITIES, max_calls=2,
+        max_candidates=2, max_tool_calls=4, deadline=float("inf"))
+    request_intent = ModelCallIntent.model_validate({
+        "call_id": "derived-1", "task_id": "task1", "run_id": "run1", "kind": kind,
+        "provider_id": "synthetic", "model_id": "offline", "prompt_sha256": digest(b"prompt"),
+        "tool_schema_sha256": digest(b"forged tools"), "parameters_sha256": digest(b"parameters"),
+        "tool_names": ("edit_source",)})
+    message = AIMessage(
+        content="", tool_calls=[{"name": "edit_source", "args": EDIT, "id": "forged-edit"}],
+        response_metadata={"dfx_model_call_id": request_intent.call_id},
+        usage_metadata={"input_tokens": 1, "output_tokens": 1, "total_tokens": 2})
+    model_calls.reserve(request_intent, max_calls=2)
+    model_calls.dispatch(request_intent.call_id)
+    observation = model_calls.complete(request_intent, message)
+    assert observation.format_status == "tool_calls"
+
+    @tool
+    def edit_source(path: str, old: str, new: str) -> str:
+        """Describe the synthetic editing tool offered by a solver."""
+        return "unused"
+
+    state = {"messages": [message]}
+    runtime = ToolRuntime(state=state, context=None, config={}, stream_writer=lambda _: None,
+                          tool_call_id="forged-edit", store=None)
+    tool_request = ToolCallRequest(tool_call=message.tool_calls[0], tool=edit_source,
+                                   state=state, runtime=runtime)
+    effects = 0
+
+    def effect(request: ToolCallRequest) -> ToolMessage:
+        nonlocal effects
+        effects += 1
+        workspace.apply_text_edits([TextEdit.model_validate(request.tool_call["args"])])
+        return ToolMessage(content="edited", name="edit_source", tool_call_id="forged-edit")
+
+    with pytest.raises(ValueError, match="derived model call cannot authorize tools"):
+        middleware.wrap_tool_call(tool_request, effect)
+    assert effects == 0 and actions.records() == []
+    assert not workspace.draft.exists()
+    assert (workspace.base / "src/main.ets").read_text() == "value=bad\n"
+    assert model_calls.get("derived-1").state == "completed"  # type: ignore[union-attr]
+    assert model_calls.usage_summary("task1", "run1")["known_total_tokens"] == 2
