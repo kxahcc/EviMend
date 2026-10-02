@@ -12,6 +12,12 @@
 .\scripts\local.ps1 Run -Task test -TestPath tests/test_agent_loop.py
 ```
 
+`working_context.py` 另提供独立程序接口：主机显式传入 WorkingContextFocus，由 build_working_context 只读构建来源/版本及引用闭包已核验的 packet，verify_working_context 在相同来源点重建核对。contents() 返回独立副本；必要包超过显式 max_bytes 时停止。它保留旧候选反馈的原范围，当前尚不修改 SDK 发送消息，也不是历史 solver 计划恢复器；字段和接入义务见 [模块规格第 3.1 节](../../docs/design-contracts.md#31-工作上下文经验与-skill-的实施契约)。其合成自检入口为：
+
+```powershell
+.\scripts\local.ps1 Run -Task test -TestPath tests/test_working_context.py
+```
+
 `prepare` 必须显式提供经人工核对的 JSON catalog、task ID、数据根目录和新的输出目录。本阶段只筛出 021/022 两项待接入候选，尚未形成可运行的正式 catalog。当前 catalog schema 2 的最小结构如下；这些是字段示例，不是可运行的真实路径或哈希：
 
 ```json
