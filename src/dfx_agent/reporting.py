@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import stat
 from contextlib import closing
 from pathlib import Path
@@ -55,7 +54,7 @@ def _model_facts(workspace: CandidateWorkspace, store: ModelCallStore) -> list[d
     _owned_file(workspace, store.path)
     if store.path != workspace.root / "model-calls.sqlite":
         raise ValueError("report model ledger belongs to another workspace")
-    with closing(sqlite3.connect(store.path.resolve(strict=True).as_uri() + "?mode=ro", uri=True)) as connection:
+    with closing(store._connect()) as connection:
         identifiers = [row[0] for row in connection.execute("SELECT call_id FROM model_calls ORDER BY rowid")]
     found = []
     for identifier in identifiers:

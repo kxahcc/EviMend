@@ -5,11 +5,13 @@ param(
     [switch]$Apply,
     [string]$PlanId,
     [switch]$DiscardEvidence,
-    [ValidateSet('synthetic', 'test', 'docs', 'ruff', 'pyright', 'offline')][string]$Task = 'synthetic',
+    [ValidateSet('synthetic', 'test', 'docs', 'ruff', 'pyright', 'offline', 'aggregate')][string]$Task = 'synthetic',
     [string]$TestPath,
     [string]$OfflineTaskPath,
     [string]$OfflineScriptPath,
     [string]$OfflineWorkId,
+    [string]$EvaluationManifestPath,
+    [string]$EvaluationWorkId,
     [switch]$Resume,
     [ValidateSet('idle', 'child', 'noisy', 'memory')][string]$Scenario = 'idle',
     [ValidateRange(1, 120)][int]$Seconds = 3,
@@ -64,6 +66,27 @@ function Assert-PathChain([string]$Path) {
             }
         }
     }
+}
+
+function Resolve-EvaluationManifest([string]$Path) {
+    if (-not $Path -or [IO.Path]::IsPathRooted($Path) -or $Path -match '[:\x00-\x1f\x7f]') {
+        throw 'EvaluationManifestPath must be a canonical repository-relative path'
+    }
+    $segments = @($Path -split '[\\/]')
+    foreach ($segment in $segments) {
+        if ($segment -in @('', '.', '..', 'data_B', 'archive', '.git', '.agents', '.codex') -or
+            $segment -ne $segment.TrimEnd(' ', '.')) {
+            throw 'Evaluation manifest path has an unsafe or forbidden component'
+        }
+    }
+    $resolved = [IO.Path]::GetFullPath((Join-Path $script:Repo $Path))
+    Assert-PathChain $resolved
+    if (-not [IO.File]::Exists($resolved)) { throw 'Evaluation manifest is missing' }
+    $item = Get-Item -LiteralPath $resolved -Force
+    if ($item -isnot [IO.FileInfo] -or $null -ne $item.LinkType) {
+        throw 'Evaluation manifest must be an unlinked regular file'
+    }
+    return $resolved
 }
 
 function Get-Mutex() {
@@ -298,6 +321,22 @@ function Get-RunLimits() {
     }
 }
 
+$aggregateManifest = $null; $aggregateWork = $null
+if ($PSBoundParameters.ContainsKey('EvaluationManifestPath') -or
+    $PSBoundParameters.ContainsKey('EvaluationWorkId') -or $Task -eq 'aggregate') {
+    if ($Action -ne 'Run' -or $Task -ne 'aggregate') { throw 'Evaluation parameters require Run -Task aggregate' }
+    if ($TestPath -or $OfflineTaskPath -or $OfflineScriptPath -or $OfflineWorkId -or $Resume) {
+        throw 'Aggregate does not accept test, offline or resume parameters'
+    }
+    if ($EvaluationWorkId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$') {
+        throw 'EvaluationWorkId must be a new safe ID'
+    }
+    $aggregateManifest = Resolve-EvaluationManifest $EvaluationManifestPath
+    $aggregateWork = Join-Path $script:Root ('work/aggregate-' + $EvaluationWorkId)
+    Assert-PathChain $aggregateWork
+    if (Test-Path -LiteralPath $aggregateWork) { throw 'Aggregate work already exists; choose a new ID' }
+}
+
 if ($Action -eq 'Status') {
     Assert-PathChain $script:Root
     $ownerValid = $false
@@ -326,7 +365,7 @@ if ($Action -eq 'Status') {
         active_marker = [IO.File]::Exists((Join-Path $script:StatePath 'active.json'))
         active_state = $activeState
         remote_jobs_unknown = [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
-        resource_enforcement = 'job_guarded_setup_quality_and_offline_agent'
+        resource_enforcement = 'job_guarded_setup_quality_offline_agent_and_metrics'
         cleanup_available = $activeState -eq 'none' -and -not [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
     } | ConvertTo-Json -Depth 5
     exit 0
@@ -409,6 +448,7 @@ try {
         $savedTemp = $env:TEMP; $savedTmp = $env:TMP; $savedTestPath = $env:DFX_TEST_PATH
         $savedOfflineTask = $env:DFX_OFFLINE_TASK; $savedOfflineScript = $env:DFX_OFFLINE_SCRIPT
         $savedOfflineWork = $env:DFX_OFFLINE_WORK; $savedOfflineResume = $env:DFX_OFFLINE_RESUME
+        $savedMetricsManifest = $env:DFX_METRICS_MANIFEST; $savedMetricsWork = $env:DFX_METRICS_WORK
         $job = $null; $markerCreated = $false
         $runId = [Guid]::NewGuid().ToString()
         $taskKind = if ($Action -eq 'Init') { 'bootstrap' } elseif ($Task -ne 'synthetic') { $Task } else { $Scenario }
@@ -421,7 +461,7 @@ try {
                 Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local_job.cs') -Raw -Encoding UTF8) -ErrorAction Stop
             }
             $effective = Get-RunLimits
-            if ($taskKind -in @('test', 'docs', 'ruff', 'pyright', 'offline')) {
+            if ($taskKind -in @('test', 'docs', 'ruff', 'pyright', 'offline', 'aggregate')) {
                 $environmentPath = Join-Path $script:StatePath 'environment.json'
                 if (-not [IO.File]::Exists($environmentPath)) { throw 'Managed environment is not initialized' }
                 $environment = Get-Content -LiteralPath $environmentPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -465,10 +505,13 @@ try {
             } elseif ($OfflineTaskPath -or $OfflineScriptPath -or $OfflineWorkId -or $Resume) {
                 throw 'Offline parameters require -Task offline'
             }
+            if ($taskKind -eq 'aggregate') {
+                $env:DFX_METRICS_MANIFEST = $aggregateManifest; $env:DFX_METRICS_WORK = $aggregateWork
+            }
             $job = [DfxLocal.BoundedJob]::new($effective.cpu_percent, $effective.memory_bytes, $effective.max_processes)
             $exe = (Get-Process -Id $PID).Path
             if (-not [IO.File]::Exists($exe)) { throw 'PowerShell executable identity unavailable' }
-            $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } elseif ($taskKind -eq 'offline') { 'local_agent.ps1' } else { 'local_synthetic.ps1' }
+            $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } elseif ($taskKind -eq 'offline') { 'local_agent.ps1' } elseif ($taskKind -eq 'aggregate') { 'local_metrics.ps1' } else { 'local_synthetic.ps1' }
             $workerPath = Join-Path $PSScriptRoot $workerName
             Assert-PathChain $workerPath
             $job.Start($exe, $workerPath, $taskKind, $logPath, $script:Repo, $Seconds,
@@ -529,6 +572,7 @@ try {
             $env:TEMP = $savedTemp; $env:TMP = $savedTmp; $env:DFX_TEST_PATH = $savedTestPath
             $env:DFX_OFFLINE_TASK = $savedOfflineTask; $env:DFX_OFFLINE_SCRIPT = $savedOfflineScript
             $env:DFX_OFFLINE_WORK = $savedOfflineWork; $env:DFX_OFFLINE_RESUME = $savedOfflineResume
+            $env:DFX_METRICS_MANIFEST = $savedMetricsManifest; $env:DFX_METRICS_WORK = $savedMetricsWork
             $logTruncated = $null -ne $job -and $job.LogExceeded
             if ($logTruncated -and $reason -notin @('stop_requested', 'timeout')) {
                 $outcome = 'failed'; $reason = 'log_limit'

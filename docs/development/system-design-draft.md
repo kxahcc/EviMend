@@ -104,6 +104,7 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 | conditions.py | 对主机固定合成输入计算首批有限条件，核对绑定/单位/操作点/实际版本，保存不可改写结果并在回读时重算 | 已接入固定响应 SDK；不求值表达式、不自动提取运行值或修改诊断，fixture 不是执行证据 |
 | models.py | 固定响应和 mock wire 模型经统一账本接入 SDK；可选独立摘要调用与求解视图、总预算和分用途恢复 | 真实传输待接入；不借 SDK 隐式摘要或重试绕开费用与原版保护 |
 | context_compaction.py | 完整工具组切分、冻结来源、摘要身份、实际发送视图及只读核验 | 保留 Graph 历史；摘要是模型推断，有限输入超限停止，不保证归纳忠实度或修复效果 |
+| metrics.py / evidence_io.py | 显式任务/组/repeat 矩阵、停止记录的只读重算、不可变账本及离线成本汇总 | 合成结果不代表应用成绩；缺证据保留未知，版本、工具和协议错配拒绝，导出仍待实现 |
 | model_calls.py | 稳定调用意图、SQLite 请求/响应/usage 账本、格式分类和不确定窗口的合成契约 | 固定响应模型已使用；尚未接入真实提供方，原始响应只留项目受管状态用于恢复 |
 | agent.py | 已有 Deep Agents 固定响应循环、受控工具、策略开关和恢复入口 | 基础/增强共享通用工具与逐调用授权；不提供真实应用成功终止 |
 | task_strategy.py | 显式修复任务策略与主机身份上下文，接入 SDK system_prompt 和启动消息 | 强基线包含日志、上游定位、保行为修法和反馈；增强仅按开关追加，不声称自主推理已有效 |
@@ -413,7 +414,7 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 
 默认管理目录固定在仓库内；首次实现不支持随意更改为任意盘符根目录。若 SDK/构建缓存实测超出受管目录和磁盘预算，须先设计并验收项目专属的新位置与清理边界，再修改配置；不能直接改全局安装器或借用其他盘根目录。虚拟环境不承诺复制后可用。项目总占用报告分开列管理目录、未来项目专属 SDK/缓存、保留数据和导出包，不能只报 .dfx-local 造成“已全部清理”的误解。
 
-入口脚本 scripts/local.ps1 已实现 Prepare/Status/Clean/Stop/Init，以及固定合成、仓库测试、质量检查和固定响应离线 Agent 的 Run；scripts/local_job.cs 创建和核验 Windows Job。Prepare 不下载依赖；Init 只在 Job 内通过固定来源和 SHA-256 安装便携 uv/CPython 并同步锁定环境。Run 接受固定任务、仓库测试路径或已审查快照与固定脚本，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装全局 Python 包、系统工具或后台服务。真实模型与应用任务仍待接入。
+入口脚本 scripts/local.ps1 已实现 Prepare/Status/Clean/Stop/Init，以及固定合成、仓库测试、质量检查、固定响应离线 Agent 与只读聚合的 Run；scripts/local_job.cs 创建和核验 Windows Job。Prepare 不下载依赖；Init 只在 Job 内通过固定来源和 SHA-256 安装便携 uv/CPython 并同步锁定环境。Run 接受固定任务、仓库测试路径或已审查快照与固定脚本，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装全局 Python 包、系统工具或后台服务。真实模型与应用任务仍待接入。
 
 安装时通过显式子进程环境设置 UV_CACHE_DIR、UV_PROJECT_ENVIRONMENT、UV_PYTHON_INSTALL_DIR、UV_PYTHON_BIN_DIR、UV_TOOL_DIR/UV_TOOL_BIN_DIR、TEMP/TMP 与 PYTHONPYCACHEPREFIX；Pyright 后备 Node 目录和 Ruff 缓存也路由到项目根。pytest 使用受管 basetemp，关闭持久 pytest 缓存和字节码写入，并在退出时删除自己的临时目录，避免不同 Windows 账户交替运行时产生不可访问目录。变量只在该子进程树生效，不改用户级 PATH、注册表、Shell profile、Conda base 或全局 pip。uv 固定版本/下载哈希，关闭 Python 注册表安装；环境同步使用 `uv sync --locked` 和项目 Python。正式 Agent 任务也须遵循同样入口，不用普通 `uv run` 绕过限制。
 

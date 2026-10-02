@@ -94,7 +94,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 
 本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；需要长期保留的证据计划导出到 runs/exports。日常只启动一个受管任务。真实应用阶段先盘点设备、SDK/构建缓存的占用，再为其建立同样受管的安装、运行和清理入口；当前方案没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop、Init，以及固定合成、测试/质量和离线 Agent 的受限 Run。任务先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local。真实模型/本机应用任务与 Export 尚未接入；[本机配置](configs/local-runtime.json) 的位置标记已改为 local，但安装/实验开关仍关闭。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+管理入口 scripts/local.ps1 已提供 Prepare、Status、Clean、Stop、Init，以及固定合成、测试/质量、离线 Agent 和只读聚合的受限 Run。任务先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local。真实模型/本机应用任务与 Export 尚未接入；[本机配置](configs/local-runtime.json) 的位置标记已改为 local，但安装/实验开关仍关闭。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
 ## 6. 怎样一步步把它做出来
 
@@ -137,11 +137,12 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 |---|---|
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
 | `src/dfx_agent/` | Python 离线证据原型、候选工作区、固定响应修复闭环、模拟 HTTP 协议及受控策略；模块职责见下表 |
-| `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 repair / resume 入口 |
-| `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init 与受限合成/测试/质量/离线 Agent 任务入口；真实模型/应用任务尚未接入 |
+| `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 repair / resume / aggregate 入口 |
+| `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init 与受限合成/测试/质量/离线 Agent/聚合任务入口；真实模型/应用任务尚未接入 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
 | `scripts/local_bootstrap.ps1`、`scripts/local_test.ps1`、`scripts/local_quality.ps1` | Job 内的固定依赖安装、pytest 和文档/Ruff/Pyright 检查，不接受任意 shell 命令 |
 | `scripts/local_agent.ps1` | Job 内固定响应或模拟模型协议的离线 repair / resume 工作进程，输入由管理入口限定 |
+| `scripts/local_metrics.ps1` | Job 内只读核验显式任务清单，生成新的离线汇总与终态；不调用模型或检查 |
 | `scripts/test_local_runtime.ps1`、`scripts/test_local_process.ps1`、`scripts/test_local_bootstrap.ps1` | W01 路径清理、W02 进程保护和 W03 重复 Init 的合成验收 |
 | `scripts/check_docs.py` | 文档登记、链接、维护元数据及 archive 跟踪检查 |
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
@@ -153,12 +154,13 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `tests/test_model_provider.py`、`tests/test_provider_loop.py`、`tests/test_reporting.py`、`tests/test_offline_script.py`、`tests/test_offline_cli.py` | 模拟模型请求/响应、SDK 交接、最终摘要核验和受管脚本/命令入口；不调用真实模型 |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
 | `tests/test_context_compaction.py`、`tests/test_compaction_loop.py` | 主机压缩的完整工具组、冻结来源、独立费用、格式失败、未知结果、恢复及实际 SDK 交接的合成验收 |
+| `tests/test_readonly_evidence.py`、`tests/test_metrics.py`、`tests/test_metrics_cli.py` | 不可变账本、完整分母/未知项/重复运行、配置漂移及受管聚合入口的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 项目 Skill 的模板位置；实际实现状态见 STATUS |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
-| `configs/local-runtime.json` | 本机资源/清理策略；CPU/内存/进程限制对合成 Run、Init、测试、质量和离线 Agent 任务生效，字段语义见设计与契约 |
+| `configs/local-runtime.json` | 本机资源/清理策略；CPU/内存/进程限制对合成 Run、Init、测试、质量、离线 Agent 和聚合任务生效，字段语义见设计与契约 |
 | `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
 | `.dfx-local/` | 本机环境、缓存、工作副本与运行状态根；Git 忽略，合成、安装、测试、质量和离线 Agent 任务受管 |
 | `runs/` | 历史原型产物、管理工具接入前的临时材料及需保留的 exports；Git 忽略 |
@@ -189,6 +191,8 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 | `model_provider.py` | 严格配置、实际消息/工具/参数序列化、模拟 Chat Completions 请求/响应与原始 usage；只允许 MockTransport，不接受凭据或真实端点 |
 | `offline_script.py` | 校验固定响应及模拟协议 JSON 脚本、策略与限额，建立隔离响应流；期望答案只供合成执行器 |
 | `reporting.py` | 从版本、诊断、模型/工具账本和检查重建最终摘要，核验补丁及可验证报告字段；不执行模型或应用 |
+| `metrics.py` | 按显式 task/variant/repeat 清单只读核验停止记录，汇总初始定位、全部候选及完整成本；应用指标未知 |
+| `evidence_io.py` | 不可变只读 SQLite 连接，拒绝缺文件、链接/硬链及未合并日志；不修复或新建账本 |
 | `model_calls.py` | 持久模型请求账本、响应回放、格式/usage 分类及崩溃窗口拒绝重发；已用于固定响应路径，尚未接入真实提供方 |
 | `agent.py` | Deep Agents 离线循环，接入任务指引、跨文件检索、未确认诊断、候选门控、可关闭策略工具和停止报告 |
 | `task_strategy.py` | 基础/增强共享的明确修复任务指引与主机任务上下文；增强按开关追加，不证明模型效果 |

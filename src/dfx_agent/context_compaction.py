@@ -504,7 +504,7 @@ class CompactionStore:
                     entries.setdefault(match[1], set()).add(match[2])
             if any("plan" not in kinds for kinds in entries.values()):
                 raise ValueError("orphan compaction artifact")
-            with closing(sqlite3.connect(call_store.path.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+            with closing(call_store._connect()) as connection:
                 identifiers = [row[0] for row in connection.execute("SELECT call_id FROM model_calls")]
             for identifier in identifiers:
                 record = call_store.get(identifier)

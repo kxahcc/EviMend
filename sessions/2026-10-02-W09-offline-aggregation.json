@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-02",
+  "work_package": "W09 offline synthetic aggregation",
+  "objective": "Verify stopped offline records against an explicit full task/variant/repeat matrix, preserve missing results and unknown costs, and expose a bounded managed aggregation command.",
+  "source_start_commit": "e31313b",
+  "scope": "offline_synthetic",
+  "real_model_calls": 0,
+  "application_executions": 0,
+  "dependency_installations": 0,
+  "implementation": [
+    "Strict frozen evaluation manifest and full matrix; task/log uniqueness and configuration, capability, budget, prompt, condition/protocol and catalog-selection identity checks.",
+    "Read-only immutable SQLite helper and read_only stores/check ledger; replay-only executor cannot load answers or execute checks.",
+    "Original path chain, regular-file/hardlink/sidecar and before/after input-tree checks. Business JSON preserved as raw source bytes; host JSON remains strict.",
+    "Read_completion-backed rows retain initial/latest/candidate-linked localization, all ordinal candidates, first/latest checks, compactions and total accounted costs.",
+    "Reconstructed installed host and solver wire tool descriptors; no provider or tool execution. Historical execution versions and ordinary original request bodies are not invented.",
+    "Missing/not_run remain in all denominators; total costs stay unknown where evidence or usage is missing; paired repeats remain grouped by declared task/lineage.",
+    "Managed aggregate task reuses Job limits and serialization, writes new report and terminal marker, prints bounded receipt. C# scenario allowlist updated after actual smoke rejection."
+  ],
+  "validation": {
+    "mode": "10 selected test files, managed sequential runs; not a single full-repository test run",
+    "passed": 272,
+    "skipped": 4,
+    "tests": [
+      {
+        "path": "tests/test_readonly_evidence.py",
+        "run_id": "d2ee69c4-8d50-4b5d-906b-9683fee32ed7",
+        "passed": 27,
+        "skipped": 3
+      },
+      {
+        "path": "tests/test_metrics.py",
+        "run_id": "885b5757-793d-4075-ba1e-a2a7ce591a0f",
+        "passed": 64,
+        "skipped": 1
+      },
+      {
+        "path": "tests/test_metrics_cli.py",
+        "run_id": "ad5e7818-6515-49c1-9a4e-026791e6a045",
+        "passed": 11,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_reporting.py",
+        "run_id": "6592c859-50c6-445e-a1a0-34c8918f3b18",
+        "passed": 45,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_model_calls.py",
+        "run_id": "fb5567c5-9bf5-4ed3-9ecc-f6d5543529ce",
+        "passed": 21,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_tool_authorization.py",
+        "run_id": "4cbae2db-6dce-4c9e-9c69-e0cb14fbbcdb",
+        "passed": 18,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_context_compaction.py",
+        "run_id": "de814291-d7e8-4f99-ba92-8e39449f9d0a",
+        "passed": 54,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_agent_loop.py",
+        "run_id": "fcfc6593-fe93-4960-b597-351e99b058c7",
+        "passed": 12,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_compaction_loop.py",
+        "run_id": "965ac1e1-eea5-4245-b5c2-8d1cfa3cc16c",
+        "passed": 13,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_offline_cli.py",
+        "run_id": "63d837da-0518-49a4-bcad-09a0c1fbfae2",
+        "passed": 7,
+        "skipped": 0
+      }
+    ],
+    "skip_reason": "Current Windows account cannot create symbolic links; actual hardlinks and unmerged SQLite WAL rejection were exercised.",
+    "quality": {
+      "ruff": {
+        "status": "passed",
+        "run_id": "9610188a-5453-4b9b-8694-e1585e84dbe0"
+      },
+      "pyright": {
+        "status": "passed",
+        "run_id": "c543aa6a-9f6e-4107-a6d1-391c0c6dbe60",
+        "errors": 0,
+        "warnings": 0
+      },
+      "docs": {
+        "status": "passed",
+        "run_id": "ba722203-d62c-47ac-8572-1cb8b4f55a2e",
+        "registered_documents": 14
+      }
+    },
+    "smoke": {
+      "solver_manager_run_id": "1f6275ca-675f-490f-b6ea-b818963a062c",
+      "aggregate_manager_run_id": "0ad41f9a-ae22-41ab-a27d-d8212eb480ff",
+      "manifest": ".dfx-local/tmp/W09-smoke-20261002/evaluation.json",
+      "task": ".dfx-local/tmp/W09-smoke-20261002/task",
+      "source_work": ".dfx-local/work/offline-w09-smoke-20261002",
+      "aggregate_work": ".dfx-local/work/aggregate-w09-smoke-20261002",
+      "expected_runs": 2,
+      "verified_runs": 1,
+      "explicit_not_run": 1,
+      "known_tokens_lower_bound": 15,
+      "total_tokens": null,
+      "reserved_calls": null,
+      "application_metrics": "all null",
+      "stopped": true
+    },
+    "corrected_failures": [
+      "Initial Ruff two style findings corrected without changing evidence rejection semantics.",
+      "Actual aggregate Job smoke rejected before child creation because C# scenario allowlist did not contain aggregate; added fixed task and successful rerun.",
+      "A premature attempt to start another test while an earlier managed test was still running was rejected as busy; the next run waited for completion. No task bypassed the manager."
+    ],
+    "local_log_root": ".dfx-local/artifacts"
+  },
+  "environment": {
+    "existing_managed_python": "3.13.5",
+    "global_changes": false,
+    "resource_limit_changes": false,
+    "observed_managed_bytes": 317161320,
+    "observed_tmp_bytes": 4415,
+    "active_state": "none",
+    "export_bytes": 0,
+    "evidence_retention": "Synthetic inputs and work outputs retained locally pending W10. Test basetemp cleaned by managed runner."
+  },
+  "limitations": [
+    "No ground truth, application admission, business correctness/regression evidence, repair effectiveness, actual cloud costs or measured localization/repair timing.",
+    "Schema-1 lineage/case metadata is a manifest declaration; schema-2 hashes bind catalog identity, not independent cases or application admission.",
+    "Historical Git commit, lock hash and SDK execution version were absent from schema-8 sessions and remain unknown.",
+    "Ordinary original solver request bodies and the entire stop process are not reconstructible from the current source records.",
+    "Terminal marker and tree snapshots do not lock arbitrary external concurrent writers.",
+    "Force-stopped output without a terminal marker remains protected from automatic cleanup.",
+    "Managed export, real provider transport and local HarmonyOS execution still unimplemented."
+  ],
+  "next": "W10 managed evidence export, source retention and replay verification on synthetic fixtures; real work continues only after W08 prerequisites and user arrangements."
+}

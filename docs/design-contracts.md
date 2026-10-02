@@ -151,6 +151,16 @@ cost 从模型和动作账本汇总所有登记调用、已知 Token、missing/i
 
 后续聚合只消费与持久事实匹配的摘要，并分别记录初次定位、最终定位、首次候选和最新候选，不删除失败或未知项；真实应用指标仍须共同接受协议与独立 oracle。受管导出须保留重新核验所需的明确产物、版本和来源；仅复制一份 agent-report.json 不能代替可复现证据。
 
+### 1.3.3 停止记录的只读离线聚合
+
+EvaluationManifest schema 1 固定 offline_synthetic 范围、唯一 evaluation_id、共同 RunConfiguration、任务、策略组、repeat 和完整格子。任务绑定 task.json 原字节哈希、源码/日志、协议与条件输入摘要，schema 2 必须提供哈希一致的 CaseSelection；schema 1 的案例和谱系仅为声明。格子绑定 task/variant/repeat、唯一 run_id 与可空的工作目录。全部矩阵恰有一格，拒绝重复 run、任务/日志身份及祖先/后代目录重叠；格式容量在矩阵展开前检查。不得选择性发现成功目录或根据结果删格子。
+
+既有工作必须有匹配的 schema 1 offline 终态 finished/failed/canceled。目录缺失或终态无报告列 missing，work_path=null 列 not_run，费用未知且保留分母；现有损坏记录拒绝整批。核验 session 8 的任务、协议、主机输入、共同预算/能力/模型/上下文/工具/检索配置、策略开关和重新生成的提示；只构造主机工具描述，不执行闭包，核对 session 与实际 solver 的两种工具格式。随后使用 read_completion 核对 report 5/completion 2。普通 solver 原始请求体未保存，不能声称重建全部历史请求参数；Git/lock/SDK 历史执行版本未记录，保持 null。
+
+ModelCallStore、ToolActionStore 和 CheckLedger 显式 read_only=True：不创建文件/目录、表或 sidecar，写方法及执行入口一律拒绝。ReplayOnlyExecutor 只持有协议摘要，check 始终拒绝；不读取预期答案。SQLite 以只读不可变连接回读，非空 WAL/journal 拒绝，不自动合并。聚合检查原路径链、链接/硬链、完整源树字节和文件身份，前后变化拒绝；主机 JSON 严格检查，源码 JSON 仅校验原字节。停止标记和前后检查不替代对外部并发写入者的锁。
+
+汇总保留全部定位、候选、失败、压缩与成本，缺项不补零；成对 unknown 不作失败收益，repeat 与任务/谱系分别计数。应用指标全部 null，accepted 始终 false，具体分母和成对资格以 [评测口径](preparation/metrics-and-gates.md#当前离线聚合的口径) 为准。受管 aggregate 只写新的工作目录，不能覆盖或写入输入树，打印有限回执并保存终态；强制中断未写终态时保留该未知目录并阻止自动清理。证据 Export 属于下一独立工作包。
+
 ## 2. 控制器转换规格
 
 控制器只依据可校验记录转换状态。先验证原始版本能按目标协议触发故障；复现入口尚缺失时，允许继续离线诊断，但运行修复任务不能成功终止。
@@ -384,4 +394,4 @@ Stop 不隐式删除文件；Clean 不隐式杀未知进程；删除 artifacts/s
 
 ## 6. 关联与待完成规格
 
-工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录、有限条件结果到修复决策和候选的离线交接、mock wire 模型边界及主机结果摘要已可执行；离线聚合/受管导出、真实提供方、真实值采集、其余规则检查、可信应用验证接纳与本机执行控制仍待闭合和实测。
+工作包顺序、具体未闭合项和完成条件统一见 [实施计划](project-work-plan.md)；实现进度见 [STATUS](STATUS.md)，对照与贡献归因见 [评测口径](preparation/metrics-and-gates.md)。因果记录、有限条件结果到修复决策和候选的离线交接、mock wire 模型边界、主机结果摘要与只读离线聚合已有合成入口；受管导出、真实提供方、真实值采集、其余规则检查、可信应用验证接纳与本机执行控制仍待闭合和实测。

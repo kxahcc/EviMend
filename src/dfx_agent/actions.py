@@ -21,6 +21,7 @@ from .conditions import ConditionRequest, ConditionStore
 from .contracts import ActionProposal, authorize_action
 from .decisions import DecisionRequest, DecisionStore
 from .diagnostics import AnalysisStore
+from .evidence_io import open_readonly_database
 from .model_calls import ModelCallStore, canonical, sha256
 from .workspace import CandidateWorkspace
 
@@ -50,8 +51,17 @@ class ToolActionUncertain(RuntimeError):
 class ToolActionStore:
     """Persist authorization before effects and a receipt before graph checkpointing."""
 
-    def __init__(self, path: Path):
-        self.path = path
+    def __init__(self, path: Path, *, read_only: bool = False):
+        if type(read_only) is not bool:
+            raise ValueError("read_only must be a boolean")
+        self.path, self.read_only = path, read_only
+        if read_only:
+            with closing(self._connect()) as connection:
+                row = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE name='tool_actions' AND type='table'").fetchone()
+                if row is None:
+                    raise ValueError("tool ledger table is missing")
+            return
         with closing(self._connect()) as connection, connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("""CREATE TABLE IF NOT EXISTS tool_actions (
@@ -61,6 +71,8 @@ class ToolActionStore:
                 message_json TEXT, message_sha256 TEXT)""")
 
     def _connect(self) -> sqlite3.Connection:
+        if self.read_only:
+            return open_readonly_database(self.path)
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA synchronous=FULL")
@@ -70,6 +82,8 @@ class ToolActionStore:
                tool_name: str, tool_call_id: str, proposal: ActionProposal | None,
                rejection: str | None, max_tool_calls: int,
                handler: Callable[[], ToolMessage]) -> ToolMessage:
+        if self.read_only:
+            raise ValueError("tool ledger is read-only")
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT * FROM tool_actions WHERE action_id=?", (action_id,)).fetchone()
@@ -101,6 +115,8 @@ class ToolActionStore:
         return message
 
     def complete(self, action_id: str, message: ToolMessage) -> None:
+        if self.read_only:
+            raise ValueError("tool ledger is read-only")
         payload = canonical(message.model_dump(mode="json"))
         with closing(self._connect()) as connection, connection:
             updated = connection.execute("UPDATE tool_actions SET state='completed', message_json=?, "

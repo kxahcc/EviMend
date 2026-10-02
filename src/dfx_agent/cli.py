@@ -27,6 +27,10 @@ def main() -> None:
     analyze.add_argument("--task", required=True, type=Path)
     analyze.add_argument("--output", required=True, type=Path)
     analyze.add_argument("--max-anchors", type=int, default=8)
+    aggregate = sub.add_parser("aggregate", help="Managed, read-only aggregation of saved synthetic evidence")
+    aggregate.add_argument("--manifest", required=True, type=Path)
+    aggregate.add_argument("--root", required=True, type=Path)
+    aggregate.add_argument("--output", required=True, type=Path)
     for name in ("repair", "resume"):
         offline = sub.add_parser(name, help="Managed fixed-response or mock-wire demonstration only")
         offline.add_argument("--task", required=True, type=Path)
@@ -44,6 +48,15 @@ def main() -> None:
             if args.output.resolve().is_relative_to(args.task.resolve()):
                 raise ValueError("Analysis output must be outside the fixed task input")
             result = analyze_task(args.task, args.max_anchors)
+        elif args.command == "aggregate":
+            if os.environ.get("DFX_MANAGED_METRICS") != "offline-v1":
+                raise ValueError("aggregate requires the managed offline metrics entry point")
+            from .metrics import write_evaluation_report
+
+            report = write_evaluation_report(args.manifest, args.root, args.output)
+            result = {"schema_version": report["schema_version"], "scope": report["scope"],
+                      "evaluation_id": report["evaluation_id"], "output": str(args.output),
+                      "row_count": len(report["rows"])}
         else:
             from .agent import run_fixed_agent, run_provider_agent
             from .model_calls import ModelCallStore

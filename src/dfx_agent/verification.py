@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -34,6 +35,17 @@ class OfflineExecutor(Protocol):
     def check(self, *, key: str, source: Path) -> tuple[Literal["pass", "fail", "inconclusive"], str]: ...
 
 
+class ReplayOnlyExecutor:
+    """Expose a frozen check identity without supplying an execution capability."""
+
+    def __init__(self, protocol_sha256: str):
+        require_hash(protocol_sha256)
+        self.protocol_sha256 = protocol_sha256
+
+    def check(self, *, key: str, source: Path) -> tuple[Literal["pass", "fail", "inconclusive"], str]:
+        raise ValueError("replay-only executor cannot run a check")
+
+
 def _atomic_json(path: Path, value: dict[str, object]) -> None:
     temporary = path.with_name(path.name + ".new")
     if temporary.exists():
@@ -50,10 +62,26 @@ def _atomic_json(path: Path, value: dict[str, object]) -> None:
 class CheckLedger:
     """Write intent before calling a backend; retry only with the same key."""
 
-    def __init__(self, workspace: CandidateWorkspace, executor: OfflineExecutor):
+    def __init__(self, workspace: CandidateWorkspace, executor: OfflineExecutor, *, read_only: bool = False):
+        if type(read_only) is not bool:
+            raise ValueError("read_only must be a boolean")
         self.workspace = workspace
         self.executor = executor
+        self.read_only = read_only
         self.root = workspace.root / "checks"
+        if read_only:
+            try:
+                absolute = self.root.absolute()
+                if ".." in absolute.parts:
+                    raise ValueError("check ledger path is not canonical")
+                for component in (*reversed(absolute.parents), absolute):
+                    info = component.lstat()
+                    if (not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or
+                            getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                        raise ValueError("check ledger directory is missing or linked")
+            except OSError as exc:
+                raise ValueError("check ledger directory is missing or inaccessible") from exc
+            return
         self.root.mkdir(exist_ok=True)
         if self.root.is_symlink():
             raise ValueError("check ledger is linked")
@@ -92,6 +120,8 @@ class CheckLedger:
         return result
 
     def run(self, candidate_id: str, check_id: str = "offline") -> CheckResult:
+        if self.read_only:
+            raise ValueError("check ledger is read-only")
         source = self.workspace.require_registered(candidate_id)
         key, path = self._identity(candidate_id, check_id)
         done = self.completed(candidate_id, check_id)

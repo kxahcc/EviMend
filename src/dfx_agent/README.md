@@ -85,7 +85,21 @@ schema 2 用于检查实际模型协议交接，仍是进程内模拟，不连�
 
 `agent-report.json` 的 schema 5 记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。completion schema 2 区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
 
-`reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅，当前没有独立 report CLI 或证据 Export 命令。
+`reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，证据 Export 命令尚未实现。
+
+### 只读聚合已停止的合成记录
+
+```powershell
+.\scripts\local.ps1 Run -Task aggregate -EvaluationManifestPath <仓库相对清单.json> -EvaluationWorkId <新ID>
+```
+
+完整报告写入 `.dfx-local/work/aggregate-<ID>/aggregate-report.json`，终态写入同目录 run-state.json，控制台只打印小回执。任务沿用现有 Windows Job、串行入口及资源限制，不调用模型、执行工具/检查或读取固定脚本的答案。旧目录不覆盖，不支持 Resume；强制中断后若无终态，清理保持拒绝。格式与程序接口在 metrics.py，自检样例在 tests/test_metrics.py；指标及未知项口径见 [评测说明](../../docs/preparation/metrics-and-gates.md#当前离线聚合的口径)。
+
+清单 schema 1 的必需字段：evaluation_id、scope=`offline_synthetic`、configuration、tasks、variants、repeat_ids、runs。tasks 列出 task_id/case_key/lineage_group_id/fault_variant_id、task_path、task.json 原字节 task_sha256、source_snapshot_sha256/crash_sha256/protocol_sha256/observations_sha256；schema 2 任务还提供原 CaseSelection，schema 1 selection=null。variants 每项为 variant_id 和完整 PolicyFeatures。runs 每项为 task_id/variant_id/repeat_id/run_id/work_path，必须覆盖全部矩阵；work_path=null 表示未运行。输入路径为相对于仓库的规范路径，不能指向 data_B、archive 或内部 Git/助手目录。
+
+configuration 的 model_profile_sha256、context_profile_sha256 和 search_limits_sha256 分别取 `sha256(canonical(session[字段]))`，tool_schema_sha256 取 session 同名值，再列出共同 capabilities/max_calls/max_known_tokens/max_seconds/max_candidates/max_tool_calls。canonical/sha256 由 model_calls.py 提供；不要对随意缩进或不同排序的 JSON 直接取这些配置哈希。聚合会重算任务提示及实际主机/solver 工具定义，核对所有 session 与同组预算；普通 solver 原始请求体未保存，不声称完整历史请求重建。
+
+缺目录、缺报告、失败和未知成本均保留在分母；损坏证据拒绝整批，不跳过。首次与最新定位/候选分开，repeat 与任务/谱系分开，不宣称独立样本。所有应用指标为 null、accepted=false。schema 8 未记录历史 Git/lock/SDK 版本，报告也保持 unknown；从现有记录生成清单不能证明当时预登记，正式实验须先冻结清单与完整执行来源。程序 API 为 load_evaluation_manifest / aggregate_evaluation / write_evaluation_report；写入只允许新报告且不能与输入重叠。
 
 `run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile；`session.json` 使用 schema 8，旧 schema 1–7 会话拒绝续跑，须保留旧证据并另建工作 ID。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
 

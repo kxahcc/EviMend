@@ -18,6 +18,7 @@ from langchain_core.messages import AIMessage
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .contracts import IDENTIFIER, require_hash
+from .evidence_io import open_readonly_database
 
 
 def canonical(value: object) -> str:
@@ -189,10 +190,19 @@ class ModelCallRecord(BaseModel):
 class ModelCallStore:
     """SQLite ledger; only opaque request hashes and completed responses are retained."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, read_only: bool = False):
+        if type(read_only) is not bool:
+            raise ValueError("read_only must be a boolean")
         if not path.parent.is_dir():
             raise ValueError("model ledger parent must already exist")
-        self.path = path
+        self.path, self.read_only = path, read_only
+        if read_only:
+            with closing(self._connect()) as connection:
+                row = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE name='model_calls' AND type='table'").fetchone()
+                if row is None:
+                    raise ValueError("model ledger table is missing")
+            return
         with closing(self._connect()) as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("""CREATE TABLE IF NOT EXISTS model_calls (
@@ -203,6 +213,8 @@ class ModelCallStore:
             connection.commit()
 
     def _connect(self) -> sqlite3.Connection:
+        if self.read_only:
+            return open_readonly_database(self.path)
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA synchronous=FULL")
@@ -249,6 +261,8 @@ class ModelCallStore:
         return result
 
     def reserve(self, intent: ModelCallIntent, *, max_calls: int) -> ModelCallRecord:
+        if self.read_only:
+            raise ValueError("model ledger is read-only")
         if max_calls < 1:
             raise ValueError("max_calls must be positive")
         with closing(self._connect()) as connection:
@@ -272,6 +286,8 @@ class ModelCallStore:
         return record
 
     def dispatch(self, call_id: str) -> None:
+        if self.read_only:
+            raise ValueError("model ledger is read-only")
         with closing(self._connect()) as connection, connection:
             updated = connection.execute("UPDATE model_calls SET state='dispatched' "
                                          "WHERE call_id=? AND state='reserved'", (call_id,)).rowcount
@@ -279,6 +295,8 @@ class ModelCallStore:
                 raise ModelCallConflict("model call is not an undispatched reservation")
 
     def complete(self, intent: ModelCallIntent, message: AIMessage) -> ModelObservation:
+        if self.read_only:
+            raise ValueError("model ledger is read-only")
         observation = normalize_message(intent, message)
         message_json = canonical(message.model_dump(mode="json"))
         with closing(self._connect()) as connection, connection:
@@ -301,6 +319,8 @@ class ModelCallStore:
         return observation
 
     def mark_unknown(self, call_id: str, reason: str) -> None:
+        if self.read_only:
+            raise ValueError("model ledger is read-only")
         if not reason or len(reason) > 200:
             raise ValueError("invalid uncertainty reason")
         with closing(self._connect()) as connection, connection:
