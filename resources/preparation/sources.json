@@ -149,9 +149,17 @@
       "status": "Authors' arXiv Comments: accepted to Findings of EMNLP 2026",
       "version": "v4, 2026-09-03",
       "read_level": "Abstract and version record",
-      "use": "Skill revision precedent; deferred extension",
+      "use": "Closest mechanism overlap: preservation, transfer constraints, evidence binding and execution-validated skill revision; not reproduced",
       "accessed": "2026-09-12",
-      "reproduced": false
+      "reproduced": false,
+      "rechecks": [
+        {
+          "date": "2026-10-03",
+          "url": "https://arxiv.org/html/2606.01139v4",
+          "scope": "v1 methods, setup/ablations and failure limitations; v4 introduction/methods rechecked",
+          "purpose": "Ground overlap and fair adaptation for context/experience/Skill design, not complete novelty audit or reproduction"
+        }
+      ]
     },
     {
       "id": "S11",
@@ -521,6 +529,32 @@
       "read_level": "Relevant documentation sections",
       "use": "Kill-on-last-handle-close, process count and breakaway semantics",
       "accessed": "2026-09-21",
+      "reproduced": false
+    },
+    {
+      "id": "S41",
+      "title": "Agentic Context Engineering: Evolving Contexts for Self-Improving Language Models",
+      "year": 2025,
+      "type": "method/preprint",
+      "url": "https://arxiv.org/html/2510.04618v3",
+      "status": "Primary preprint inspected; no venue acceptance inferred",
+      "version": "v3",
+      "read_level": "Methods, experimental setup/baselines and limitations; targeted reading",
+      "use": "Incremental experience/context maintenance precedent; reported gains not transferred to this project",
+      "accessed": "2026-10-03",
+      "reproduced": false
+    },
+    {
+      "id": "S42",
+      "title": "SWE-Skills-Bench: Do Agent Skills Actually Help in Real-World Software Engineering?",
+      "year": 2026,
+      "type": "benchmark/preprint",
+      "url": "https://arxiv.org/html/2603.15401v1",
+      "status": "Primary v1 preprint inspected, not an exhaustive latest-version audit",
+      "version": "v1",
+      "read_level": "Abstract, methods, experiment conditions and version/context interference example",
+      "use": "Skill applicability and negative-transfer risk; requirement-driven tasks differ from log-driven fault repair",
+      "accessed": "2026-10-03",
       "reproduced": false
     }
   ]

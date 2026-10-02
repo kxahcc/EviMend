@@ -1,7 +1,7 @@
 # 相关研究证据
 
-状态：当前参考证据。最后维护：2026-09-16。
-主要来源查阅日期：2026-09-12；2026-09-16 定点复核 mini-swe-agent 仓库 README、Agentless 与 TraceRepair 的 arXiv 摘要页，另核对了 LangGraph、模型适配、Pydantic、uv 和远程执行相关官方文档，工程来源登记在 sources.json；未重新进行完整查新。当前架构决策以 [开发设计草案](../development/system-design-draft.md) 为准，本文只记录来源、参考价值与复用限制。
+状态：当前参考证据。最后维护：2026-10-03。
+主要来源查阅日期：2026-09-12；2026-09-16 定点复核 mini-swe-agent 仓库 README、Agentless 与 TraceRepair 摘要及相关工程文档。2026-10-02–03 定点查阅 ACE、SkillRevise 和 SWE-Skills-Bench 的原文，具体版本/范围见下节及 sources.json；未重新进行完整查新。当前架构决策以 [开发设计草案](../development/system-design-draft.md) 为准，本文只记录来源、参考价值与复用限制。
 
 采用“在成熟方法上升级”的定位。以下是面向技术决策的检索，不是系统综述或完整查新证明；录用状态若来自 arXiv Comments，明确视为作者页面声明。
 
@@ -18,7 +18,9 @@
 | [TraceRepair](https://arxiv.org/html/2604.02647v2)，作者页面标注 ASE 2026 | 运行探针、不同修复策略及基于证据的交叉检查 | 借鉴探针与证据；正式比较需对齐定位条件 |
 | [DebugRepair](https://arxiv.org/html/2604.19305v1)，2026 预印本 | 定向运行状态收集和迭代修复 | 动态诊断近邻；不直接比较不同已知位置条件下的成功数 |
 | [执行 Trace 的 APR 研究](https://aclanthology.org/2025.knowledgenlp-1.17/)，2025 workshop 方法/实证 | 直接增加 Trace 的收益不稳定，复杂度影响有效性 | 支持优先筛选和压缩证据，而不是无限增加上下文 |
-| [SkillRevise](https://arxiv.org/abs/2606.01139)，作者页面标注 Findings of EMNLP 2026 | 用执行反馈改进技能 | Skills 的验证与更新可借鉴，第一轮先静态冻结 |
+| [SkillRevise](https://arxiv.org/html/2606.01139v4)，作者页面标注 Findings of EMNLP 2026 | 诊断与保留约束、带迁移条件的原则记忆、绑定后修订并重执行选择 | 经验/Skill 机制的重要近邻；已有覆盖不能改名当新增机制 |
+| [ACE](https://arxiv.org/html/2510.04618v3)，预印本 | 轨迹反思、增量经验维护与上下文更新 | 非参数学习的机制参考；原设置不提供本项目收益保证 |
+| [SWE-Skills-Bench](https://arxiv.org/html/2603.15401v1)，本次查看 v1 预印本 | 软件任务中 Skill 适配、收益差异与上下文干扰 | 说明需检查迁移边界；其需求驱动任务与日志故障修复不同 |
 | [Socratic-SWE](https://arxiv.org/abs/2606.07412)，2026 预印本，页面标注 under review | 轨迹提炼技能，再引导训练任务与模型学习 | 中后期参考；不作为首轮必要依赖 |
 | [SWE-Gym](https://arxiv.org/abs/2412.21139)，作者页面标注 ICML 2025；[SWE-smith](https://arxiv.org/abs/2504.21798)，2025 预印本 | 可执行训练环境、轨迹和任务生成 | 真正启动训练前再评估；训练并非无环境依赖的捷径 |
 
@@ -37,6 +39,18 @@ SHERLOC 的质量过滤分析部分使用了正确补丁辅助评判；其无补
 ARISE 明确报告了额外 Token 消耗，图构建时间也随仓库规模变化。对成本评估的启示是：先验证数据流信息是否能挽回失败，再决定是否承担图构建成本；一次一仓的比赛场景还应计入首次建图成本。[成本分析](https://arxiv.org/html/2605.03117v2)
 
 诊断测试选择和信息增益也不是新概念。2010 年 QSIC 工作已研究面向定位的测试优先级，2011 年存在相关期刊扩展。因此不把“按信息价值选择检查”作为独立首创；关注面向当前日志—代码—修复链路的具体实现与新增证据。[QSIC 2010 元数据](https://dblp.org/rec/conf/qsic/Gonzalez-SanchezPGG10)、[作者机构的期刊记录](https://research.tudelft.nl/en/publications/prioritizing-tests-for-software-fault-localization-2)
+
+## 上下文、经验与 Skills 的定点查阅
+
+查阅日期为 2026-10-02–03。ACE 查看 v3 方法、实验设置/对照与限制；SkillRevise 查看 v1 方法、评测/消融及失败限制，并在 10 月 3 日复核 v4 引言和方法；SWE-Skills-Bench 查看 v1 摘要、方法、实验条件与版本干扰案例。不将这次定点阅读称为最新全文综述或原方法复现。
+
+ACE 的结构化经验维护可作为复用基础。[ACE 方法](https://arxiv.org/html/2510.04618v3)
+
+SkillRevise 已覆盖保留约束、迁移限制、证据绑定和有界修订选择，v4 也包含软件任务。不能凭“记忆＋验证＋Skill 更新”或软件领域定位声称独占新颖性。[SkillRevise v4](https://arxiv.org/html/2606.01139v4)
+
+SWE-Skills-Bench 提供 Skill 与项目约定不匹配而造成损害的案例；本项目仍须自己验证这些风险及收益，不能外推其成绩。[SWE-Skills-Bench](https://arxiv.org/html/2603.15401v1)
+
+据此的设计推断是：可在成熟机制上升级，把当前业务义务和前提证据用于每一步修复控制，决定迁移修法、返回区分问题还是避开不适用经验，并用新反例修订迁移边界。此控制目标与冷启动修订 Skill 有差别，但不证明近邻无法适配。需要同知识静态 Skill、普通检索、关键机制消融及合理近邻适配，检验独立案例上的修复、负迁移和总成本；具体设计及比较归属仍在设计/评测文档。
 
 ## 复用层级必须说清楚
 

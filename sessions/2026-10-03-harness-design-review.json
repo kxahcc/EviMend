@@ -1,0 +1,73 @@
+{
+  "session_id": "session-2026-10-03-harness-design-review",
+  "date": "2026-10-03",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "source_start_commit": "94bd326",
+  "work_package": "W07 harness contribution design review; detailed contracts remain next",
+  "user_request_summary": "先完成执行来源实现批，同时审查 context、memory、Skills 和演进学习是否真正形成面向完整故障修复链路的竞争力贡献；可借鉴成熟方法升级，不走模型微调。",
+  "changes": [
+    "保留 Deep Agents SDK 和通用修复能力，以修复义务贯穿诊断、补丁、检查与失败修订作为单一方法主线。",
+    "区分已有任务内检查点、RuleCard 和通用主机压缩，与未实现的工作上下文、跨任务经验库、Skills 目录及演进机制。",
+    "拟议工作上下文根据当前假设、业务义务、候选和有效反例组织发送视图，保留引用闭包、完整工具组、原历史和总预算。",
+    "拟议经验迁移核对当前前提证据，分别交接可尝试步骤、不适用理由或区分问题；历史事实不得升格为当前事实。",
+    "拟议候选 Skill 经独立开发验证案例与边界反例比较后晋升，可信失败支持缩界、补分支或退回；在跑任务固定快照。",
+    "评测保留同知识静态 Skill、普通检索及可关闭机制，统计新增成功、损害、学习和部署完整成本；冻结确认与持续学习先测后更新分开。",
+    "在原设计、规格、计划、评测、研究证据和开发导览中维护内容，不新增当前 Markdown 或第二套任务台账，不改代码、竞赛模板或 data_B。"
+  ],
+  "research_evidence": {
+    "skill_used": "ccf-idea-optimizer; user CCF-B target and existing artifact ownership retained",
+    "source_registry": "resources/preparation/sources.json",
+    "targeted_read_dates": ["2026-10-02", "2026-10-03"],
+    "sources": [
+      {
+        "id": "S10",
+        "url": "https://arxiv.org/html/2606.01139v4",
+        "scope": "SkillRevise v1 methods, setup/ablations and failure limitations; v4 introduction and methods rechecked",
+        "purpose": "Closest overlap includes preservation constraints, transfer-conditioned principle memory, binding and execution-validated revision; not reproduced"
+      },
+      {
+        "id": "S41",
+        "url": "https://arxiv.org/html/2510.04618v3",
+        "scope": "ACE methods, experiment setup/baselines and limitations",
+        "purpose": "Precedent for incremental experience/context maintenance; reported gains not transferred"
+      },
+      {
+        "id": "S42",
+        "url": "https://arxiv.org/html/2603.15401v1",
+        "scope": "SWE-Skills-Bench abstract, methods, experiment conditions and version/context interference example",
+        "purpose": "Applicability and negative-transfer risks; its requirement-driven tasks differ from log-driven repair"
+      }
+    ],
+    "complete_novelty_audit_or_reproduction": false,
+    "private_source_or_credentials_sent_to_research_queries": false
+  },
+  "validation": {
+    "semantic_review": "Root cross-document review and independent read-only review completed; proposed mechanisms, same-knowledge controls and learning/confirmation separation consistent",
+    "counterexamples": "Similar exceptions with opposite literal-search/regex business semantics, stale candidate evidence, unknown prerequisites and snapshot drift are design obligations, not application results",
+    "docs": "14 registered documents, 0 errors, 0 optional notes; managed task 9bc2b30e-d6ff-430d-ba00-f9a8a4aeb65d",
+    "git_diff_check": "working and cached diff checks passed; only the nine reviewed design/evidence files staged",
+    "software_tests_rerun": false,
+    "preceding_implementation_evidence": "sessions/2026-10-03-execution-provenance.json; 423 passed and 3 privilege skips across 14 selected files, not a full-suite same-run result",
+    "real_model_repair_runs_this_batch": 0,
+    "application_replays_this_batch": 0
+  },
+  "environment": {
+    "new_dependencies_or_toolchains": false,
+    "model_weights_or_finetuning": false,
+    "resource_limits_changed": false,
+    "new_background_services": false,
+    "existing_environment_cache_and_failure_artifacts_preserved": true,
+    "managed_execution_used_for_new_checks": true,
+    "observed_managed_and_export_bytes_after_docs": 317803661,
+    "active_managed_task_after_docs": false
+  },
+  "limitations": [
+    "本批为设计维护；没有新增上下文选择器、经验库、Skill 加载、晋升或真实学习收益。",
+    "字段不变量、适用性判断职责、配置身份及晋升数值门槛尚待 W07 契约闭合；不能把当前聚合器直接用于新配置比较。",
+    "记忆、保留约束和 Skill 验证已有近邻覆盖；每步修复控制的增量仍须合理近邻适配、同知识对照、消融和独立案例证明。",
+    "冻结主评测；竞赛是否允许跨任务更新尚待正式规则核对，当前不自动启用持续学习。",
+    "真实模型、完整工程、HarmonyOS 设备/工具链及独立业务验收仍未接入，根因、修复、迁移和成本效果未知。"
+  ],
+  "next_work_package": "W07 工作上下文与经验/Skill 契约闭合，之后按 project-work-plan 的包内顺序实现合成入口；强基础闭环不等待跨任务学习。"
+}
