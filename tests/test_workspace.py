@@ -105,3 +105,49 @@ def test_source_hardlink_becomes_independent_copy(tmp_path: Path) -> None:
     workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="good")])
     assert original.read_text(encoding="utf-8") == "value=bad\n"
     assert external.read_text(encoding="utf-8") == "value=bad\n"
+
+
+@pytest.mark.parametrize("scope", ["task", "baseline"])
+def test_public_reopen_rejects_same_size_change_with_restored_mtime(tmp_path: Path, scope: str) -> None:
+    task = task_snapshot(tmp_path)
+    workspace = CandidateWorkspace(task, tmp_path / "work", "run1")
+    assert CandidateWorkspace.reopen(task, workspace.root, "run1").root == workspace.root
+    path = (task / "source" if scope == "task" else workspace.base) / "src/other.ets"
+    before = path.stat()
+    original = path.read_bytes()
+    changed = original.replace(b"1", b"2")
+    assert changed != original and len(changed) == len(original)
+    path.write_bytes(changed)
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    assert path.stat().st_size == before.st_size and path.stat().st_mtime_ns == before.st_mtime_ns
+    with pytest.raises(ValueError, match="Source file is missing or has changed|workspace baseline changed"):
+        CandidateWorkspace.reopen(task, workspace.root, "run1")
+    assert path.read_bytes() == changed
+
+
+@pytest.mark.parametrize("scope", ["task", "baseline"])
+@pytest.mark.parametrize("mutation", ["add", "remove"])
+def test_public_reopen_rechecks_complete_source_membership(tmp_path: Path, scope: str, mutation: str) -> None:
+    task = task_snapshot(tmp_path)
+    workspace = CandidateWorkspace(task, tmp_path / "work", "run1")
+    assert CandidateWorkspace.reopen(task, workspace.root, "run1").root == workspace.root
+    source = task / "source" if scope == "task" else workspace.base
+    if mutation == "add":
+        (source / "src/unselected.ets").write_bytes(b"unselected=1\n")
+    else:
+        (source / "src/other.ets").unlink()
+    with pytest.raises(ValueError, match="Unexpected or missing files|Source file is missing|workspace baseline changed"):
+        CandidateWorkspace.reopen(task, workspace.root, "run1")
+
+
+@pytest.mark.parametrize("field", ["schema_version", "task_id", "run_id", "source_snapshot_sha256"])
+def test_public_reopen_rejects_workspace_owner_changes(tmp_path: Path, field: str) -> None:
+    task = task_snapshot(tmp_path)
+    workspace = CandidateWorkspace(task, tmp_path / "work", "run1")
+    assert CandidateWorkspace.reopen(task, workspace.root, "run1").root == workspace.root
+    path = workspace.root / "workspace.json"
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+    metadata[field] = 2 if field == "schema_version" else ("0" * 64 if field == "source_snapshot_sha256" else "other")
+    path.write_text(json.dumps(metadata), encoding="utf-8")
+    with pytest.raises(ValueError, match="workspace owner or source snapshot differs"):
+        CandidateWorkspace.reopen(task, workspace.root, "run1")

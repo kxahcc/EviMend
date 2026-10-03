@@ -204,11 +204,10 @@ class _Builder:
             for file in _files(_guard(root, directory=True)).values():
                 _guard(file)
         checked = verify_task(task)
-        CandidateWorkspace.reopen(task, workspace.root, workspace.run_id)
+        CandidateWorkspace._reopen_verified_task(task, workspace.root, workspace.run_id, checked)
         if (checked["task_id"] != workspace.task_id or
                 checked["source_snapshot_sha256"] != workspace.source_snapshot_sha256 or
-                digest(self.log) != checked["crash_sha256"] or
-                snapshot_digest(_manifest(workspace.base)) != workspace.source_snapshot_sha256):
+                digest(self.log) != checked["crash_sha256"]):
             raise ValueError("working context task or baseline differs")
         self.task_record = checked
         _guard(ledger.root, directory=True)
@@ -410,7 +409,8 @@ class _Builder:
         self.sources.json(folder / "manifest.json")
         for file in _files(_guard(folder / "source", directory=True)).values():
             self.sources.read(file)
-        self.workspace.require_registered(identifier)
+        # completed() always revalidates the registered candidate, including
+        # when no check exists. Keep the separate final packet revalidation.
         self.candidates[identifier] = candidate.model_dump(mode="json")
         key, check_path = self.ledger._identity(identifier, "offline")
         intent = self.sources.json(check_path) if check_path.exists() else None

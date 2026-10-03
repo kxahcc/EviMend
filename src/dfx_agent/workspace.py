@@ -10,6 +10,7 @@ import shutil
 import stat
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -138,6 +139,20 @@ class CandidateWorkspace:
         """Reopen an owned run only after rechecking its task and frozen baseline."""
         task_directory = task_directory.resolve(strict=True)
         task = verify_task(task_directory)
+        return cls._reopen_verified_task(task_directory, work_directory, run_id, task)
+
+    @classmethod
+    def _reopen_verified_task(cls, task_directory: Path, work_directory: Path, run_id: str,
+                              task_record: dict[str, Any]) -> CandidateWorkspace:
+        """Internal continuation of the same host operation's task verification.
+
+        The caller must have just called verify_task for this task directory.
+        Its verified record is an operation-local input, never a reusable
+        cache across tools, model calls or recovery. Public reopen always
+        performs its own full task verification before entering here.
+        """
+        task_directory = task_directory.resolve(strict=True)
+        task = task_record
         root = work_directory.resolve(strict=True)
         if root.is_relative_to(task_directory) or task_directory.is_relative_to(root):
             raise ValueError("work directory overlaps the task snapshot")

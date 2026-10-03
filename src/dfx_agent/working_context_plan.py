@@ -456,7 +456,7 @@ def _capture_material(workspace: CandidateWorkspace, task: Path, packet: Working
         if before.st_size > MAX_ARTIFACT_BYTES:
             raise WorkingContextError("working_context_material_limit")
         with path.open("rb") as source:
-            raw = source.read(MAX_ARTIFACT_BYTES + 1)
+            raw = source.read(min(before.st_size + 1, MAX_ARTIFACT_BYTES + 1))
         after = _guard(path).stat()
         if len(raw) > MAX_ARTIFACT_BYTES:
             raise WorkingContextError("working_context_material_limit")
@@ -794,6 +794,10 @@ class WorkingContextStore:
         return (_decode_inline_material(manifest) if plan.schema_version == 1 else self.materials.resolve(manifest))
 
     def _read_plan(self, path: Path) -> WorkingContextPlan:
+        return self._read_plan_material(path)[0]
+
+    def _read_plan_material(self, path: Path) -> tuple[WorkingContextPlan, dict[str, bytes]]:
+        """Certify saved bytes once for this operation's receipt validation."""
         saved = self.io._read(path)
         plan = WorkingContextPlan.model_validate_json(canonical(saved))
         if plan.model_dump(mode="json") != saved or plan.schema_version != self.format_version:
@@ -802,10 +806,11 @@ class WorkingContextStore:
                 plan.source_snapshot_sha256 != self.workspace.source_snapshot_sha256 or
                 plan.policy != self.policy or plan.model_profile_json != self.profile_json):
             raise ValueError("working context session differs")
+        material = self._material(plan)
         if plan.schema_version == 2:
-            _verify_raw_material(WorkingContextPacket.model_validate_json(plan.packet_json), self._material(plan),
+            _verify_raw_material(WorkingContextPacket.model_validate_json(plan.packet_json), material,
                                  plan.source_snapshot_sha256)
-        return plan
+        return plan, material
 
     def select(self, messages: list[BaseMessage], parent_call_id: str, call_store: ModelCallStore,
                actions: ToolActionStore) -> WorkingContextPlan | None:
@@ -819,10 +824,10 @@ class WorkingContextStore:
             path = self.directory / f"{parent_call_id}.plan.json"
             source = _serialized(messages)
             if path.exists():
-                plan = self._read_plan(path)
+                plan, checked_material = self._read_plan_material(path)
                 if plan.original_messages_json != source:
                     raise ValueError("working context solver site source changed")
-                self._check_receipts(plan, call_store, actions)
+                self._check_receipts_material(plan, call_store, actions, checked_material)
                 return plan
             if call_store.get(parent_call_id) is not None:
                 raise ValueError("existing solver site has no frozen working context plan")
@@ -837,7 +842,7 @@ class WorkingContextStore:
             _proof_packet(packet, receipts, material)
             projection = project_working_context(packet, max_bytes=self.policy.max_packet_bytes)
             stage, selection = _select_messages(messages, packet, receipts, self.policy, projection=projection)
-            manifest = {reference: self.materials.put(blob) for reference, blob in material.items()}
+            manifest = self.materials.put_manifest(material)
             plan = WorkingContextPlan(schema_version=2, task_id=self.workspace.task_id, run_id=self.workspace.run_id,
                 source_snapshot_sha256=self.workspace.source_snapshot_sha256, parent_call_id=parent_call_id,
                 policy=self.policy, model_profile_json=self.profile_json, original_messages_json=source,
@@ -846,10 +851,10 @@ class WorkingContextStore:
                 visible_receipts_json=canonical(receipts), selection_json=canonical(selection),
                 stage_messages_json=_serialized(stage), stage_sha256=sha256(_serialized(stage)),
                 prompt_sha256=sha256(WORKING_CONTEXT_PROMPT), selection_ms=(time.monotonic() - started) * 1000)
-            self._check_receipts(plan, call_store, actions)
             if len(canonical(plan.model_dump(mode="json")).encode("utf-8")) > MAX_ARTIFACT_BYTES:
                 raise WorkingContextError("working_context_material_limit")
-            self.materials.audit_namespace()
+            checked_material, _ = self.materials.inspect(manifest)
+            self._check_receipts_material(plan, call_store, actions, checked_material)
             self.io._save(path, plan.model_dump(mode="json"))
             return plan
         except WorkingContextError:
@@ -858,6 +863,11 @@ class WorkingContextStore:
             raise WorkingContextError("working_context_plan_invalid") from exc
 
     def _check_receipts(self, plan: WorkingContextPlan, calls: ModelCallStore, actions: ToolActionStore) -> None:
+        self._check_receipts_material(plan, calls, actions, self._material(plan))
+
+    def _check_receipts_material(self, plan: WorkingContextPlan, calls: ModelCallStore,
+                                actions: ToolActionStore, material: dict[str, bytes]) -> None:
+        """Only consume originals verified in this same host operation."""
         if calls.path != self.workspace.root / "model-calls.sqlite" or actions.path != self.workspace.root / "tool-actions.sqlite":
             raise ValueError("working context ledgers belong to another run")
         current = _visible(_messages(plan.original_messages_json), calls, actions, self.workspace)
@@ -888,7 +898,8 @@ class WorkingContextStore:
         packet = WorkingContextPacket.model_validate_json(plan.packet_json)
         if packet.contents()["focus"] != _focus(current).model_dump(mode="json"):
             raise ValueError("working context frozen focus changed")
-        _proof_packet(packet, frozen, self._material(plan))
+        _verify_raw_material(packet, material, plan.source_snapshot_sha256)
+        _proof_packet(packet, frozen, material)
 
     def _link_value(self, plan: WorkingContextPlan, intent: ModelCallIntent, request: PreparedRequest | None,
                     view: list[BaseMessage], compaction: CompactionPlan | None,
@@ -970,10 +981,10 @@ class WorkingContextStore:
             for parent in sorted(entries, key=lambda value: int(value[6:])):
                 if "plan" not in entries[parent]:
                     raise ValueError("orphan working context solver link")
-                plan = self._read_plan(self.directory / f"{parent}.plan.json")
+                plan, checked_material = self._read_plan_material(self.directory / f"{parent}.plan.json")
                 if plan.parent_call_id != parent:
                     raise ValueError("working context filename differs")
-                self._check_receipts(plan, call_store, actions)
+                self._check_receipts_material(plan, call_store, actions, checked_material)
                 solver = call_store.get(parent)
                 linked = None
                 if "solver" in entries[parent]:

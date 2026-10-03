@@ -17,7 +17,7 @@ from dfx_agent.agent import _tools
 from dfx_agent.decisions import DecisionRequest, DecisionStore
 from dfx_agent.diagnostics import AnalysisStore
 from dfx_agent.model_calls import canonical, sha256
-from dfx_agent.task import digest, verify_task
+from dfx_agent.task import digest, snapshot_digest, verify_task
 from dfx_agent.verification import CheckLedger, FixedTextExecutor
 from dfx_agent.working_context import (
     WorkingContextError,
@@ -374,6 +374,47 @@ def test_valid_content_replacement_after_packet_assembly_is_caught_by_final_sour
     with pytest.raises(WorkingContextError, match="working_context_source_invalid"):
         packet(task, workspace, ledger, WorkingContextFocus(diagnosis_id="diagnosis1"))
     assert ledger.executor.requests == []
+
+
+@pytest.mark.parametrize("scope", ["task", "base"])
+@pytest.mark.parametrize("mutation", ["same_size", "add", "remove"])
+def test_unselected_source_drift_after_assembly_is_caught_by_independent_full_tree_recheck(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scope: str, mutation: str) -> None:
+    task = task_snapshot(tmp_path)
+    relative = "src/unselected.ets"
+    (task / "source" / relative).write_bytes(b"unselected=1\n")
+    manifest = json.loads((task / "source-manifest.json").read_text(encoding="utf-8"))
+    manifest.append({"path": relative, "sha256": digest(b"unselected=1\n")})
+    (task / "source-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    record = json.loads((task / "task.json").read_text(encoding="utf-8"))
+    record["source_snapshot_sha256"] = snapshot_digest(manifest)
+    (task / "task.json").write_text(json.dumps(record), encoding="utf-8")
+    workspace = CandidateWorkspace(task, tmp_path / "run", "run1")
+    ledger = CheckLedger(workspace, FixedTextExecutor("src/main.ets", "value=good\n"))
+    original = working_context._Builder.packet_value
+    changed = False
+
+    def swap_after_assembly(builder, focus):
+        nonlocal changed
+        result = original(builder, focus)
+        assert not any(item["reference"].endswith(relative) for item in result["sources"])
+        source = (task / "source" if scope == "task" else workspace.base) / relative
+        if mutation == "same_size":
+            before = source.stat()
+            source.write_bytes(b"unselected=2\n")
+            os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+            assert source.stat().st_size == before.st_size and source.stat().st_mtime_ns == before.st_mtime_ns
+        elif mutation == "add":
+            source.with_name("new-unselected.ets").write_bytes(b"new unregistered file")
+        else:
+            source.unlink()
+        changed = True
+        return result
+
+    monkeypatch.setattr(working_context._Builder, "packet_value", swap_after_assembly)
+    with pytest.raises(WorkingContextError, match="working_context_source_invalid"):
+        packet(task, workspace, ledger, WorkingContextFocus())
+    assert changed and ledger.executor.requests == []
 
 
 @pytest.mark.parametrize("mutation", ["change", "add", "remove"])

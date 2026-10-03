@@ -380,9 +380,11 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 新写 session/report/completion 为 10/7/4，context_profile 明确冻结 working_context_format=2。历史 session 10 缺该标记时只读按 format 1 核验原 inline 计划及原序列化形状，不倒填；旧 8/5/2 与 9/6/3 也维持原形状只读。执行来源不兼容的旧运行不能续跑。旧固定/模拟脚本 1/2 不接纳新工作上下文字段，新 3/4 明确登记 working_context；聚合清单 v1 仍可核验关闭增强的新运行，只有 v2 可显式比较 working_context_enabled，format 与其他共同配置门不放宽。报告审计和私有导出保留实际发送计划；这些能力不证明摘要忠实度、模型定位或修复收益。
 
-format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materials/<sha256>.blob，每个不可改写计划固定引用路径、大小与摘要。同字节材料在该 run 内复用；不跨 run 链接、不改写原文件。原材料、完整审计 packet、引用清单及计划各自沿用 `context_compaction.MAX_ARTIFACT_BYTES` 单产物上限；整体仍受既有受管磁盘及导出预算约束。WorkingContextPolicy.max_packet_bytes 在 format 2 专指模型投影预算，format 1 保持原 packet 预算解释，两代通过冻结标记明确区分。限额失败在 solver reserve 前停止，不提高配置自动重试。
+format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materials/<sha256>.blob，每个不可改写计划固定引用路径、大小与摘要。同字节材料在该 run 内复用；不跨 run 链接、不改写原文件。单次入库批次先核验全部逻辑引用、容量和同摘要原字节一致性，再按唯一原字节发布，所有逻辑引用保持；下一次独立操作仍重新读取已有 blob。批次不是整体写入事务，发布失败留下的孤立材料按下文处理。原材料、完整审计 packet、引用清单及计划各自沿用 `context_compaction.MAX_ARTIFACT_BYTES` 单产物上限；整体仍受既有受管磁盘及导出预算约束。WorkingContextPolicy.max_packet_bytes 在 format 2 专指模型投影预算，format 1 保持原 packet 预算解释，两代通过冻结标记明确区分。限额失败在 solver reserve 前停止，不提高配置自动重试。
 
 首版求解投影只把完整 sources 回执清单替换为数量、逻辑字节数及清单摘要，并绑定完整 packet 的摘要；其余假设、alternatives、证据陈述、业务义务、反例、条件、候选范围、权限、版本和未知项全部原样保留，不做模型语义压缩，也不额外读取来源。Pydantic 仅核验投影/清单结构；WorkingContextStore 的回读、发送绑定及审计还须核验外部原字节、基线/候选身份、完整闭包及可见回执。不能把单独结构校验称为材料已认证。
+
+规模优化仅复用同一次主机构建刚核验的输入和紧邻重复步骤：公共工作区 reopen 每次完整核验任务；内部延续入口不作为模型/工具 API，也不跨调用或恢复缓存。候选仍经检查账本核验，完成 packet 前独立复查候选、任务、基线及保留原字节。材料路径采用组件级包含和完整未解析祖先检查，拒绝父层链接/重解析点、共享文件及非正规文件。材料库只有受控直接子文件，批量读在起止核验完整祖先链；祖先绑定目录身份、类型与属性，允许材料库之外的无关兄弟文件创建，材料目录本身仍绑定完整身份。每个打开文件限于已捕获的原身份，保留读取前后路径/文件描述符、长度、原摘要及最后成员复核；读取量按实查大小加一个增长哨兵有界申请，不为小文件反复申请整个单产物上限。单次整库检查可同时返回已核验原字节供该次回执校验使用。下一次操作重读，不通过 size/mtime 缓存取代原字节，不宣称文件锁或原子并发沙箱。
 
 先发布材料，再发布计划，再 reserve/link 模型调用。单 writer 受管运行中，崩溃可留下完整但未引用的 blob 或有界 pending 文件；它们只读保留并计数，不转成任务事实、不自动删除或填补缺失引用。namespace 拒绝非法文件名、目录、链接、超限及审计期间变化。报告同时保留逻辑引用字节、按摘要去重的引用字节、投影字节和整个 run 的 namespace 观察；后者在各计划重复展示，不求和为每调用成本。历史回读、未知调用不重发、组合压缩和私有导出继续核验完整材料。规模证据见 STATUS；材料去重属于工程基础，不能单凭字节减少宣称真实 Token 或修复效果收益。
 
