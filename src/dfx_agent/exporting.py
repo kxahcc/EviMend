@@ -17,7 +17,7 @@ from .metrics import (
     MAX_JSON_BYTES,
     MAX_MANIFEST_BYTES,
     MAX_TREE_FILES,
-    EvaluationManifest,
+    AnyEvaluationManifest,
     _decode,
     _guard,
     _identifier,
@@ -28,6 +28,7 @@ from .metrics import (
     _reference,
     _tree_snapshot,
     aggregate_evaluation,
+    parse_evaluation_manifest,
 )
 from .model_calls import canonical, sha256
 from .task import digest
@@ -37,7 +38,7 @@ _DATABASES = frozenset({"checkpoints.sqlite", "model-calls.sqlite", "tool-action
 _WORK_ENTRIES = frozenset({
     "run-state.json", "workspace.json", "session.json", "agent-report.json", "condition-inputs.json",
     "base", "draft", "candidates", "checks", "diagnoses", "obligations", "feedback", "decisions",
-    "conditions", "compactions", "value-sources",
+    "conditions", "compactions", "value-sources", "working-context",
 }) | _DATABASES | frozenset(name + suffix for name in _DATABASES for suffix in ("-wal", "-shm", "-journal"))
 _PRIVACY = {
     "local_only": True, "redacted": False, "share_ready": False,
@@ -233,7 +234,7 @@ def _validate_tree(path: Path, allowed: frozenset[str], maximum: int) -> None:
             raise ValueError("evidence tree exceeds export capacity or format entry limit")
 
 
-def _snapshot(manifest: EvaluationManifest, root: Path, maximum: int) -> dict[str, Any]:
+def _snapshot(manifest: AnyEvaluationManifest, root: Path, maximum: int) -> dict[str, Any]:
     trees: dict[str, Any] = {}
     tasks = {task.task_path for task in manifest.tasks}
     for path in _input_paths(manifest, root):
@@ -322,7 +323,7 @@ def _preview_export(manifest_path: Path, root: Path, export_id: str, owner_id: s
     if manifest_path.is_relative_to(root / "runs/exports"):
         raise ValueError("an export package is not an original manifest input")
     raw = _read_bytes(manifest_path, MAX_MANIFEST_BYTES)
-    manifest = EvaluationManifest.model_validate_json(canonical(_decode(raw)))
+    manifest = parse_evaluation_manifest(_decode(raw))
     paths = _input_paths(manifest, root)
     if any(_overlap(manifest_path, path) or _overlap(root / "runs/exports", path) or
            _overlap(root / ".dfx-local/state", path) or path == root / ".dfx-local/tmp" for path in paths):
@@ -502,7 +503,7 @@ def apply_export(manifest_path: Path, root: Path, export_id: str, owner_id: str,
     if _exists(stage):
         raise ValueError("unfinished export stage exists; inspect it before cleanup")
     raw_manifest = _read_bytes(manifest_path.absolute(), MAX_MANIFEST_BYTES)
-    frozen_manifest = EvaluationManifest.model_validate_json(canonical(_decode(raw_manifest)))
+    frozen_manifest = parse_evaluation_manifest(_decode(raw_manifest))
     if any(_overlap(stage, path) for path in _input_paths(frozen_manifest, root)):
         raise ValueError("export stage overlaps source evidence")
     base_usage = _capacity(root, limits, fresh["estimated_bytes"])
@@ -521,7 +522,7 @@ def apply_export(manifest_path: Path, root: Path, export_id: str, owner_id: str,
     manifest_entry = fresh["inventory"]["evaluation.json"]
     if len(manifest_raw) != manifest_entry["size"] or digest(manifest_raw) != manifest_entry["sha256"]:
         raise ValueError("manifest changed during export")
-    manifest = EvaluationManifest.model_validate_json(canonical(_decode(manifest_raw)))
+    manifest = parse_evaluation_manifest(_decode(manifest_raw))
     report = aggregate_evaluation(manifest, root)
     report_raw = _encoded(report)
     report_entry = fresh["inventory"]["aggregate-report.json"]
@@ -577,7 +578,7 @@ def verify_export(package: Path) -> dict[str, Any]:
     raw = _read_bytes(package / "evaluation.json", MAX_MANIFEST_BYTES)
     if digest(raw) != value["manifest_sha256"]:
         raise ValueError("export manifest hash differs")
-    manifest = EvaluationManifest.model_validate_json(canonical(_decode(raw)))
+    manifest = parse_evaluation_manifest(_decode(raw))
     payload = package / "payload"
     expected_roots = {task.task_path for task in manifest.tasks} | {
         cell.work_path for cell in manifest.runs if cell.work_path is not None}

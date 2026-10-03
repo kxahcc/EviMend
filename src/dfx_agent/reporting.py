@@ -15,9 +15,11 @@ from .contracts import CandidatePatch
 from .decisions import DecisionStore
 from .diagnostics import AnalysisStore
 from .model_calls import ModelCallConflict, ModelCallStore, canonical, sha256
+from .models import context_profile
 from .provenance import validate_session_provenance
 from .task import digest, snapshot_digest
 from .verification import CheckLedger
+from .working_context_plan import WorkingContextPolicy, WorkingContextStore
 from .workspace import CandidateWorkspace, _manifest
 
 
@@ -49,6 +51,15 @@ def _session(workspace: CandidateWorkspace, ledger: CheckLedger) -> dict[str, An
             value.get("protocol_sha256") != ledger.executor.protocol_sha256):
         raise ValueError("report session or verification protocol differs")
     validate_session_provenance(value)
+    profile = value.get("context_profile", {})
+    if value["schema_version"] == 10:
+        policy = WorkingContextPolicy.model_validate(profile["host_working_context"])
+        if canonical(profile) != canonical(context_profile(
+            CompactionPolicy.model_validate(profile["host_compaction"]), policy
+        )):
+            raise ValueError("report working context profile differs")
+    elif "host_working_context" in profile or "working_context_prompt_sha256" in profile:
+        raise ValueError("historical session cannot acquire a working context profile")
     return value
 
 
@@ -183,6 +194,10 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
                      {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
     compactions = CompactionStore(workspace.root, workspace.task_id, workspace.run_id,
                                  compaction_policy, model_profile).audit(model_calls)
+    current_session = session is not None and session["schema_version"] == 10
+    working_plans = (WorkingContextStore(workspace, None, None,
+        WorkingContextPolicy.model_validate(context["host_working_context"]), model_profile).audit(
+            model_calls, actions, compactions) if current_session else None)
     action_records, receipts = _action_facts(workspace, actions, model_calls)
     decisions = [record.model_dump(mode="json") for record in DecisionStore(workspace).records().values()]
     conditions = ConditionStore(workspace)
@@ -247,6 +262,8 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
                                          "context_limit", "context_format_unsupported", "context_summary_invalid",
                                          "context_compaction_input_limit", "fixed_compaction_responses_exhausted")
     provider_failure = provider_failure or any(item["outcome"] == "invalid" for item in compactions)
+    if current_session and stopped_reason is not None and stopped_reason.startswith("working_context_"):
+        provider_failure = True
     suggested_status = ("unresolved" if unknown or provider_failure else "budget_exhausted" if budget_exhausted else
                         "offline_checked" if latest_status == "pass" else "unresolved")
     unsequenced = sorted(set(bundles) - set(diagnosis_order))
@@ -291,6 +308,8 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
              "decisions": decisions, "condition_results": condition_results,
              "observations_sha256": observations_sha256,
              "session": session}
+    if current_session:
+        facts["working_context_plans"] = working_plans
     verified_fields = ["schema_version", "task_id", "run_id", "source_snapshot_sha256", "status",
                        "application_verification", "completion", "candidates", "checks", "model_calls",
                        "known_tokens", "missing_usage_calls", "uncertain_model_calls", "tool_calls",
@@ -301,7 +320,9 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
     (verified_fields if model_records else unverified_fields).append("offered_tools")
     if provenance is not None:
         verified_fields.append("execution_provenance")
-    value = {"schema_version": 2 if provenance is None else 3,
+    if current_session:
+        verified_fields.append("working_context_plans")
+    value = {"schema_version": 4 if current_session else (2 if provenance is None else 3),
              "task_id": workspace.task_id, "run_id": workspace.run_id,
              "source_snapshot_sha256": workspace.source_snapshot_sha256,
              "authority": "host_summary", "suggested_status": suggested_status, "stopped_reason": stopped_reason,
@@ -338,6 +359,8 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
              "timing": {"localization_ms": None, "repair_ms": None}, "facts_sha256": sha256(canonical(facts))}
     if provenance is not None:
         value["execution_provenance"] = provenance
+    if current_session:
+        value["working_context_plans"] = working_plans
     return {**value, "summary_sha256": sha256(canonical(value))}
 
 
@@ -346,14 +369,14 @@ def read_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_ca
     """Recompute a report from saved facts; historical provenance never probes this host."""
     report = json.loads(_owned_file(workspace, workspace.root / "agent-report.json").read_text(encoding="utf-8"))
     if (not isinstance(report, dict) or type(report.get("schema_version")) is not int or
-            report["schema_version"] not in (5, 6) or report.get("task_id") != workspace.task_id or
+            report["schema_version"] not in (5, 6, 7) or report.get("task_id") != workspace.task_id or
             report.get("run_id") != workspace.run_id or
             report.get("source_snapshot_sha256") != workspace.source_snapshot_sha256):
         raise ValueError("completion report schema, task, run or snapshot differs")
     if report.get("application_verification") != "not_run" or "stopped_reason" not in report:
         raise ValueError("completion report application claim or stop identity differs")
     value = build_completion(workspace, ledger, model_calls, actions, stopped_reason=report["stopped_reason"])
-    expected_schema = 5 if value["schema_version"] == 2 else 6
+    expected_schema = {2: 5, 3: 6, 4: 7}[value["schema_version"]]
     if report["schema_version"] != expected_schema:
         raise ValueError("completion report and session schema differ")
     if expected_schema == 5 and "execution_provenance" in report:
@@ -374,6 +397,10 @@ def read_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_ca
                 "uncertain_tool_calls": value["cost"]["uncertain_tool_calls"]}
     if "execution_provenance" in value:
         expected["execution_provenance"] = value["execution_provenance"]
+    if "working_context_plans" in value:
+        expected["working_context_plans"] = value["working_context_plans"]
+    elif "working_context_plans" in report:
+        raise ValueError("historical report cannot acquire working context plans")
     execution = value["execution_facts"]
     for key in ("actions", "decisions", "condition_results", "policy_features", "offered_tools"):
         if key in value["report_validation"]["verified_top_level_fields"]:

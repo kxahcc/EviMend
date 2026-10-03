@@ -24,6 +24,7 @@ from .model_provider import (
 )
 from .policies import PolicyFeatures
 from .verification import FixedTextExecutor
+from .working_context_plan import WorkingContextPolicy
 
 MAX_SCRIPT_BYTES = 1_048_576
 LIMIT_NAMES = frozenset({"max_calls", "max_known_tokens", "max_seconds", "max_candidates", "max_tool_calls"})
@@ -122,9 +123,12 @@ def _compaction(value: object, *, fixed_mode: bool) -> None:
 
 
 def _validate(value: object) -> Literal["fixed_response", "mock_chat_completions"]:
-    if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value["schema_version"] not in (1, 2):
+    if not isinstance(value, dict) or type(value.get("schema_version")) is not int or value["schema_version"] not in (1, 2, 3, 4):
         raise ValueError("unsupported offline script schema")
-    required = {"schema_version", "expected", "responses" if value["schema_version"] == 1 else "model"}
+    fixed_mode = value["schema_version"] in (1, 3)
+    required = {"schema_version", "expected", "responses" if fixed_mode else "model"}
+    if value["schema_version"] in (3, 4):
+        required.add("working_context")
     if not required <= set(value) or set(value) - required - {"policy_features", "limits", "context_compaction"}:
         raise ValueError("invalid offline script fields")
     expected = value["expected"]
@@ -139,12 +143,17 @@ def _validate(value: object) -> Literal["fixed_response", "mock_chat_completions
         raise ValueError("invalid synthetic expectation path") from None
     _limits(value.get("limits", {}))
     if "context_compaction" in value:
-        _compaction(value["context_compaction"], fixed_mode=value["schema_version"] == 1)
+        _compaction(value["context_compaction"], fixed_mode=fixed_mode)
+    if "working_context" in value:
+        try:
+            WorkingContextPolicy.model_validate(value["working_context"])
+        except ValidationError:
+            raise ValueError("invalid offline working context policy") from None
     try:
         PolicyFeatures.model_validate(value.get("policy_features", {}))
     except ValidationError:
         raise ValueError("invalid offline policy features") from None
-    if value["schema_version"] == 1:
+    if fixed_mode:
         responses = value["responses"]
         if not isinstance(responses, list):
             raise ValueError("fixed responses must be a list")
@@ -192,6 +201,9 @@ class OfflineScript:
         value = json.loads(self._document).get("context_compaction", {})
         return CompactionPolicy.model_validate(value.get("policy", {}))
 
+    def working_context_policy(self) -> WorkingContextPolicy:
+        return WorkingContextPolicy.model_validate(json.loads(self._document).get("working_context", {}))
+
     def compaction_responses(self) -> list[AIMessage]:
         if self.mode != "fixed_response":
             return []
@@ -228,7 +240,7 @@ class OfflineScript:
 
 
 def load_offline_script(path: Path) -> OfflineScript:
-    """Load a bounded schema-1 fixed script or schema-2 mock-only wire script."""
+    """Load bounded fixed/mock scripts; schemas 3/4 explicitly register working context."""
     before = _safe_path(path)
     with path.open("rb") as stream:
         opened = os.fstat(stream.fileno())

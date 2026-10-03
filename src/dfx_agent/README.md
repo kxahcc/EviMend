@@ -12,7 +12,7 @@
 .\scripts\local.ps1 Run -Task test -TestPath tests/test_agent_loop.py
 ```
 
-`working_context.py` 另提供独立程序接口：主机显式传入 WorkingContextFocus，由 build_working_context 只读构建来源/版本及引用闭包已核验的 packet，verify_working_context 在相同来源点重建核对。contents() 返回独立副本；必要包超过显式 max_bytes 时停止。它保留旧候选反馈的原范围，当前尚不修改 SDK 发送消息，也不是历史 solver 计划恢复器；字段和接入义务见 [模块规格第 3.1 节](../../docs/design-contracts.md#31-工作上下文经验与-skill-的实施契约)。其合成自检入口为：
+`working_context.py` 提供独立 packet 接口：显式 WorkingContextFocus 生成来源/版本已核验的引用闭包，verify_working_context 只在同一来源点回读；它本身不是历史恢复器。`working_context_plan.py` 则接入实际 SDK 模型边界，从当前可见的授权工具回执取得焦点，冻结原消息、来源原字节、完整组选择和发送回执。必要记录附入启动任务的引用数据区，随后可独立启用通用压缩；原 Graph 历史保持完整。旧计划按物化材料回读，后来合法完成检查不会改变过去输入；必要包或视图超字节预算明确停止。字段及边界见 [模块规格第 3.1 节](../../docs/design-contracts.md#31-工作上下文经验与-skill-的实施契约)。独立 packet 的合成自检入口为：
 
 ```powershell
 .\scripts\local.ps1 Run -Task test -TestPath tests/test_working_context.py
@@ -54,7 +54,7 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 `<...>` 是要替换的参数示意，不是可直接运行的真实任务。输入路径须在仓库内且不在 `data_B/` 或 `archive/`；工作目录固定为 `.dfx-local/work/offline-<ID>/`。schema 1 脚本格式是 `{"schema_version":1,"responses":[{"tool":"edit_source","args":{"path":"src/main.ets","old":"bad","new":"good"},"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}],"expected":{"path":"src/main.ets","text":"value=good\n"}}`。`tool:null` 表示结束消息，此时 args 必须为空；`usage:null` 表示用量未知，存在的用量须为非负整数且总数一致。
 
-schema 2 用于检查实际模型协议交接，仍是进程内模拟，不连接云端：
+脚本 schema 1/2 分别用于固定响应与模拟 wire；保持工作上下文关闭。新 schema 3/4 保持各自响应结构，必须另提供 `working_context`，例如 `{"enabled":true}`；其全部策略参数会展开冻结在 session，不能靠旧脚本的额外字段悄悄启用。schema 2/4 用于检查实际模型协议交接，仍是进程内模拟，不连接云端：
 
 ```json
 {
@@ -87,7 +87,7 @@ schema 2 用于检查实际模型协议交接，仍是进程内模拟，不连�
 
 失败后 `link_failed_check` 返回反馈及 feedback_id，再决策时成对传该 feedback_id 与原 candidate_id；主机重新核对已保存失败检查、候选源码哈希和原观察。`decisions/<ID>.json` 保存建议及上下文摘要；`inspect_analysis(decision_id=...)` 可回读，默认列出决策和反馈 ID。`register_candidate` 可选成对传 decision_id/direction_id，核对同诊断、所选提议方向及声明义务；建议不强迫模型采用某一修法。失败与义务的关联仍是推断，只建议重审相关方向。
 
-`agent-report.json` 的 schema 6/completion 3 绑定 session 9 中保存的 execution_provenance，记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
+`agent-report.json` 的 schema 7/completion 4 绑定 session 10 中保存的 execution_provenance，记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 与 9/6/3 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。working_context_plans 记录可见动作水位、组织视图/实际发送哈希、选择范围与保留成本；context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
 
 `reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，保留完整核验依据使用受管私有 Export。
 
@@ -99,13 +99,17 @@ schema 2 用于检查实际模型协议交接，仍是进程内模拟，不连�
 
 完整报告写入 `.dfx-local/work/aggregate-<ID>/aggregate-report.json`，终态写入同目录 run-state.json，控制台只打印小回执。任务沿用现有 Windows Job、串行入口及资源限制，不调用模型、执行工具/检查或读取固定脚本的答案。旧目录不覆盖，不支持 Resume；强制中断后若无终态，清理保持拒绝。格式与程序接口在 metrics.py，自检样例在 tests/test_metrics.py；指标及未知项口径见 [评测说明](../../docs/preparation/metrics-and-gates.md#当前离线聚合的口径)。
 
-清单 schema 1 的必需字段：evaluation_id、scope=`offline_synthetic`、configuration、tasks、variants、repeat_ids、runs。tasks 列出 task_id/case_key/lineage_group_id/fault_variant_id、task_path、task.json 原字节 task_sha256、source_snapshot_sha256/crash_sha256/protocol_sha256/observations_sha256；schema 2 任务还提供原 CaseSelection，schema 1 selection=null。variants 每项为 variant_id 和完整 PolicyFeatures。runs 每项为 task_id/variant_id/repeat_id/run_id/work_path，必须覆盖全部矩阵；work_path=null 表示未运行。输入路径为相对于仓库的规范路径，不能指向 data_B、archive 或内部 Git/助手目录。
+清单 schema 1 的必需字段：evaluation_id、scope=`offline_synthetic`、configuration、tasks、variants、repeat_ids、runs。tasks 列出 task_id/case_key/lineage_group_id/fault_variant_id、task_path、task.json 原字节 task_sha256、source_snapshot_sha256/crash_sha256/protocol_sha256/observations_sha256；task schema 2 还提供原 CaseSelection，task schema 1 selection=null。variants 每项为 variant_id 和完整 PolicyFeatures。runs 每项为 task_id/variant_id/repeat_id/run_id/work_path，必须覆盖全部矩阵；work_path=null 表示未运行。输入路径为相对于仓库的规范路径，不能指向 data_B、archive 或内部 Git/助手目录。
 
-configuration 的 model_profile_sha256、context_profile_sha256 和 search_limits_sha256 分别取 `sha256(canonical(session[字段]))`，tool_schema_sha256 取 session 同名值，再列出共同 capabilities/max_calls/max_known_tokens/max_seconds/max_candidates/max_tool_calls。canonical/sha256 由 model_calls.py 提供；不要对随意缩进或不同排序的 JSON 直接取这些配置哈希。聚合会重算任务提示及实际主机/solver 工具定义，核对所有 session 与同组预算；普通 solver 原始请求体未保存，不声称完整历史请求重建。
+清单 schema 1 的 configuration 中 model_profile_sha256、context_profile_sha256 和 search_limits_sha256 分别取 `sha256(canonical(session[字段]))`，tool_schema_sha256 取 session 同名值，再列出共同 capabilities/max_calls/max_known_tokens/max_seconds/max_candidates/max_tool_calls。canonical/sha256 由 model_calls.py 提供；不要对随意缩进或不同排序的 JSON 直接取这些配置哈希。聚合会重算任务提示及实际主机/solver 工具定义，核对所有 session 与同组预算；旧普通 solver 原始请求体未保存，不声称完整历史请求重建；新运行启用工作上下文时另外核验保存的完整发送回执。
+
+清单 schema 2 用于显式上下文对照：configuration 另给 `working_context={max_packet_bytes,max_view_bytes,retain_groups}`，variants 每项必有 `working_context_enabled`；这些限制仍共享。此时上下文配置哈希取 `sha256(canonical(metrics.shared_context_profile(session["context_profile"])))`，只将 enabled 归一为 false，保留压缩及其他参数。`parse_evaluation_manifest` 区分两代，不给旧清单倒填默认值。v1 可核验当前关闭工作上下文的运行，但不能接纳开启的运行。
+
+当前冻结计划内嵌原材料，单产物仍受既有格式上限保护；超限为 `working_context_material_limit`，不放大配置重试。模型引用区还保留完整 packet 的来源清单，大工程的容量与输入冗余尚需内容寻址去重及模型投影优化。合成小任务的发送/恢复核验不表示已适配 data_B 全部工程；实际能力边界与下一工作包见 STATUS。
 
 缺目录、缺报告、失败和未知成本均保留在分母；损坏证据拒绝整批，不跳过。首次与最新定位/候选分开，repeat 与任务/谱系分开，不宣称独立样本。所有应用指标为 null、accepted=false。全旧 session 8 数据维持原汇总形状及历史版本 null；存在新来源时，逐行保留原记录，按 compatibility_sha256 列出来源与未知项，已知兼容身份不一致拒绝合并。缺报告的新来源仍须绑定匹配工作区和会话，不能据此补零费用或成功。从现有记录生成清单不能证明当时预登记，正式实验须先冻结清单与完整应用执行来源。程序 API 为 load_evaluation_manifest / aggregate_evaluation / write_evaluation_report；写入只允许新报告且不能与输入重叠。
 
-`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile，以及新 session 9 的兼容来源身份。旧 schema 1–8 不续跑，不自动升级，须保留证据并另建工作 ID。来源准入拒绝时 CLI 返回 3，工作进程保留原终态；已准入后运行失败仍记录 failed。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile，以及新 session 10 的兼容来源身份。旧 schema 1–9 不续跑，不自动升级，须保留证据并另建工作 ID。来源准入拒绝时 CLI 返回 3，工作进程保留原终态；已准入后运行失败仍记录 failed。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
 
 ### 运行来源与恢复兼容
 
@@ -141,7 +145,7 @@ Verify 仍须使用当前已初始化的受管环境，核对其 owner、依赖�
 
 两种离线模型共享 context_profile：关闭 SDK 自动摘要和人类消息/工具结果卸载，避免它们写入冻结原版或绕过调用恢复。默认不压缩，序列化消息超限以 context_limit 停止，格式不支持以 context_format_unsupported 停止；字节限额定义在 models.py，与云端 Token 窗口不同。可选主机压缩由 context_compaction.py 的 CompactionPolicy 配置，保留原 Graph 全历史、system、启动任务和近期完整工具组，只替换模型发送视图中的较早闭合前缀。首版重新摘要全部前缀；摘要输入、输出或必须保留的尾部过大仍停止，不支持无限历史。
 
-脚本顶层可添加 `"context_compaction":{"policy":{"enabled":true}}`；默认参数及约束以 CompactionPolicy 为准。固定响应 schema 1 还须按实际摘要顺序提供独立 `responses`，每项 `{"text":"归纳文字","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`；缺失列表在需要新摘要时停止。mock schema 2 禁止独立列表，摘要响应与 solver 响应在 model.responses 中按所有实际请求顺序交错。程序入口对应 `compaction_policy=CompactionPolicy(...)`，固定入口额外接受 compaction_responses；策略及提示指纹在 session 9 冻结，恢复不得替换。此配置仍不允许真实模型。
+脚本顶层可添加 `"context_compaction":{"policy":{"enabled":true}}`；默认参数及约束以 CompactionPolicy 为准。固定响应 schema 1/3 还须按实际摘要顺序提供独立 `responses`，每项 `{"text":"归纳文字","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`；缺失列表在需要新摘要时停止。mock schema 2/4 禁止独立列表，摘要响应与 solver 响应在 model.responses 中按所有实际请求顺序交错。程序入口对应 `compaction_policy=CompactionPolicy(...)`，固定入口额外接受 compaction_responses；策略及提示指纹在 session 10 冻结，恢复不得替换。此配置仍不允许真实模型。
 
 摘要使用无工具请求、独立 compaction-model-N 身份及统一预算，work/compactions 保存冻结原消息、有效摘要视图和 solver 绑定。摘要先保存 usage，再验证非空 text_only、输出限额和确实缩短；返回工具或无效归纳以 context_summary_invalid 停止，不重试、不执行摘要工具。结果未落 Graph 前恢复只回放已完成摘要，已发出未保存不重发；摘要耗尽额度后没有免费 solver。摘要包装的 authority 始终是 model_inference，“已通过”不能生成检查事实；reporting.read_completion 同时重建核验来源、响应及有效发送视图。合成验收用 test_context_compaction.py 与 test_compaction_loop.py，归纳质量和模型效果仍待实测。
 

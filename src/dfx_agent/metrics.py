@@ -32,6 +32,7 @@ from .source_search import search_limits
 from .task import CaseSelection, digest, require_relative_reference, verify_task
 from .task_strategy import build_system_prompt, build_task_message
 from .verification import CheckLedger, ReplayOnlyExecutor
+from .working_context_plan import WorkingContextPolicy
 from .workspace import CandidateWorkspace
 
 MAX_MANIFEST_BYTES = 1_048_576
@@ -171,6 +172,78 @@ class EvaluationManifest(_Frozen):
         return self
 
 
+class WorkingContextParameters(_Frozen):
+    """Shared selector limits; enabling it is the sole new per-variant factor."""
+
+    max_packet_bytes: int
+    max_view_bytes: int
+    retain_groups: int
+
+    @model_validator(mode="after")
+    def valid(self) -> WorkingContextParameters:
+        WorkingContextPolicy.model_validate({"enabled": False, **self.model_dump(mode="json")})
+        return self
+
+
+class RunConfigurationV2(RunConfiguration):
+    working_context: WorkingContextParameters
+
+
+class EvaluationVariantV2(EvaluationVariant):
+    working_context_enabled: bool
+
+
+class EvaluationManifestV2(_Frozen):
+    schema_version: Literal[2]
+    evaluation_id: str
+    scope: Literal["offline_synthetic"]
+    configuration: RunConfigurationV2
+    tasks: tuple[EvaluationTask, ...] = Field(min_length=1)
+    variants: tuple[EvaluationVariantV2, ...] = Field(min_length=1)
+    repeat_ids: tuple[str, ...] = Field(min_length=1)
+    runs: tuple[EvaluationCell, ...] = Field(min_length=1, max_length=MAX_CELLS)
+
+    @model_validator(mode="after")
+    def valid(self) -> EvaluationManifestV2:
+        # Validate the identical matrix/path invariants using a legacy-shaped
+        # projection. The original v1 classes and canonical output stay intact.
+        EvaluationManifest.model_validate_json(canonical({
+            "schema_version": 1, "evaluation_id": self.evaluation_id, "scope": self.scope,
+            "configuration": self.configuration.model_dump(mode="json", exclude={"working_context"}),
+            "tasks": [item.model_dump(mode="json") for item in self.tasks],
+            "variants": [item.model_dump(mode="json", exclude={"working_context_enabled"})
+                         for item in self.variants],
+            "repeat_ids": list(self.repeat_ids), "runs": [item.model_dump(mode="json") for item in self.runs],
+        }))
+        return self
+
+
+AnyEvaluationManifest = EvaluationManifest | EvaluationManifestV2
+AnyEvaluationVariant = EvaluationVariant | EvaluationVariantV2
+AnyRunConfiguration = RunConfiguration | RunConfigurationV2
+
+
+def parse_evaluation_manifest(value: object) -> AnyEvaluationManifest:
+    """Dispatch exact versions without adding selector defaults to old evidence."""
+    if not isinstance(value, dict) or type(value.get("schema_version")) is not int:
+        raise ValueError("unsupported evaluation manifest schema")
+    if value["schema_version"] == 1:
+        return EvaluationManifest.model_validate_json(canonical(value))
+    if value["schema_version"] == 2:
+        return EvaluationManifestV2.model_validate_json(canonical(value))
+    raise ValueError("unsupported evaluation manifest schema")
+
+
+def shared_context_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    """Normalize only the explicitly varied switch; preserve all other fields."""
+    if not isinstance(profile, dict) or "host_working_context" not in profile:
+        raise ValueError("missing working context profile")
+    value = json.loads(canonical(profile))
+    policy = WorkingContextPolicy.model_validate(value["host_working_context"])
+    value["host_working_context"] = {**policy.model_dump(mode="json"), "enabled": False}
+    return value
+
+
 def _guard(path: Path, *, missing: bool = False) -> None:
     """Inspect before resolve; no shared files, reparse points or special nodes."""
     if ".." in path.parts:
@@ -235,9 +308,9 @@ def _load(path: Path, limit: int = MAX_JSON_BYTES) -> Any:
     return _decode(_read_bytes(path, limit))
 
 
-def load_evaluation_manifest(path: Path) -> EvaluationManifest:
+def load_evaluation_manifest(path: Path) -> AnyEvaluationManifest:
     value = _load(path.absolute(), MAX_MANIFEST_BYTES)
-    return EvaluationManifest.model_validate_json(canonical(value))
+    return parse_evaluation_manifest(value)
 
 
 def _tree_snapshot(root: Path) -> dict[str, tuple[int, int, int, int, str]]:
@@ -270,7 +343,7 @@ def _tree_snapshot(root: Path) -> dict[str, tuple[int, int, int, int, str]]:
     return found
 
 
-def _input_paths(manifest: EvaluationManifest, root: Path) -> list[Path]:
+def _input_paths(manifest: AnyEvaluationManifest, root: Path) -> list[Path]:
     root = root.absolute()
     _guard(root)
     paths = [root / task.task_path for task in manifest.tasks]
@@ -282,8 +355,8 @@ def _input_paths(manifest: EvaluationManifest, root: Path) -> list[Path]:
     return paths
 
 
-def _session(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVariant,
-             configuration: RunConfiguration, workspace: CandidateWorkspace) -> dict[str, Any]:
+def _session(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVariant,
+             configuration: AnyRunConfiguration, workspace: CandidateWorkspace) -> dict[str, Any]:
     value = _load(workspace.root / "session.json")
     if not isinstance(value, dict):
         raise ValueError("session must be a JSON object")  # noqa: TRY004 -- Evidence rejection uses ValueError.
@@ -296,6 +369,11 @@ def _session(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVari
         required.add("execution_provenance")
     if set(value) != required or value["run_id"] != cell.run_id:
         raise ValueError("session schema or identity differs")
+    current_evaluation = isinstance(configuration, RunConfigurationV2)
+    if current_evaluation != isinstance(variant, EvaluationVariantV2):
+        raise ValueError("evaluation configuration and variant schemas differ")
+    if current_evaluation and value["schema_version"] != 10:
+        raise ValueError("session and evaluation generations differ")
     if not isinstance(value["started_at"], str) or datetime.fromisoformat(value["started_at"]).tzinfo is None:
         raise ValueError("session time must have a timezone")
     for name in ("max_calls", "max_known_tokens", "max_seconds", "max_candidates", "max_tool_calls", "capabilities"):
@@ -305,7 +383,9 @@ def _session(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVari
         if canonical(value[name]) != canonical(configuration.model_dump(mode="json")[name]) and not equivalent_seconds:
             raise ValueError("session budgets or capabilities differ from evaluation")
     for name in ("model_profile", "context_profile", "search_limits"):
-        if sha256(canonical(value[name])) != getattr(configuration, name + "_sha256"):
+        actual_profile = (shared_context_profile(value[name])
+                          if name == "context_profile" and current_evaluation else value[name])
+        if sha256(canonical(actual_profile)) != getattr(configuration, name + "_sha256"):
             raise ValueError("session configuration hash differs from evaluation")
     expected = {"protocol_sha256": task.protocol_sha256, "observations_sha256": task.observations_sha256,
                 "tool_schema_sha256": configuration.tool_schema_sha256,
@@ -320,7 +400,22 @@ def _session(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVari
     if not isinstance(profile, dict) or "host_compaction" not in profile:
         raise ValueError("missing context profile")
     policy = CompactionPolicy.model_validate(profile["host_compaction"])
-    if canonical(profile) != canonical(context_profile(policy)):
+    if isinstance(configuration, RunConfigurationV2) and isinstance(variant, EvaluationVariantV2):
+        working_policy = WorkingContextPolicy.model_validate({
+            "enabled": variant.working_context_enabled, **configuration.working_context.model_dump(mode="json"),
+        })
+        expected_profile = context_profile(policy, working_policy)
+    elif value["schema_version"] == 10:
+        working_policy = WorkingContextPolicy.model_validate(profile["host_working_context"])
+        if working_policy.enabled:
+            raise ValueError("evaluation schema 1 cannot enable a working context factor")
+        expected_profile = context_profile(policy, working_policy)
+    else:
+        # New runtime defaults must never be inserted into an old frozen profile.
+        expected_profile = context_profile(policy)
+        expected_profile.pop("host_working_context", None)
+        expected_profile.pop("working_context_prompt_sha256", None)
+    if canonical(profile) != canonical(expected_profile):
         raise ValueError("unsupported context profile")
     return value
 
@@ -367,6 +462,10 @@ def _model_identity(session: dict[str, Any], store: ModelCallStore, workspace: C
 def _outcome(completion: dict[str, Any]) -> str:
     if completion["suggested_status"] == "offline_checked" and completion["latest_candidate_check_status"] == "pass":
         return "pass"
+    if completion["schema_version"] == 4 and any(
+        reason.startswith("working_context_") for reason in completion["unresolved_reasons"]
+    ):
+        return "unknown"
     uncertain = {"model_result_unknown", "action_result_unknown", "check_result_unknown", "model_request_not_dispatched",
                  "provider_format_error", "provider_request_unsupported", "context_limit", "context_format_unsupported",
                  "context_summary_invalid", "context_compaction_input_limit", "fixed_compaction_responses_exhausted"}
@@ -376,8 +475,8 @@ def _outcome(completion: dict[str, Any]) -> str:
     return "unknown"
 
 
-def _row(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVariant,
-         configuration: RunConfiguration, root: Path) -> dict[str, Any]:
+def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVariant,
+         configuration: AnyRunConfiguration, root: Path) -> dict[str, Any]:
     value: dict[str, Any] = {**task.model_dump(mode="json", exclude={"selection"}),
                              **cell.model_dump(mode="json"), "record_status": "not_run", "status": "not_run",
                              "missing_reason": "explicit_not_run", "terminal_status": None, "cost": None,
@@ -391,6 +490,9 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVariant,
                              "identity_provenance": "manifest_declaration" if task.selection is None else "selection_hash_bound",
                              "application_admission": "not_verified",
                              "unresolved_reasons": []}
+    if isinstance(variant, EvaluationVariantV2):
+        value["working_context_enabled"] = variant.working_context_enabled
+        value["working_context_plans"] = []
     if cell.work_path is None:
         return value
     work = root / cell.work_path
@@ -432,6 +534,8 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: EvaluationVariant,
         value[name] = completion[name]
     if "execution_provenance" in completion:
         value["execution_provenance"] = completion["execution_provenance"]
+    if isinstance(variant, EvaluationVariantV2):
+        value["working_context_plans"] = completion["working_context_plans"]
     return value
 
 
@@ -464,14 +568,14 @@ def _provenance_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
                                   "records": [records[key] for key in sorted(records)]}]}
 
 
-def _variant_summary(variant: EvaluationVariant, rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _variant_summary(variant: AnyEvaluationVariant, rows: list[dict[str, Any]]) -> dict[str, Any]:
     costs = [row["cost"] for row in rows if row["cost"] is not None]
     unknown = sum(row["cost"] is None or not row["cost"]["usage_complete"] for row in rows)
     known_tokens = sum(cost["known_total_tokens"] for cost in costs)
     known_calls = sum(cost["reserved_calls"] for cost in costs)
     latest = sum(row["synthetic_outcome"] == "pass" for row in rows)
     first = sum(row["record_status"] == "verified" and row["first_candidate_check_status"] == "pass" for row in rows)
-    return {"variant_id": variant.variant_id, "policy_features": variant.policy_features.model_dump(mode="json"),
+    value = {"variant_id": variant.variant_id, "policy_features": variant.policy_features.model_dump(mode="json"),
             "task_count": len({row["task_id"] for row in rows}), "expected_runs": len(rows),
             "verified_runs": sum(row["record_status"] == "verified" for row in rows),
             "record_status_counts": dict(sorted(Counter(row["record_status"] for row in rows).items())),
@@ -485,9 +589,12 @@ def _variant_summary(variant: EvaluationVariant, rows: list[dict[str, Any]]) -> 
                      "calls_by_kind": {kind: sum(cost["calls_by_kind"][kind] for cost in costs) for kind in
                                        ("solver", "context_compaction", "format_repair", "sdk_retry")},
                      "calls_by_kind_complete": len(costs) == len(rows), "monetary_cost": None}}
+    if isinstance(variant, EvaluationVariantV2):
+        value["working_context_enabled"] = variant.working_context_enabled
+    return value
 
 
-def _paired(manifest: EvaluationManifest, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _paired(manifest: AnyEvaluationManifest, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     indexed = {(row["task_id"], row["variant_id"], row["repeat_id"]): row for row in rows}
     found = []
     for base, compared in itertools.combinations(manifest.variants, 2):
@@ -516,9 +623,9 @@ def _paired(manifest: EvaluationManifest, rows: list[dict[str, Any]]) -> list[di
     return found
 
 
-def aggregate_evaluation(manifest: EvaluationManifest, root: Path) -> dict[str, Any]:
+def aggregate_evaluation(manifest: AnyEvaluationManifest, root: Path) -> dict[str, Any]:
     """Validate all declared inputs; missing cells remain unknown in the denominator."""
-    manifest = EvaluationManifest.model_validate_json(canonical(manifest.model_dump(mode="json")))
+    manifest = parse_evaluation_manifest(manifest.model_dump(mode="json"))
     root = local_evidence_path(root)
     paths = _input_paths(manifest, root)
     snapshots = {path: _tree_snapshot(path) for path in paths if path.exists()}
@@ -551,7 +658,7 @@ def aggregate_evaluation(manifest: EvaluationManifest, root: Path) -> dict[str, 
     if any(path.exists() != (path in snapshots) or (path in snapshots and _tree_snapshot(path) != snapshots[path])
            for path in paths):
         raise ValueError("evaluation evidence changed during aggregation")
-    value = {"schema_version": 1, "scope": "offline_synthetic", "evaluation_id": manifest.evaluation_id,
+    value = {"schema_version": manifest.schema_version, "scope": "offline_synthetic", "evaluation_id": manifest.evaluation_id,
              "manifest_sha256": sha256(canonical(manifest.model_dump(mode="json"))),
              "configuration": manifest.configuration.model_dump(mode="json"),
              "task_count": len(manifest.tasks), "expected_runs": len(manifest.runs),
@@ -573,7 +680,7 @@ def write_evaluation_report(manifest_path: Path, root: Path, output: Path) -> di
     if any(part.casefold() in _FORBIDDEN for part in output.parts):
         raise ValueError("evaluation output uses a forbidden location")
     manifest_bytes = _read_bytes(manifest_path, MAX_MANIFEST_BYTES)
-    manifest = EvaluationManifest.model_validate_json(canonical(_decode(manifest_bytes)))
+    manifest = parse_evaluation_manifest(_decode(manifest_bytes))
     paths = _input_paths(manifest, root)
     if output.exists() or _overlap(output, manifest_path) or any(_overlap(output, path) for path in paths):
         raise ValueError("evaluation output exists or overlaps its inputs")

@@ -86,7 +86,7 @@ def test_sdk_condition_readback_decision_and_candidate_use_shared_tools(tmp_path
                                            "direction_id": "repair1", "preserves": ["keep_value"] if enhanced else []}),
         response(8, "run_check", {"candidate_id": candidate}), response(9),
     ], FixedTextExecutor("src/main.ets", "value=good\n"), policy_features=features, observations=registry)
-    assert report["schema_version"] == 6 and report["tool_calls"] == 8
+    assert report["schema_version"] == 7 and report["tool_calls"] == 8
     assert report["rejected_tool_calls"] == report["uncertain_tool_calls"] == 0
     assert report["condition_results"] == [record.model_dump(mode="json")]
     assert report["decisions"][0]["condition_review"]["affected_direction_ids"] == (["repair1"] if enhanced else [])
@@ -199,12 +199,14 @@ def test_resume_freezes_fixture_inputs_and_old_schema_cannot_continue(tmp_path: 
     work = tmp_path / "run"
     run_fixed_agent(task, work, "run1", [response(1)], executor, observations=registry)
     _, _, changed = inputs(task, status="satisfied")
-    with pytest.raises(ValueError, match="condition inputs differ"):
+    before = {path.relative_to(work).as_posix(): path.read_bytes() for path in work.rglob("*") if path.is_file()}
+    with pytest.raises(ValueError, match="resume saved facts or configuration differ"):
         run_fixed_agent(task, work, "run1", [response(1)], executor, observations=changed, resume=True)
+    assert {path.relative_to(work).as_posix(): path.read_bytes() for path in work.rglob("*") if path.is_file()} == before
     report = run_fixed_agent(task, work, "run1", [response(1), response(2)], executor, resume=True)
     assert report["model_calls"] == 1 and report["model_calls_this_turn"] == 0
     session = json.loads((work / "session.json").read_text())
-    assert session["schema_version"] == 9 and session["observations_sha256"] == registry.fingerprint()
+    assert session["schema_version"] == 10 and session["observations_sha256"] == registry.fingerprint()
     session["schema_version"] = 7
     (work / "session.json").write_text(json.dumps(session), encoding="utf-8")
     with pytest.raises(ValueError, match="session identity"):

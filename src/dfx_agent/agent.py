@@ -68,6 +68,7 @@ from .source_search import SourceSearch, search_limits
 from .task import digest, verify_task
 from .task_strategy import build_system_prompt, build_task_message
 from .verification import CheckLedger, OfflineExecutor, _atomic_json
+from .working_context_plan import WorkingContextPolicy, WorkingContextStore
 from .workspace import CandidateWorkspace, TextEdit
 
 
@@ -409,6 +410,8 @@ def _resume_session(task: Path, work: Path, run_id: str) -> dict[str, Any]:
     session = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(session, dict) or session.get("run_id") != run_id:
         raise ValueError("resume session identity differs")
+    if session.get("schema_version") != 10:
+        raise ValueError("historical sessions are read-only")
     saved = validate_session_provenance(session)
     if saved is None:
         raise ValueError("legacy execution provenance is unknown; session is read-only")
@@ -434,6 +437,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     observations: SyntheticObservations | None = None,
                     provider_adapter: ChatCompletionsAdapter | None = None,
                     compaction_policy: CompactionPolicy | None = None,
+                    working_context_policy: WorkingContextPolicy | None = None,
                     compaction_responses: list[AIMessage] | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
@@ -443,6 +447,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         raise ValueError("unsupported offline capability")
     policy_features = policy_features or PolicyFeatures()
     compaction_policy = compaction_policy or CompactionPolicy()
+    working_context_policy = working_context_policy or WorkingContextPolicy()
     session = preflight_resume(task, work, run_id) if resume else {}
     execution_provenance = session["execution_provenance"] if resume else capture_execution_provenance()
     try:
@@ -466,7 +471,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         system_prompt = build_system_prompt(policy_features)
         model_profile = (provider_adapter.profile() if provider_adapter is not None else
                          {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
-        session_identity = {"schema_version": 9, "run_id": run_id, "started_at": started_at.isoformat(),
+        session_identity = {"schema_version": 10, "run_id": run_id, "started_at": started_at.isoformat(),
                             "execution_provenance": execution_provenance,
                             "max_calls": max_calls, "max_known_tokens": max_known_tokens,
                             "max_seconds": max_seconds, "max_candidates": max_candidates,
@@ -474,7 +479,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                             "protocol_sha256": executor.protocol_sha256,
                             "observations_sha256": conditions.observations_sha256,
                             "policy_features": policy_features.model_dump(), "model_profile": model_profile,
-                            "context_profile": context_profile(compaction_policy),
+                            "context_profile": context_profile(compaction_policy, working_context_policy),
                             "system_prompt_sha256": digest(system_prompt.encode("utf-8")),
                             "task_message_sha256": digest(build_task_message(
                                 task_id=workspace.task_id, run_id=run_id,
@@ -506,6 +511,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                compactor=CompactionStore(workspace.root, workspace.task_id, run_id,
                                                          compaction_policy, model_profile),
                                compaction_responses=compaction_responses or [],
+                               working_context_store=WorkingContextStore(
+                                   workspace, task, ledger, working_context_policy, model_profile),
+                               action_store=actions,
                                **provider_arguments)
     register_harness_profile(model._llm_type, HarnessProfile(
         excluded_tools=frozenset({"ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute", "task",
@@ -604,7 +612,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     completion = build_completion(workspace, ledger, model_calls, actions, stopped_reason=error)
     status = completion["suggested_status"]
     report: dict[str, Any] = {
-        "schema_version": 6, "task_id": workspace.task_id, "run_id": run_id,
+        "schema_version": 7, "task_id": workspace.task_id, "run_id": run_id,
         "execution_provenance": execution_provenance,
         "source_snapshot_sha256": workspace.source_snapshot_sha256,
         "status": status, "application_verification": "not_run",
@@ -625,6 +633,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                           if completion["execution_facts"]["offered_tools"] is not None
                           else sorted(set(model.offered_tools))),
         "stopped_reason": error, "completion": completion,
+        "working_context_plans": completion["working_context_plans"],
         "adapter_error_reason": getattr(model, "request_error_reason", None),
     }
     _atomic_json(workspace.root / "agent-report.json", report)

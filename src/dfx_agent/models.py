@@ -15,6 +15,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import ConfigDict, Field
 
+from .actions import ToolActionStore
 from .context_compaction import (
     SUMMARY_PROMPT,
     CompactionPlan,
@@ -32,6 +33,13 @@ from .model_calls import (
     sha256,
 )
 from .model_provider import AdapterError, ChatCompletionsAdapter, PreparedRequest
+from .working_context import WorkingContextError
+from .working_context_plan import (
+    WORKING_CONTEXT_PROMPT,
+    WorkingContextPlan,
+    WorkingContextPolicy,
+    WorkingContextStore,
+)
 
 
 class ModelLimit(RuntimeError):
@@ -41,12 +49,15 @@ class ModelLimit(RuntimeError):
 MAX_SERIALIZED_MESSAGES_BYTES = 1_048_576
 
 
-def context_profile(policy: CompactionPolicy | None = None) -> dict[str, Any]:
+def context_profile(policy: CompactionPolicy | None = None,
+                    working_context: WorkingContextPolicy | None = None) -> dict[str, Any]:
     """The finite SDK context policy is frozen alongside the model profile."""
     return {"max_serialized_messages_bytes": MAX_SERIALIZED_MESSAGES_BYTES, "automatic_summarization": False,
             "human_message_offload": False, "tool_result_offload": False, "implicit_model_retries": False,
             "host_compaction": (policy or CompactionPolicy()).model_dump(mode="json"),
-            "compaction_prompt_sha256": sha256(SUMMARY_PROMPT)}
+            "compaction_prompt_sha256": sha256(SUMMARY_PROMPT),
+            "host_working_context": (working_context or WorkingContextPolicy()).model_dump(mode="json"),
+            "working_context_prompt_sha256": sha256(WORKING_CONTEXT_PROMPT)}
 
 
 def _check_context(messages: list[BaseMessage]) -> None:
@@ -78,6 +89,11 @@ class FixedResponseModel(BaseChatModel):
     compactor: CompactionStore | None = Field(default=None, exclude=True)
     compaction_responses: list[AIMessage] = Field(default_factory=list, exclude=True)
     active_compaction: CompactionPlan | None = Field(default=None, exclude=True)
+    working_context_store: WorkingContextStore | None = Field(default=None, exclude=True)
+    action_store: ToolActionStore | None = Field(default=None, exclude=True)
+    active_working_context: WorkingContextPlan | None = Field(default=None, exclude=True)
+    active_view: list[BaseMessage] = Field(default_factory=list, exclude=True)
+    active_fixed_request: dict[str, Any] | None = Field(default=None, exclude=True)
 
     @property
     def _llm_type(self) -> str:
@@ -101,6 +117,11 @@ class FixedResponseModel(BaseChatModel):
 
     def _intent(self, messages: list[BaseMessage], stop: list[str] | None,
                 kwargs: dict[str, Any]) -> ModelCallIntent:
+        self.active_fixed_request = {
+            "messages": [item.model_dump(mode="json") for item in messages],
+            "tools": self.bound_tool_descriptors,
+            "parameters": {"stop": stop, "generate_kwargs": kwargs, "bind_kwargs": self.bound_tool_options},
+        }
         return ModelCallIntent(
             call_id=f"model-{self.turn_calls + 1}", task_id=self.task_id, run_id=self.run_id,
             kind="solver", provider_id="dfxfixed", model_id=self.model_name,
@@ -150,6 +171,17 @@ class FixedResponseModel(BaseChatModel):
 
     def _view(self, messages: list[BaseMessage]) -> list[BaseMessage]:
         self.active_compaction = None
+        self.active_working_context = None
+        if self.working_context_store is not None:
+            if self.action_store is None:
+                raise ModelLimit("working_context_source_invalid")
+            try:
+                self.active_working_context = self.working_context_store.select(
+                    messages, f"model-{self.turn_calls + 1}", self.call_store, self.action_store)
+                if self.active_working_context is not None:
+                    messages = self.active_working_context.view_messages()
+            except WorkingContextError as exc:
+                raise ModelLimit(exc.reason) from exc
         if self.compactor is not None:
             try:
                 plan = self.compactor.select(messages, f"model-{self.turn_calls + 1}")
@@ -160,6 +192,7 @@ class FixedResponseModel(BaseChatModel):
             except ContextCompactionError as exc:
                 raise ModelLimit(exc.reason) from exc
         _check_context(messages)
+        self.active_view = [item.model_copy(deep=True) for item in messages]
         return messages
 
     def _reserve_solver(self, intent: ModelCallIntent, request: PreparedRequest | None = None) -> None:
@@ -168,9 +201,16 @@ class FixedResponseModel(BaseChatModel):
             self.call_store.reserve(intent, max_calls=self.max_calls)
             if self.active_compaction is not None and self.compactor is not None:
                 self.compactor.link(self.active_compaction, intent, request)
+            if self.active_working_context is not None and self.working_context_store is not None:
+                self.working_context_store.link(
+                    self.active_working_context, intent, request,
+                    view_messages=self.active_view, compaction=self.active_compaction,
+                    fixed_request=self.active_fixed_request)
         except ModelCallBudget as exc:
             raise ModelLimit("model_budget") from exc
         except ContextCompactionError as exc:
+            raise ModelLimit(exc.reason) from exc
+        except WorkingContextError as exc:
             raise ModelLimit(exc.reason) from exc
         finally:
             self._refresh_usage()

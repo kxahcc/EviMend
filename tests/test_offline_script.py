@@ -461,6 +461,11 @@ def test_cli_forwards_explicit_compaction_policy_and_only_fixed_summary_fixtures
         value["context_compaction"]["responses"] = [{"text": "summary fixture", "usage": None}]
     path = write(tmp_path, value)
     seen = {}
+    admission = []
+    # This isolates CLI option forwarding, using mocked Agent execution.
+    # Real read-only admission and drift rejection have integration tests.
+    if command == "resume":
+        monkeypatch.setattr(agent, "preflight_resume", lambda *args: admission.append(args))
 
     def run(*args, **options):
         seen.update(options)
@@ -502,6 +507,7 @@ def test_cli_forwards_explicit_compaction_policy_and_only_fixed_summary_fixtures
     monkeypatch.setattr(sys, "argv", ["dfx", command, "--task", str(task), "--work", str(tmp_path / "run"),
                                      "--run-id", "run1", "--script", str(path)])
     cli.main()
+    assert admission == ([(task, tmp_path / "run", "run1")] if command == "resume" else [])
     assert json.loads(capsys.readouterr().out) == {"synthetic_handoff": True}
     assert seen["compaction_policy"] == CompactionPolicy(enabled=True, max_summary_bytes=20)
     assert seen["resume"] is (command == "resume")

@@ -69,7 +69,7 @@ SDK 的两种离线模型共用 `ToolAuthorizationMiddleware`：主机把工具�
 
 收到消息后保存规范化消息及哈希、提供方消息 ID、工具名称/ID/参数摘要与格式问题。wire 的非 null 原始 usage 完整保留为 response_metadata.dfx_provider_usage_raw；prompt_tokens/completion_tokens/total_tokens 须为非负整数、合计一致并与 usage_metadata 的 input/output/total 对应，才能标为 known。原值缺失/null 为 missing，存在但无效或映射不一致为 invalid；账本保存原值摘要，不以类型强制转换或文本长度补估。格式错误仍是完成的一次调用，不能丢掉其 usage。原始消息用于本机受管恢复，不进入 Git 或普通聚合报告；显式本机私有 Export 保留相关账本原字节并披露完整消息范围，不自动外发。text_only、模型自称成功和工具参数不产生执行事实。
 
-session schema 9 冻结 model_profile、context_profile（含主机压缩策略和摘要提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略、合成 registry 和下述执行来源；续跑须配置与执行兼容身份一致。旧 session 8 只能按原契约只读核验，不自动升级、续跑或补写版本；schema 1–7 不进入当前恢复入口，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
+session schema 10 冻结 model_profile、context_profile（含工作上下文/主机压缩策略及两类提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略、合成 registry 和下述执行来源；续跑须配置与执行兼容身份一致。旧 session 8/9 只能按原契约只读核验，不自动升级、续跑或补写版本；schema 1–7 不进入当前恢复入口，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
 
 execution_provenance 是嵌入 session 的 schema 1 主机记录，不是模型可提交对象。source_inventory 记录 src/dfx_agent 下全部 Python 源码及 scripts/dfx.py、local_agent.ps1、local.ps1、local_job.cs 的规范相对路径、大小和原字节 SHA-256；文档、测试、历史 session、数据和缓存不属于这份运行源码清单。repository_inputs 固定 uv.lock、pyproject.toml、.python-version、configs/local-runtime.json 的原字节大小与哈希。runtime 保存实际 Python 实现、版本、cache_tag、平台、机器架构和 importlib.metadata 读到的已安装 distribution 名称/版本，不把锁中声明的版本冒充实际安装版本。Git 保存初始 HEAD、全仓 dirty、状态字节摘要及条目数；不可用时明确为未知，不猜测干净状态。
 
@@ -83,7 +83,7 @@ context_profile 定义有限上下文和可选主机压缩：默认 disabled 时
 
 摘要响应先保存完整消息和 usage，再核验 text_only、非空 UTF-8、输出上限和实际缩短；工具调用、格式错误或不缩短的摘要以 context_summary_invalid 停止，不执行或自动修正。有效 result.json 保存带 authority=model_inference、范围与原消息哈希的 HumanMessage 包装及有效发送视图；solver.json 绑定其实际请求和账本。只读 audit 重建这些关联，拒绝篡改、错归属、链接、共享硬链接和孤立产物；摘要声明“通过”不生成检查、诊断确认或其他 host fact。摘要及派生调用不得作为 ToolActionStore 的工具授权父调用。SDK 的 SummarizationMiddleware 继续排除；必需的 FilesystemMiddleware 通过公开同类替换关闭消息与结果卸载。基础/增强使用相同配置，不把上下文能力差异算成领域方法收益。
 
-`offline_script.py` 的受限 loader 只接纳固定响应 schema 1 或 mock_chat_completions schema 2。可选 context_compaction.policy 接纳严格 CompactionPolicy；固定入口的 context_compaction.responses 是独立 text/usage 摘要列表，不消耗 solver 脚本。mock 入口禁止该独立列表，摘要和求解共用按实际请求排序的 wire 响应流。脚本必须是普通文件，路径链拒绝链接/重解析点，文件拒绝多硬链接；读取前后核对身份、大小及修改时间并冻结规范 JSON。字段、正数预算、策略和合成 expectation 严格校验，返回对象每次生成独立模型和响应流。CLI repair/resume 经现有受管离线入口分流；mock 续跑按全部已完成调用（包括摘要）偏移响应流，完成调用仍由账本回放，次数与时间额度不重置。脚本 expectation 仅供合成执行器，不能作为应用 oracle 或进入真实求解上下文；该入口不开放云端实验。
+`offline_script.py` 的受限 loader 接纳固定响应 schema 1/3 或 mock_chat_completions schema 2/4；新 3/4 必须显式提供 working_context，旧 1/2 拒绝该新增字段。可选 context_compaction.policy 接纳严格 CompactionPolicy；固定入口的 context_compaction.responses 是独立 text/usage 摘要列表，不消耗 solver 脚本。mock 入口禁止该独立列表，摘要和求解共用按实际请求排序的 wire 响应流。脚本必须是普通文件，路径链拒绝链接/重解析点，文件拒绝多硬链接；读取前后核对身份、大小及修改时间并冻结规范 JSON。字段、正数预算、策略和合成 expectation 严格校验，返回对象每次生成独立模型和响应流。CLI repair/resume 经现有受管离线入口分流；mock 续跑按全部已完成调用（包括摘要）偏移响应流，完成调用仍由账本回放，次数与时间额度不重置。脚本 expectation 仅供合成执行器，不能作为应用 oracle 或进入真实求解上下文；该入口不开放云端实验。
 
 ### 1.2.3 已登记诊断到修复决策
 
@@ -145,7 +145,7 @@ W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈
 
 ### 1.3.2 主机终止摘要与结果核验
 
-`agent-report.json` 的新运行使用 report schema 6，completion 为 schema 3 的 host_summary，与 session 9 严格配对；旧 session 8/report 5/completion 2 按原规则回读，禁止交叉配对或给旧记录补写来源。`reporting.py` 的 build_completion 在运行结束后读取持久事实生成摘要，不采信模型结尾的“修好了”。它核对基准原字节、登记诊断/义务/决策/条件、候选源码/manifest/diff、检查意图与结果、模型账本和工具动作的归属/请求/回执，以及压缩原消息、摘要响应与实际 solver 视图的关联。新 report/completion 的 execution_provenance 必须等于已验证的 session 来源；回读不捕获当前 Git、源码或安装环境来替换它。context_compactions 保留有效/无效、未请求/等待/未知、结果是否落盘及 solver 绑定状态，facts_sha256 固定包含保存来源的输入，summary_sha256 固定派生摘要；哈希表示内容一致，不提升证据来源。
+`agent-report.json` 的新运行使用 report schema 7，completion 为 schema 4 的 host_summary，与 session 10 严格配对；旧 session 8/report 5/completion 2 与 9/6/3 按原规则回读，禁止交叉配对或给旧记录补写来源。`reporting.py` 的 build_completion 在运行结束后读取持久事实生成摘要，不采信模型结尾的“修好了”。它核对基准原字节、登记诊断/义务/决策/条件、候选源码/manifest/diff、检查意图与结果、模型账本和工具动作的归属/请求/回执，以及工作上下文冻结材料、可见动作、压缩原消息、摘要响应与实际 solver 视图的关联。新 report/completion 的 execution_provenance 必须等于已验证的 session 来源；回读不捕获当前 Git、源码或安装环境来替换它。context_compactions 保留有效/无效、未请求/等待/未知、结果是否落盘及 solver 绑定状态，facts_sha256 固定包含保存来源的输入，summary_sha256 固定派生摘要；哈希表示内容一致，不提升证据来源。
 
 定位按工具动作账本排序：initial 是首次允许 edit_source 之前、已有完成回执的首个登记诊断；首次允许编辑即形成 cutoff，即使该编辑后来失败，也不能用后续诊断补成初次预测。latest 是最后一个有完成回执的登记诊断，candidate_linked 是最新候选实际关联的诊断；三者可以不同。已登记但没有可核对动作顺序的诊断列为 unsequenced，不猜测其先后。各定位保持 model_inference/root_cause_confirmation=unknown，包含候选根因位置及原证据；没有 ground truth 判断就不生成定位准确率。
 
@@ -159,9 +159,9 @@ cost 从模型和动作账本汇总所有登记调用、已知 Token、missing/i
 
 ### 1.3.3 停止记录的只读离线聚合
 
-EvaluationManifest schema 1 固定 offline_synthetic 范围、唯一 evaluation_id、共同 RunConfiguration、任务、策略组、repeat 和完整格子。任务绑定 task.json 原字节哈希、源码/日志、协议与条件输入摘要，schema 2 必须提供哈希一致的 CaseSelection；schema 1 的案例和谱系仅为声明。格子绑定 task/variant/repeat、唯一 run_id 与可空的工作目录。全部矩阵恰有一格，拒绝重复 run、任务/日志身份及祖先/后代目录重叠；格式容量在矩阵展开前检查。不得选择性发现成功目录或根据结果删格子。
+EvaluationManifest schema 1/2 固定 offline_synthetic 范围、唯一 evaluation_id、共同 RunConfiguration、任务、策略组、repeat 和完整格子。v1 保留原序列化形状，新增 v2 共享 working_context 三个限制参数，组内必须显式声明 working_context_enabled；只有 enabled 可作为新增比较因素，模型、工具、通用压缩、其余上下文参数、检索、能力和总预算门保持。任务绑定 task.json 原字节哈希、源码/日志、协议与主机输入摘要；task schema 2 必须提供哈希一致的 CaseSelection，task schema 1 的案例和谱系仅为声明。格子绑定 task/variant/repeat、唯一 run_id 与可空的工作目录。全部矩阵恰有一格，拒绝重复 run、任务/日志身份及祖先/后代目录重叠；格式容量在矩阵展开前检查，不选择性发现成功目录或根据结果删格子。
 
-既有工作必须有匹配的 schema 1 offline 终态 finished/failed/canceled。目录缺失或终态无报告列 missing，work_path=null 列 not_run，费用未知且保留分母；现有损坏记录拒绝整批。核验 session 8 或 9 的任务、协议、主机输入、共同预算/能力/模型/上下文/工具/检索配置、策略开关和重新生成的提示；只构造主机工具描述，不执行闭包，核对 session 与实际 solver 的两种工具格式。随后使用 read_completion 核对对应的 report/completion。session 9 的来源按保存结构及摘要核验并传入行记录，不要求等于回读主机；终态缺报告但有 session 9 时仍须核验其配置和来源，费用与修复结果继续未知。普通 solver 原始请求体未保存，不能声称重建全部历史请求参数；session 8 未记录的执行版本继续 null。
+既有工作必须有匹配的 schema 1 offline 终态 finished/failed/canceled。目录缺失或终态无报告列 missing，work_path=null 列 not_run，费用未知且保留分母；现有损坏记录拒绝整批。核验 session 8、9 或 10 的任务、协议、主机输入、共同预算/能力/模型/上下文/工具/检索配置、策略开关和重新生成的提示；只构造主机工具描述，不执行闭包，核对 session 与实际 solver 的两种工具格式。随后使用 read_completion 核对对应的 report/completion。session 9/10 的来源按保存结构及摘要核验并传入行记录，不要求等于回读主机；终态缺报告但有 session 9/10 时仍须核验其配置和来源，费用与修复结果继续未知。旧 solver 原始请求体未保存，不能声称重建全部历史请求参数；session 10 开启工作上下文时，其各位点计划和发送回执单独核验；session 8 未记录的执行版本继续 null。
 
 只有旧来源的矩阵保持原 schema 1 汇总结构与内容，不改变既有导出包的 aggregate 摘要。存在新来源时，按保存的兼容身份及完整来源摘要列出 captured_records、关联 run_ids、captured_runs 和 unknown_runs/unknown_run_ids；旧记录、未运行和缺来源格子继续未知，不将它们删除或补零。所有已捕获来源的 compatibility_sha256 必须一致，不同初始 Git 观察可分别保留；已知执行源码、锁或实际环境漂移拒绝整批比较。来源覆盖并不产生应用成功资格。
 
@@ -171,7 +171,7 @@ ModelCallStore、ToolActionStore 和 CheckLedger 显式 read_only=True：不创�
 
 ### 1.3.4 停止记录的本机私有证据导出
 
-W10 的离线 Export 消费 EvaluationManifest schema 1；当前实现的合成验收结果由 STATUS 维护。目标是完整保留既有记录并能从包内重建同一离线摘要，不执行模型、工具、检查或 Graph 反序列化，不删除源输入。公开脱敏、真实应用汇总及正式提交仍是独立的后续工作。
+W10 的离线 Export 消费 EvaluationManifest schema 1/2；当前实现的合成验收结果由 STATUS 维护。目标是完整保留既有记录并能从包内重建同一离线摘要，不执行模型、工具、检查或 Graph 反序列化，不删除源输入。公开脱敏、真实应用汇总及正式提交仍是独立的后续工作。
 
 | 对象 | 必须字段与绑定 |
 |---|---|
@@ -362,7 +362,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 |---|---|
 | WorkingContextFocus | 显式 diagnosis_id、hypothesis_ids、current_candidate_id、decision_id、feedback_decision_ids；可为空以表达尚无诊断。主机传入引用，构建器核对归属和关联；不凭文件排序、时间戳或模型“已修好”选择最新焦点 |
 | WorkingContextPacket | schema/选择器身份、task/run/分析源码、完整 focus、原始记录及引用闭包、当前候选与历史候选的独立范围、unknowns、规范 payload 字符串及 SHA-256；读取返回副本，原字符串是内容事实，嵌套列表不可通过返回值改变 |
-| 后续 WorkingContextPlan | solver 位点、动作水位及依据 action_ids、原有序消息、完整记录清单、必须/选入/省略引用及理由、完整工具组区间、发送视图、选择/压缩 profile、实际请求绑定及各内容哈希；独立 packet 不冒充此发送计划 |
+| WorkingContextPlan | solver 位点、动作水位及依据 action_ids、原有序消息、物化来源原字节与摘要、必须/选入/省略引用及理由、完整工具组区间、组织视图、选择 profile；发送回执另绑定最终视图、可选压缩及实际模型请求 |
 
 闭包从焦点诊断、明确假设、候选恢复/保留义务和决策方向出发，加入支持/反驳证据、绑定/条件/因果步骤依据、区分问题及尚未解决项。首包保守保留选中诊断的完整 alternatives、问题与证据，hypothesis_ids 只是焦点提示，不删除反向依据。义务、假设和决策可以相互引用，按 visited 集合求固定点；证据 basis 派生环按既有约束拒绝。回读重查既有登记的全局 target namespace，诊断/假设/义务与 Evidence ID 不得重名；结构义务回到其唯一原诊断，不按文件顺序猜 owner。无法找到引用或版本不符时拒绝构建，不能生成删减后的“有效”包。
 
@@ -372,9 +372,15 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 必要包的规范 UTF-8 字节数大于调用方明确预算，返回 `working_context_required_limit`，不截断义务、证据或来源。该数值仅是 packet 预算，不能当提供方 Token 或完整 wire 请求大小。载入对象须与受核验原字节绑定，多次读取间改变也拒绝，不能混用 A 版对象与 B 版来源摘要。回读用保存 focus、选择器身份和来源重建包，再比较规范内容及摘要；追加无关有效记录不改变旧包，相关记录变化或篡改须拒绝。检查从未请求合法进展为完成，也会使旧 packet 的同源点重建拒绝，需生成新 packet；它不是历史 solver 计划恢复器。首包不自动写回旧会话或添加文件持久器。
 
-实际发送接入时，焦点须来自当前模型输入历史内已完成且允许、带有效回执的工具动作，冻结动作水位；不抢先使用 Graph 尚未见到的结果。保留 startup 与完整近期组，再优先放必需引用闭包，剩余额度按确定性策略选择；assistant 多工具调用及全部回执是一组，孤立、重复或未完成组拒绝。只有发送视图改变，原历史保留。与通用压缩组合后仍须核验最终序列化消息、工具 schema、生成参数和 PreparedRequest；超过真实窗口明确停止。原始来源/反例不能被摘要替换为已确认事实。
+`working_context_plan.py` 的 WorkingContextStore 在模型边界组织上下文；WorkingContextPolicy 默认关闭，字节预算与近期组数在该对象定义并由 session 冻结。焦点只取当前输入中已完成、授权、有有效回执的工具动作，按可见顺序推导并保留水位。packet 中诊断、候选、检查、条件、决策和反馈也须有可见来源，磁盘上已经完成但当前消息尚未见到的检查不能提前进入包。没有诊断的候选和未纳入闭包的领域结果保持通用路径，相关完整工具组另作为必要材料。
 
-同 solver 位点只保存一个不可改写计划；已 reserve/dispatched/unknown 的调用不能借新焦点重发。发送计划须物化当时源记录字节和范围，冻结 focus/记录/profile/原消息与发送视图；恢复核对保存的历史材料并绑定 ModelCallIntent，正常后续检查或库的进展不得破坏已冻结旧位点的回放，相关历史材料改写则拒绝。无收益、摘要失败和选择耗时保留。发送接入须统一升级 session/report/completion、脚本 loader、报告审计和导出，旧记录只读；独立 packet 首包不修改现有 9/6/3。
+处理顺序是原 Graph 历史 → 必要记录组织 → 可选通用压缩 → 实际发送。packet 与尚未由它表达的必要完整组作为引用数据附入原 startup HumanMessage，保留原任务文本和其他字段；通用压缩保留这段 startup，不能把必要原文替换成摘要。原历史的 assistant 多工具调用与全部回执是一组，孤立、重复或未完成组拒绝。startup、必要包、必要组及近期组先占组织视图预算，剩余历史从近到远装入，最终按原顺序发送；超过必需额度明确停止，不截断义务。只有模型发送视图改变，Graph 原历史保留。通用压缩另外受自身输入/摘要限额及同一调用、Token、时间账本约束；消息字节不等于提供方 Token 窗口，真实窗口仍待接入核验。
+
+同 solver 位点只保存一个不可改写计划；已 reserve/dispatched/unknown 的调用不能借新焦点重发。计划及发送回执保存于受管工作区 working-context，物化当时来源、focus、记录、profile、原消息和组织/最终视图。固定入口保存实际消息、工具描述和 stop/generate/bind 参数，模拟 wire 入口保存 PreparedRequest，重算消息/工具/参数摘要并与 ModelCallIntent 账本核对；组合压缩还核对组织视图是其原输入。历史恢复核验这些已保存材料与原模型/动作回执，不从最新检查重建旧 packet；正常后续检查不改变过去输入，缺失或改写历史材料拒绝。保留选择耗时、已省略组及未派发计划，不伪报零成本或收益。
+
+新写 session/report/completion 为 10/7/4；旧 8/5/2 与 9/6/3 维持原形状只读，不能续跑、倒填或混拼。旧固定/模拟脚本 1/2 不接纳新工作上下文字段，新 3/4 明确登记 working_context；聚合清单 v1 仍可核验关闭增强的新运行，只有 v2 可显式比较 working_context_enabled，其他共同配置门不放宽。报告审计和私有导出保留实际发送计划；这些能力不证明摘要忠实度、模型定位或修复收益。
+
+当前 inline 计划将原字节编码到单个 JSON，受 `context_compaction.MAX_ARTIFACT_BYTES` 原有限额约束；物化超限以 `working_context_material_limit` 在 solver reserve 前停止，既有产物不改写。完整来源清单进入 packet，也可能占用无助于决定的模型字节。下一拟议切片将完整材料与模型投影分开：原字节放 run 内内容寻址库，每个不可改写计划清单固定其大小/摘要/归属；模型只见必要状态、原文片段及可核验引用。投影必须保留义务、有效反例、版本、未知项和可见水位，不提升材料权限，也不能悄悄更改基线可获取知识。报告/导出仍核对完整材料；旧 inline 计划保持原契约只读，缺失/篡改/链接、重复材料、大小超限、恢复、通用压缩和大型原版加候选作为实施反例。此切片未实现前不声称大工程容量已解决。
 
 #### 3.1.2 经验、检索和适用性交接
 

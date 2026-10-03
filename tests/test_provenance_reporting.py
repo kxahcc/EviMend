@@ -57,6 +57,8 @@ def legacy_report(root: Path) -> dict[str, Any]:
     session = _load(session_path)
     session["schema_version"] = 8
     session.pop("execution_provenance", None)
+    session["context_profile"].pop("host_working_context", None)
+    session["context_profile"].pop("working_context_prompt_sha256", None)
     _save(session_path, session)
     case = _open(root)
     report = _load(root / "run/agent-report.json")
@@ -64,6 +66,7 @@ def legacy_report(root: Path) -> dict[str, Any]:
     assert value["schema_version"] == 2
     report.update(schema_version=5, completion=value)
     report.pop("execution_provenance", None)
+    report.pop("working_context_plans", None)
     _save(root / "run/agent-report.json", report)
     return report
 
@@ -81,7 +84,7 @@ def test_new_report_preserves_saved_provenance_without_current_host_calls(
 ) -> None:
     report = _load(captured_run / "run/agent-report.json")
     session = _load(captured_run / "run/session.json")
-    assert (session["schema_version"], report["schema_version"], report["completion"]["schema_version"]) == (9, 6, 3)
+    assert (session["schema_version"], report["schema_version"], report["completion"]["schema_version"]) == (10, 7, 4)
     before = tree_bytes(captured_run)
     _forbid_host_capture(monkeypatch)
     value = read_completion(*_open(captured_run))
@@ -128,7 +131,7 @@ def test_new_report_rejects_provenance_tamper_even_when_summary_is_rehashed(
         read_completion(*_open(root))
 
 
-@pytest.mark.parametrize("report_schema,session_schema", [(5, 9), (6, 8)])
+@pytest.mark.parametrize("report_schema,session_schema", [(5, 10), (6, 10), (7, 8)])
 def test_report_and_session_generations_must_match(
     captured_run: Path, tmp_path: Path, report_schema: int, session_schema: int,
 ) -> None:

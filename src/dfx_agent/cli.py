@@ -127,7 +127,8 @@ def main() -> None:
                 preflight_resume(args.task, args.work, args.run_id)
             script = load_offline_script(args.fixed_script)
             options = {**script.options(), "resume": args.command == "resume", "policy_features": script.features(),
-                       "compaction_policy": script.compaction_policy()}
+                       "compaction_policy": script.compaction_policy(),
+                       "working_context_policy": script.working_context_policy()}
             if script.mode == "fixed_response":
                 result = run_fixed_agent(args.task, args.work, args.run_id, script.fixed_responses(),
                                          script.executor(), compaction_responses=script.compaction_responses(), **options)

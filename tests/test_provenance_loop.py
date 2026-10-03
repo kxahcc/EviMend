@@ -71,9 +71,9 @@ def _forbid_resume_effects(monkeypatch: pytest.MonkeyPatch, executor: FixedTextE
 def test_new_sdk_run_freezes_one_provenance_record_through_the_report(tmp_path: Path, wire: bool) -> None:
     _task, work, _executor, requests, report = _completed_run(tmp_path, wire=wire)
     session = _session(work)
-    assert session["schema_version"] == 9
-    assert report["schema_version"] == 6
-    assert report["completion"]["schema_version"] == 3
+    assert session["schema_version"] == 10
+    assert report["schema_version"] == 7
+    assert report["completion"]["schema_version"] == 4
     frozen = provenance.validate_session_provenance(session)
     assert frozen == session["execution_provenance"]
     assert report["execution_provenance"] == report["completion"]["execution_provenance"] == frozen
@@ -104,12 +104,16 @@ def test_resume_execution_drift_rejects_before_ledgers_models_or_checks(
 
 
 @pytest.mark.parametrize("wire", [False, True])
-def test_schema8_resume_keeps_all_historical_bytes_untouched(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, wire: bool) -> None:
+@pytest.mark.parametrize("legacy_schema", [8, 9])
+def test_historical_resume_keeps_all_bytes_untouched(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, wire: bool, legacy_schema: int) -> None:
     task, work, executor, requests, _first = _completed_run(tmp_path, wire=wire)
     session = _session(work)
-    session["schema_version"] = 8
-    session.pop("execution_provenance")
+    session["schema_version"] = legacy_schema
+    if legacy_schema == 8:
+        session.pop("execution_provenance")
+    session["context_profile"].pop("host_working_context")
+    session["context_profile"].pop("working_context_prompt_sha256")
     (work / "session.json").write_text(json.dumps(session), encoding="utf-8")
     _forbid_resume_effects(monkeypatch, executor)
     before, task_before, request_count = _tree(work), _tree(task), len(requests)

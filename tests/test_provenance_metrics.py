@@ -39,9 +39,11 @@ def captured_evaluation(tmp_path_factory: pytest.TempPathFactory):
     task = make_task(root / "tasks/task1")
     first = root / "work/run1"
     run_synthetic(task, first, "run1", [response(1)])
+    _historical_v9(root, "run1")
     raw = one_manifest(root, task, first, "run1")
     second = root / "work/run2"
     run_synthetic(task, second, "run2", [response(1)])
+    _historical_v9(root, "run2")
     raw["repeat_ids"].append("repeat2")
     raw["runs"].append({**raw["runs"][0], "repeat_id": "repeat2", "run_id": "run2", "work_path": "work/run2"})
     return root, raw
@@ -64,12 +66,27 @@ def _rebuild(root: Path, run_id: str) -> None:
     actions = ToolActionStore(work / "tool-actions.sqlite", read_only=True)
     report = _load(work / "agent-report.json")
     value = build_completion(workspace, ledger, calls, actions, stopped_reason=report["stopped_reason"])
-    report.update(schema_version=5 if value["schema_version"] == 2 else 6, completion=value)
+    report.update(schema_version={2: 5, 3: 6, 4: 7}[value["schema_version"]], completion=value)
     if "execution_provenance" in value:
         report["execution_provenance"] = value["execution_provenance"]
     else:
         report.pop("execution_provenance", None)
+    if "working_context_plans" in value:
+        report["working_context_plans"] = value["working_context_plans"]
+    else:
+        report.pop("working_context_plans", None)
     _save(work / "agent-report.json", report)
+
+
+def _historical_v9(root: Path, run_id: str) -> None:
+    """Construct a source-version fixture, never rewrite production evidence."""
+    path = root / "work" / run_id / "session.json"
+    session = _load(path)
+    session["schema_version"] = 9
+    session["context_profile"].pop("host_working_context", None)
+    session["context_profile"].pop("working_context_prompt_sha256", None)
+    _save(path, session)
+    _rebuild(root, run_id)
 
 
 def _legacy(root: Path, run_id: str) -> None:
@@ -201,7 +218,7 @@ def test_missing_report_cannot_hide_invalid_session_provenance(
     if damage == "legacy_injected":
         session["schema_version"] = 8
     elif damage == "unsupported_schema":
-        session["schema_version"] = 10
+        session["schema_version"] = 11
     elif damage == "boolean_schema":
         session["schema_version"] = True
     else:

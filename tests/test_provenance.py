@@ -134,9 +134,12 @@ def test_session_old_provenance_stays_unknown_and_new_record_is_required(host: P
     assert provenance.validate_session_provenance({"schema_version": 8}) is None
     assert provenance.validate_session_provenance({"schema_version": 9,
                                                     "execution_provenance": record}) == record
+    assert provenance.validate_session_provenance({"schema_version": 10,
+                                                    "execution_provenance": record}) == record
     for value in ({"schema_version": 8, "execution_provenance": None},
                   {"schema_version": 8, "execution_provenance": record},
                   {"schema_version": 9}, {"schema_version": 9, "execution_provenance": None},
+                  {"schema_version": 10}, {"schema_version": 10, "execution_provenance": None},
                   {"schema_version": 7}, {"schema_version": True}, []):
         with pytest.raises(ValueError):
             provenance.validate_session_provenance(value)
