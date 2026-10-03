@@ -13,7 +13,7 @@ from test_provider_loop import scripted_adapter, settings, wire_response
 from dfx_agent import models
 from dfx_agent.actions import ToolActionStore
 from dfx_agent.agent import run_fixed_agent, run_provider_agent
-from dfx_agent.context_compaction import CompactionPolicy
+from dfx_agent.context_compaction import MAX_ARTIFACT_BYTES, CompactionPolicy
 from dfx_agent.model_calls import ModelCallStore, canonical
 from dfx_agent.model_provider import ChatCompletionsAdapter
 from dfx_agent.offline_script import load_offline_script
@@ -61,11 +61,13 @@ def test_fixed_sdk_packet_changes_send_view_and_old_plans_survive_later_checks(t
     # Recomputing the whole report now must not rebuild pre-check packets from
     # the newer verification state. Exact historical send receipts remain valid.
     assert checked_completion(task, work) == report["completion"]
-    before = {path.name: path.read_bytes() for path in (work / "working-context").iterdir()}
+    before = {path.relative_to(work).as_posix(): path.read_bytes()
+              for path in (work / "working-context").rglob("*") if path.is_file()}
     resumed = run_fixed_agent(task, work, "run1", scripted, executor, resume=True, working_context_policy=policy)
     assert resumed["model_calls_this_turn"] == 0
     assert resumed["completion"] == report["completion"]
-    assert before == {path.name: path.read_bytes() for path in (work / "working-context").iterdir()}
+    assert before == {path.relative_to(work).as_posix(): path.read_bytes()
+                      for path in (work / "working-context").rglob("*") if path.is_file()}
 
 
 def test_generic_candidate_path_without_diagnosis_remains_available(tmp_path: Path) -> None:
@@ -104,13 +106,15 @@ def test_unknown_mock_result_keeps_the_same_frozen_plan_without_resending(tmp_pa
     report = run_provider_agent(task, work, "run1", ChatCompletionsAdapter(settings(), httpx.MockTransport(fail)),
                                 FixedTextExecutor("src/main.ets", "value=good\n"), working_context_policy=policy)
     assert report["stopped_reason"] == "model_result_unknown" and len(sent) == 1
-    frozen = {path.name: path.read_bytes() for path in (work / "working-context").iterdir()}
+    frozen = {path.relative_to(work).as_posix(): path.read_bytes()
+              for path in (work / "working-context").rglob("*") if path.is_file()}
     resumed = run_provider_agent(task, work, "run1", ChatCompletionsAdapter(settings(), httpx.MockTransport(fail)),
                                  FixedTextExecutor("src/main.ets", "value=good\n"), resume=True,
                                  working_context_policy=policy)
     assert resumed["stopped_reason"] == "model_result_unknown" and len(sent) == 1
     assert resumed["model_calls_this_turn"] == 0
-    assert frozen == {path.name: path.read_bytes() for path in (work / "working-context").iterdir()}
+    assert frozen == {path.relative_to(work).as_posix(): path.read_bytes()
+                      for path in (work / "working-context").rglob("*") if path.is_file()}
 
 
 def test_completed_reply_before_checkpoint_recovers_from_frozen_plan(tmp_path: Path, monkeypatch) -> None:
@@ -144,9 +148,10 @@ def test_required_packet_budget_stops_before_a_solver_request(tmp_path: Path) ->
     assert report["model_calls"] == 0
 
 
-def test_inline_material_capacity_rejects_large_source_without_dispatch_or_raising_limits(tmp_path: Path) -> None:
+@pytest.mark.parametrize("size", [6_400_000, MAX_ARTIFACT_BYTES + 1])
+def test_raw_material_capacity_supports_large_source_but_preserves_single_blob_limit(tmp_path: Path, size: int) -> None:
     task = task_snapshot(tmp_path)
-    large = b"//" + b"x" * 6_400_000 + b"\n"
+    large = b"//" + b"x" * size + b"\n"
     (task / "source/src/large.ets").write_bytes(large)
     manifest = [{"path": "src/large.ets", "sha256": digest(large)},
                 {"path": "src/main.ets", "sha256": digest(b"value=bad\n")}]
@@ -158,8 +163,43 @@ def test_inline_material_capacity_rejects_large_source_without_dispatch_or_raisi
     report = run_fixed_agent(task, tmp_path / "run", "run1", [response(1)],
                              FixedTextExecutor("src/main.ets", "value=good\n"),
                              working_context_policy=WorkingContextPolicy(enabled=True))
-    assert report["stopped_reason"] == "working_context_material_limit"
-    assert report["model_calls"] == 0 and report["completion"]["working_context_plans"] == []
+    if len(large) > MAX_ARTIFACT_BYTES:
+        assert report["stopped_reason"] == "working_context_material_limit"
+        assert report["model_calls"] == 0 and report["completion"]["working_context_plans"] == []
+    else:
+        assert report["stopped_reason"] is None and report["model_calls"] == 1
+        plan = report["completion"]["working_context_plans"][0]
+        assert plan["format_version"] == 2 and plan["materialized_bytes"] > 6_400_000
+        assert checked_completion(task, tmp_path / "run") == report["completion"]
+
+
+def test_thousand_file_candidate_uses_complete_audit_material_but_bounded_solver_projection(tmp_path: Path) -> None:
+    task, work = task_snapshot(tmp_path), tmp_path / "run"
+    for number in range(1_200):
+        (task / "source/src" / f"unrelated-{number:04}.ets").write_bytes(b"// independent synthetic source\n")
+    manifest = [{"path": path.relative_to(task / "source").as_posix(), "sha256": digest(path.read_bytes())}
+                for path in sorted((task / "source").rglob("*.ets"))]
+    (task / "source-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    value = json.loads((task / "task.json").read_text(encoding="utf-8"))
+    value["source_snapshot_sha256"] = snapshot_digest(manifest)
+    (task / "task.json").write_text(json.dumps(value), encoding="utf-8")
+    good = candidate_id(task, tmp_path / "derive", "good")
+    report = run_fixed_agent(task, work, "run1", [
+        response(1, "record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "unknown bad value"}),
+        response(2, "edit_source", {"path": "src/main.ets", "old": "bad", "new": "good"}),
+        response(3, "register_candidate", {"diagnosis_id": "diagnosis-1"}),
+        response(4, "run_check", {"candidate_id": good}), response(5)],
+        # Capacity stress has its own explicit time budget. The default 60s
+        # failure is recorded separately; this does not certify default speed.
+        FixedTextExecutor("src/main.ets", "value=good\n"), max_seconds=300,
+        working_context_policy=WorkingContextPolicy(enabled=True))
+    assert report["status"] == "offline_checked", report["stopped_reason"]
+    plans = report["completion"]["working_context_plans"]
+    assert any(plan["audit_packet_bytes"] > 131_072 for plan in plans)
+    assert all(plan["solver_projection_bytes"] < 20_000 for plan in plans)
+    assert plans[-1]["unique_referenced_material_bytes"] < plans[-1]["materialized_bytes"]
+    assert plans[-1]["run_material_observation"]["unique_blob_count"] < 20
+    assert checked_completion(task, work) == report["completion"]
 
 
 def test_compaction_and_working_context_are_independent_but_share_accounting(tmp_path: Path) -> None:

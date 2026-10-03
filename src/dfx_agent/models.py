@@ -50,14 +50,20 @@ MAX_SERIALIZED_MESSAGES_BYTES = 1_048_576
 
 
 def context_profile(policy: CompactionPolicy | None = None,
-                    working_context: WorkingContextPolicy | None = None) -> dict[str, Any]:
+                    working_context: WorkingContextPolicy | None = None, *,
+                    working_context_format: int = 2) -> dict[str, Any]:
     """The finite SDK context policy is frozen alongside the model profile."""
-    return {"max_serialized_messages_bytes": MAX_SERIALIZED_MESSAGES_BYTES, "automatic_summarization": False,
+    if type(working_context_format) is not int or working_context_format not in (1, 2):
+        raise ValueError("unsupported working context format")
+    value = {"max_serialized_messages_bytes": MAX_SERIALIZED_MESSAGES_BYTES, "automatic_summarization": False,
             "human_message_offload": False, "tool_result_offload": False, "implicit_model_retries": False,
             "host_compaction": (policy or CompactionPolicy()).model_dump(mode="json"),
             "compaction_prompt_sha256": sha256(SUMMARY_PROMPT),
             "host_working_context": (working_context or WorkingContextPolicy()).model_dump(mode="json"),
             "working_context_prompt_sha256": sha256(WORKING_CONTEXT_PROMPT)}
+    if working_context_format == 2:
+        value["working_context_format"] = 2
+    return value
 
 
 def _check_context(messages: list[BaseMessage]) -> None:

@@ -55,10 +55,11 @@ def _session(workspace: CandidateWorkspace, ledger: CheckLedger) -> dict[str, An
     if value["schema_version"] == 10:
         policy = WorkingContextPolicy.model_validate(profile["host_working_context"])
         if canonical(profile) != canonical(context_profile(
-            CompactionPolicy.model_validate(profile["host_compaction"]), policy
+            CompactionPolicy.model_validate(profile["host_compaction"]), policy,
+            working_context_format=profile.get("working_context_format", 1)
         )):
             raise ValueError("report working context profile differs")
-    elif "host_working_context" in profile or "working_context_prompt_sha256" in profile:
+    elif any(key in profile for key in ("host_working_context", "working_context_prompt_sha256", "working_context_format")):
         raise ValueError("historical session cannot acquire a working context profile")
     return value
 
@@ -196,7 +197,8 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
                                  compaction_policy, model_profile).audit(model_calls)
     current_session = session is not None and session["schema_version"] == 10
     working_plans = (WorkingContextStore(workspace, None, None,
-        WorkingContextPolicy.model_validate(context["host_working_context"]), model_profile).audit(
+        WorkingContextPolicy.model_validate(context["host_working_context"]), model_profile,
+        format_version=context.get("working_context_format", 1)).audit(
             model_calls, actions, compactions) if current_session else None)
     action_records, receipts = _action_facts(workspace, actions, model_calls)
     decisions = [record.model_dump(mode="json") for record in DecisionStore(workspace).records().values()]

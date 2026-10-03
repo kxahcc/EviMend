@@ -50,6 +50,7 @@ def test_historical_generation_keeps_exact_canonical_shape_and_skips_new_audit(
         session.pop("execution_provenance")
     session["context_profile"].pop("host_working_context")
     session["context_profile"].pop("working_context_prompt_sha256")
+    session["context_profile"].pop("working_context_format", None)
     _save(session_path, session)
     report_path = current_off / "run/agent-report.json"
     report = read_json(report_path)

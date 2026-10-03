@@ -362,7 +362,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 |---|---|
 | WorkingContextFocus | 显式 diagnosis_id、hypothesis_ids、current_candidate_id、decision_id、feedback_decision_ids；可为空以表达尚无诊断。主机传入引用，构建器核对归属和关联；不凭文件排序、时间戳或模型“已修好”选择最新焦点 |
 | WorkingContextPacket | schema/选择器身份、task/run/分析源码、完整 focus、原始记录及引用闭包、当前候选与历史候选的独立范围、unknowns、规范 payload 字符串及 SHA-256；读取返回副本，原字符串是内容事实，嵌套列表不可通过返回值改变 |
-| WorkingContextPlan | solver 位点、动作水位及依据 action_ids、原有序消息、物化来源原字节与摘要、必须/选入/省略引用及理由、完整工具组区间、组织视图、选择 profile；发送回执另绑定最终视图、可选压缩及实际模型请求 |
+| WorkingContextPlan | solver 位点、动作水位及依据 action_ids、原有序消息、完整审计 packet、材料引用清单、求解投影、必须/选入/省略引用及理由、完整工具组区间、组织视图、选择 profile；发送回执另绑定最终视图、可选压缩及实际模型请求 |
 
 闭包从焦点诊断、明确假设、候选恢复/保留义务和决策方向出发，加入支持/反驳证据、绑定/条件/因果步骤依据、区分问题及尚未解决项。首包保守保留选中诊断的完整 alternatives、问题与证据，hypothesis_ids 只是焦点提示，不删除反向依据。义务、假设和决策可以相互引用，按 visited 集合求固定点；证据 basis 派生环按既有约束拒绝。回读重查既有登记的全局 target namespace，诊断/假设/义务与 Evidence ID 不得重名；结构义务回到其唯一原诊断，不按文件顺序猜 owner。无法找到引用或版本不符时拒绝构建，不能生成删减后的“有效”包。
 
@@ -374,13 +374,17 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 `working_context_plan.py` 的 WorkingContextStore 在模型边界组织上下文；WorkingContextPolicy 默认关闭，字节预算与近期组数在该对象定义并由 session 冻结。焦点只取当前输入中已完成、授权、有有效回执的工具动作，按可见顺序推导并保留水位。packet 中诊断、候选、检查、条件、决策和反馈也须有可见来源，磁盘上已经完成但当前消息尚未见到的检查不能提前进入包。没有诊断的候选和未纳入闭包的领域结果保持通用路径，相关完整工具组另作为必要材料。
 
-处理顺序是原 Graph 历史 → 必要记录组织 → 可选通用压缩 → 实际发送。packet 与尚未由它表达的必要完整组作为引用数据附入原 startup HumanMessage，保留原任务文本和其他字段；通用压缩保留这段 startup，不能把必要原文替换成摘要。原历史的 assistant 多工具调用与全部回执是一组，孤立、重复或未完成组拒绝。startup、必要包、必要组及近期组先占组织视图预算，剩余历史从近到远装入，最终按原顺序发送；超过必需额度明确停止，不截断义务。只有模型发送视图改变，Graph 原历史保留。通用压缩另外受自身输入/摘要限额及同一调用、Token、时间账本约束；消息字节不等于提供方 Token 窗口，真实窗口仍待接入核验。
+处理顺序是原 Graph 历史 → 完整 packet 与材料核验 → 有界求解投影和必要组组织 → 可选通用压缩 → 实际发送。投影与尚未由它表达的必要完整组作为引用数据附入原 startup HumanMessage，保留原任务文本和其他字段；覆盖判断使用实际投影全文，不能只凭记录 ID 丢掉原文。通用压缩保留这段 startup，不能把必要原文替换成摘要。原历史的 assistant 多工具调用与全部回执是一组，孤立、重复或未完成组拒绝。startup、必要投影、必要组及近期组先占组织视图预算，剩余历史从近到远装入，最终按原顺序发送；超过必需额度明确停止，不截断义务。只有模型发送视图改变，Graph 原历史保留。通用压缩另外受自身输入/摘要限额及同一调用、Token、时间账本约束；消息字节不等于提供方 Token 窗口，真实窗口仍待接入核验。
 
 同 solver 位点只保存一个不可改写计划；已 reserve/dispatched/unknown 的调用不能借新焦点重发。计划及发送回执保存于受管工作区 working-context，物化当时来源、focus、记录、profile、原消息和组织/最终视图。固定入口保存实际消息、工具描述和 stop/generate/bind 参数，模拟 wire 入口保存 PreparedRequest，重算消息/工具/参数摘要并与 ModelCallIntent 账本核对；组合压缩还核对组织视图是其原输入。历史恢复核验这些已保存材料与原模型/动作回执，不从最新检查重建旧 packet；正常后续检查不改变过去输入，缺失或改写历史材料拒绝。保留选择耗时、已省略组及未派发计划，不伪报零成本或收益。
 
-新写 session/report/completion 为 10/7/4；旧 8/5/2 与 9/6/3 维持原形状只读，不能续跑、倒填或混拼。旧固定/模拟脚本 1/2 不接纳新工作上下文字段，新 3/4 明确登记 working_context；聚合清单 v1 仍可核验关闭增强的新运行，只有 v2 可显式比较 working_context_enabled，其他共同配置门不放宽。报告审计和私有导出保留实际发送计划；这些能力不证明摘要忠实度、模型定位或修复收益。
+新写 session/report/completion 为 10/7/4，context_profile 明确冻结 working_context_format=2。历史 session 10 缺该标记时只读按 format 1 核验原 inline 计划及原序列化形状，不倒填；旧 8/5/2 与 9/6/3 也维持原形状只读。执行来源不兼容的旧运行不能续跑。旧固定/模拟脚本 1/2 不接纳新工作上下文字段，新 3/4 明确登记 working_context；聚合清单 v1 仍可核验关闭增强的新运行，只有 v2 可显式比较 working_context_enabled，format 与其他共同配置门不放宽。报告审计和私有导出保留实际发送计划；这些能力不证明摘要忠实度、模型定位或修复收益。
 
-当前 inline 计划将原字节编码到单个 JSON，受 `context_compaction.MAX_ARTIFACT_BYTES` 原有限额约束；物化超限以 `working_context_material_limit` 在 solver reserve 前停止，既有产物不改写。完整来源清单进入 packet，也可能占用无助于决定的模型字节。下一拟议切片将完整材料与模型投影分开：原字节放 run 内内容寻址库，每个不可改写计划清单固定其大小/摘要/归属；模型只见必要状态、原文片段及可核验引用。投影必须保留义务、有效反例、版本、未知项和可见水位，不提升材料权限，也不能悄悄更改基线可获取知识。报告/导出仍核对完整材料；旧 inline 计划保持原契约只读，缺失/篡改/链接、重复材料、大小超限、恢复、通用压缩和大型原版加候选作为实施反例。此切片未实现前不声称大工程容量已解决。
+format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materials/<sha256>.blob，每个不可改写计划固定引用路径、大小与摘要。同字节材料在该 run 内复用；不跨 run 链接、不改写原文件。原材料、完整审计 packet、引用清单及计划各自沿用 `context_compaction.MAX_ARTIFACT_BYTES` 单产物上限；整体仍受既有受管磁盘及导出预算约束。WorkingContextPolicy.max_packet_bytes 在 format 2 专指模型投影预算，format 1 保持原 packet 预算解释，两代通过冻结标记明确区分。限额失败在 solver reserve 前停止，不提高配置自动重试。
+
+首版求解投影只把完整 sources 回执清单替换为数量、逻辑字节数及清单摘要，并绑定完整 packet 的摘要；其余假设、alternatives、证据陈述、业务义务、反例、条件、候选范围、权限、版本和未知项全部原样保留，不做模型语义压缩，也不额外读取来源。Pydantic 仅核验投影/清单结构；WorkingContextStore 的回读、发送绑定及审计还须核验外部原字节、基线/候选身份、完整闭包及可见回执。不能把单独结构校验称为材料已认证。
+
+先发布材料，再发布计划，再 reserve/link 模型调用。单 writer 受管运行中，崩溃可留下完整但未引用的 blob 或有界 pending 文件；它们只读保留并计数，不转成任务事实、不自动删除或填补缺失引用。namespace 拒绝非法文件名、目录、链接、超限及审计期间变化。报告同时保留逻辑引用字节、按摘要去重的引用字节、投影字节和整个 run 的 namespace 观察；后者在各计划重复展示，不求和为每调用成本。历史回读、未知调用不重发、组合压缩和私有导出继续核验完整材料。规模证据见 STATUS；材料去重属于工程基础，不能单凭字节减少宣称真实 Token 或修复效果收益。
 
 #### 3.1.2 经验、检索和适用性交接
 

@@ -105,7 +105,9 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 清单 schema 2 用于显式上下文对照：configuration 另给 `working_context={max_packet_bytes,max_view_bytes,retain_groups}`，variants 每项必有 `working_context_enabled`；这些限制仍共享。此时上下文配置哈希取 `sha256(canonical(metrics.shared_context_profile(session["context_profile"])))`，只将 enabled 归一为 false，保留压缩及其他参数。`parse_evaluation_manifest` 区分两代，不给旧清单倒填默认值。v1 可核验当前关闭工作上下文的运行，但不能接纳开启的运行。
 
-当前冻结计划内嵌原材料，单产物仍受既有格式上限保护；超限为 `working_context_material_limit`，不放大配置重试。模型引用区还保留完整 packet 的来源清单，大工程的容量与输入冗余尚需内容寻址去重及模型投影优化。合成小任务的发送/恢复核验不表示已适配 data_B 全部工程；实际能力边界与下一工作包见 STATUS。
+新运行的 context_profile 冻结 working_context_format=2：plan schema 2 以路径、摘要和大小引用同 run 的 working-context/materials 原字节，重复材料只保存一次；完整审计 packet 仍保留逐文件来源。模型投影只将 sources 清单替换为有摘要的统计，保留其他领域内容全文，覆盖判断使用实际投影。材料/审计产物沿用 MAX_ARTIFACT_BYTES 单产物限额，WorkingContextPolicy.max_packet_bytes 限制求解投影；超限明确停止，不放大配置。旧 session 10 缺标记时按 format 1 只读核验原 inline 计划和原预算解释；旧报告/包摘要不倒填，来源不兼容不能续跑。
+
+原材料先于计划发布，崩溃可留下未引用完整 blob 或有界 pending，审计只读保留并计数，不自动补引用或清理。单独 Plan/Pydantic 校验仅确认结构，外部原字节须经 WorkingContextStore 回读/绑定/审计核验。working_context_plans 的 materialized_bytes 是逻辑引用量，unique_referenced_material_bytes 按摘要去重；run_material_observation 是整个 run 的累计 namespace 观察，在各计划重复展示，不能求和为每调用开销。solver_projection_bytes、stage/final_bytes 是 UTF-8 字节，真实模型 usage 仍单独记账。规模自检不表示已适配 data_B 全部工程或有修复/Token 收益；实际边界与下一工作包见 STATUS。
 
 缺目录、缺报告、失败和未知成本均保留在分母；损坏证据拒绝整批，不跳过。首次与最新定位/候选分开，repeat 与任务/谱系分开，不宣称独立样本。所有应用指标为 null、accepted=false。全旧 session 8 数据维持原汇总形状及历史版本 null；存在新来源时，逐行保留原记录，按 compatibility_sha256 列出来源与未知项，已知兼容身份不一致拒绝合并。缺报告的新来源仍须绑定匹配工作区和会话，不能据此补零费用或成功。从现有记录生成清单不能证明当时预登记，正式实验须先冻结清单与完整应用执行来源。程序 API 为 load_evaluation_manifest / aggregate_evaluation / write_evaluation_report；写入只允许新报告且不能与输入重叠。
 

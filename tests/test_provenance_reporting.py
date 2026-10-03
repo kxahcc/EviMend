@@ -59,6 +59,7 @@ def legacy_report(root: Path) -> dict[str, Any]:
     session.pop("execution_provenance", None)
     session["context_profile"].pop("host_working_context", None)
     session["context_profile"].pop("working_context_prompt_sha256", None)
+    session["context_profile"].pop("working_context_format", None)
     _save(session_path, session)
     case = _open(root)
     report = _load(root / "run/agent-report.json")

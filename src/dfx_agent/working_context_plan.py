@@ -14,7 +14,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from .actions import ToolActionStore
 from .conditions import ConditionRecord
@@ -51,6 +58,12 @@ from .working_context import (
     _load,
     build_working_context,
 )
+from .working_context_materials import WorkingContextMaterials
+from .working_context_projection import (
+    SolverContextProjection,
+    project_working_context,
+    verify_solver_projection,
+)
 from .workspace import CandidateWorkspace, _files
 
 WORKING_CONTEXT_PROMPT = (
@@ -74,7 +87,7 @@ class WorkingContextPolicy(BaseModel):
 
 class WorkingContextPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     task_id: str
     run_id: str
     source_snapshot_sha256: str
@@ -85,12 +98,20 @@ class WorkingContextPlan(BaseModel):
     original_sha256: str
     packet_json: str
     source_material_json: str
+    solver_projection_json: str | None = None
     visible_receipts_json: str
     selection_json: str
     stage_messages_json: str
     stage_sha256: str
     prompt_sha256: str
     selection_ms: float = Field(ge=0, allow_inf_nan=False)
+
+    @model_serializer(mode="wrap")
+    def serialized(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        value = handler(self)
+        if self.schema_version == 1:
+            value.pop("solver_projection_json")
+        return value
 
     @model_validator(mode="after")
     def consistent(self) -> WorkingContextPlan:
@@ -107,7 +128,8 @@ class WorkingContextPlan(BaseModel):
         if self.original_messages_json != _serialized(original) or self.original_sha256 != sha256(self.original_messages_json):
             raise ValueError("working context original history changed")
         packet = WorkingContextPacket.model_validate_json(self.packet_json)
-        if packet.model_dump_json() != self.packet_json or packet.max_bytes != self.policy.max_packet_bytes:
+        audit_limit = self.policy.max_packet_bytes if self.schema_version == 1 else MAX_ARTIFACT_BYTES
+        if packet.model_dump_json() != self.packet_json or packet.max_bytes != audit_limit:
             raise ValueError("working context packet policy changed")
         value = packet.contents()
         if (value["task_id"] != self.task_id or value["run_id"] != self.run_id or
@@ -120,11 +142,25 @@ class WorkingContextPlan(BaseModel):
                 raise ValueError("unsupported fixed working context profile")
         else:
             _adapter(profile)
-        stage, selection = _select_messages(original, packet, _load(self.visible_receipts_json), self.policy)
+        projection = None
+        if self.schema_version == 1:
+            if self.solver_projection_json is not None:
+                raise ValueError("legacy working context cannot acquire a projection")
+        else:
+            if self.solver_projection_json is None:
+                raise ValueError("working context projection is missing")
+            projection = SolverContextProjection.model_validate_json(self.solver_projection_json)
+            if projection.model_dump_json() != self.solver_projection_json:
+                raise ValueError("noncanonical solver projection")
+            verify_solver_projection(projection, packet, max_bytes=self.policy.max_packet_bytes)
+            WorkingContextMaterials.validate_manifest(_load(self.source_material_json))
+        stage, selection = _select_messages(original, packet, _load(self.visible_receipts_json), self.policy,
+                                            projection=projection)
         if (_serialized(stage) != self.stage_messages_json or self.stage_sha256 != sha256(self.stage_messages_json) or
                 selection != _load(self.selection_json)):
             raise ValueError("working context stage selection changed")
-        _verify_material(packet, _load(self.source_material_json), self.source_snapshot_sha256)
+        if self.schema_version == 1:
+            _verify_material(packet, _load(self.source_material_json), self.source_snapshot_sha256)
         return self
 
     def view_messages(self) -> list[BaseMessage]:
@@ -225,7 +261,7 @@ def _focus(receipts: list[dict[str, Any]]) -> WorkingContextFocus:
 
 
 def _proof_packet(packet: WorkingContextPacket, receipts: list[dict[str, Any]],
-                  material: dict[str, Any]) -> None:
+                  material: dict[str, bytes]) -> None:
     """No registered record or later observation enters from an unseen action."""
     value = packet.contents()
     answers = [(item, _answer(item)) for item in receipts]
@@ -239,7 +275,7 @@ def _proof_packet(packet: WorkingContextPacket, receipts: list[dict[str, Any]],
             reference = "workspace/diagnoses/" + answer["diagnosis_id"] + ".json"
             if reference not in material:
                 continue
-            bundle = _load(base64.b64decode(material[reference]["base64"], validate=True))
+            bundle = _load(material[reference])
             args = item["tool_call"]["args"]
             hypotheses = bundle["diagnosis"]["hypotheses"]
             facts = bundle["evidence"]
@@ -336,11 +372,14 @@ def _proof_packet(packet: WorkingContextPacket, receipts: list[dict[str, Any]],
 
 
 def _select_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
-                     receipts: list[dict[str, Any]], policy: WorkingContextPolicy) -> tuple[list[BaseMessage], dict[str, Any]]:
+                     receipts: list[dict[str, Any]], policy: WorkingContextPolicy, *,
+                     projection: SolverContextProjection | None = None) -> tuple[list[BaseMessage], dict[str, Any]]:
     pinned, boundaries = _groups(messages)
     starts = [pinned] + boundaries[:-1] if boundaries else []
     groups = list(zip(starts, boundaries, strict=True))
-    value = packet.contents()
+    if projection is not None:
+        verify_solver_projection(projection, packet, max_bytes=policy.max_packet_bytes)
+    value = packet.contents() if projection is None else projection.contents()
     mandatory: set[int] = set()
     for item in receipts:
         answer = _answer(item)
@@ -367,7 +406,7 @@ def _select_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
         if not represented:
             mandatory.add(item["group_start"])
     required = [group for group in groups if group[0] in mandatory]
-    panel = {"packet": packet.contents(), "required_unrepresented_groups": [
+    panel = {"packet": value, "required_unrepresented_groups": [
         {"range": list(group), "messages": _load(_serialized(messages[group[0]:group[1]]))} for group in required]}
     startup = [message.model_copy(deep=True) for message in messages[:pinned]]
     task = startup[-1]
@@ -398,7 +437,7 @@ def _select_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
         "action_watermark": [item["action"]["action_id"] for item in receipts]}
 
 
-def _capture_material(workspace: CandidateWorkspace, task: Path, packet: WorkingContextPacket) -> dict[str, Any]:
+def _capture_material(workspace: CandidateWorkspace, task: Path, packet: WorkingContextPacket) -> dict[str, bytes]:
     references = {item["reference"] for item in packet.contents()["sources"]}
     # A standalone obligation may cite an evidence item whose containing
     # diagnosis is not selected. Freeze that original admission container too.
@@ -412,15 +451,26 @@ def _capture_material(workspace: CandidateWorkspace, task: Path, packet: Working
     material = {}
     for reference in sorted(references):
         scope, relative = reference.split("/", 1)
-        raw = _guard((workspace.root if scope == "workspace" else task) / relative).read_bytes()
-        material[reference] = {"sha256": digest(raw), "bytes": len(raw), "base64": base64.b64encode(raw).decode("ascii")}
+        path = _guard((workspace.root if scope == "workspace" else task) / relative)
+        before = path.stat()
+        if before.st_size > MAX_ARTIFACT_BYTES:
+            raise WorkingContextError("working_context_material_limit")
+        with path.open("rb") as source:
+            raw = source.read(MAX_ARTIFACT_BYTES + 1)
+        after = _guard(path).stat()
+        if len(raw) > MAX_ARTIFACT_BYTES:
+            raise WorkingContextError("working_context_material_limit")
+        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) or len(raw) != before.st_size:
+            raise ValueError("working context source changed while reading")
+        material[reference] = raw
     expected = {item["reference"]: item["sha256"] for item in packet.contents()["sources"]}
-    if any(material[reference]["sha256"] != value for reference, value in expected.items()):
+    if any(digest(material[reference]) != value for reference, value in expected.items()):
         raise ValueError("working context source changed while materializing")
     return material
 
 
-def _verify_material(packet: WorkingContextPacket, material: dict[str, Any], snapshot: str) -> None:
+def _decode_inline_material(material: dict[str, Any]) -> dict[str, bytes]:
     raw: dict[str, bytes] = {}
     for reference, item in material.items():
         if not reference.startswith(("workspace/", "task/")) or ".." in reference.split("/"):
@@ -430,11 +480,19 @@ def _verify_material(packet: WorkingContextPacket, material: dict[str, Any], sna
                 len(value) != item["bytes"] or digest(value) != item["sha256"]):
             raise ValueError("frozen working context bytes changed")
         raw[reference] = value
+    return raw
+
+
+def _verify_material(packet: WorkingContextPacket, material: dict[str, Any], snapshot: str) -> None:
+    _verify_raw_material(packet, _decode_inline_material(material), snapshot)
+
+
+def _verify_raw_material(packet: WorkingContextPacket, raw: dict[str, bytes], snapshot: str) -> None:
     value = packet.contents()
     _verify_projection_closure(value, raw)
     for source in value["sources"]:
-        if source["reference"] not in material or any(material[source["reference"]][key] != source[key]
-                                                       for key in ("sha256", "bytes")):
+        blob = raw.get(source["reference"])
+        if blob is None or digest(blob) != source["sha256"] or len(blob) != source["bytes"]:
             raise ValueError("packet source does not match frozen original bytes")
     base = {key[len("workspace/base/"):]: blob for key, blob in raw.items() if key.startswith("workspace/base/")}
     if snapshot_digest([{"path": path, "sha256": digest(blob)} for path, blob in sorted(base.items())]) != snapshot:
@@ -719,20 +777,34 @@ def _verify_projection_closure(value: dict[str, Any], raw: dict[str, bytes]) -> 
 
 class WorkingContextStore:
     def __init__(self, workspace: CandidateWorkspace, task_directory: Path | None, ledger: CheckLedger | None,
-                 policy: WorkingContextPolicy, model_profile: dict[str, Any]):
+                 policy: WorkingContextPolicy, model_profile: dict[str, Any], *, format_version: int = 2):
+        if type(format_version) is not int or format_version not in (1, 2):
+            raise ValueError("unsupported working context format")
+        self.format_version = format_version
         self.workspace, self.task_directory, self.ledger = workspace, task_directory, ledger
         self.policy = policy
         self.profile_json = canonical(model_profile)
         self.directory = workspace.root / "working-context"
         self.io = CompactionStore(workspace.root, workspace.task_id, workspace.run_id, CompactionPolicy(), model_profile)
         self.io.directory = self.directory
+        self.materials = WorkingContextMaterials(self.io)
+
+    def _material(self, plan: WorkingContextPlan) -> dict[str, bytes]:
+        manifest = _load(plan.source_material_json)
+        return (_decode_inline_material(manifest) if plan.schema_version == 1 else self.materials.resolve(manifest))
 
     def _read_plan(self, path: Path) -> WorkingContextPlan:
-        plan = WorkingContextPlan.model_validate_json(canonical(self.io._read(path)))
+        saved = self.io._read(path)
+        plan = WorkingContextPlan.model_validate_json(canonical(saved))
+        if plan.model_dump(mode="json") != saved or plan.schema_version != self.format_version:
+            raise ValueError("working context stored format differs")
         if (plan.task_id != self.workspace.task_id or plan.run_id != self.workspace.run_id or
                 plan.source_snapshot_sha256 != self.workspace.source_snapshot_sha256 or
                 plan.policy != self.policy or plan.model_profile_json != self.profile_json):
             raise ValueError("working context session differs")
+        if plan.schema_version == 2:
+            _verify_raw_material(WorkingContextPacket.model_validate_json(plan.packet_json), self._material(plan),
+                                 plan.source_snapshot_sha256)
         return plan
 
     def select(self, messages: list[BaseMessage], parent_call_id: str, call_store: ModelCallStore,
@@ -740,6 +812,8 @@ class WorkingContextStore:
         if not self.policy.enabled:
             return None
         try:
+            if self.format_version != 2:
+                raise ValueError("legacy working context formats are read-only")
             if not _PARENT.fullmatch(parent_call_id):
                 raise ValueError("invalid working context solver site")
             path = self.directory / f"{parent_call_id}.plan.json"
@@ -757,20 +831,25 @@ class WorkingContextStore:
             started = time.monotonic()
             receipts = _visible(messages, call_store, actions, self.workspace)
             packet = build_working_context(self.workspace, _focus(receipts), task_directory=self.task_directory,
-                                           ledger=self.ledger, max_bytes=self.policy.max_packet_bytes)
+                                           ledger=self.ledger, max_bytes=MAX_ARTIFACT_BYTES)
             material = _capture_material(self.workspace, self.task_directory, packet)
+            _verify_raw_material(packet, material, self.workspace.source_snapshot_sha256)
             _proof_packet(packet, receipts, material)
-            stage, selection = _select_messages(messages, packet, receipts, self.policy)
-            plan = WorkingContextPlan(task_id=self.workspace.task_id, run_id=self.workspace.run_id,
+            projection = project_working_context(packet, max_bytes=self.policy.max_packet_bytes)
+            stage, selection = _select_messages(messages, packet, receipts, self.policy, projection=projection)
+            manifest = {reference: self.materials.put(blob) for reference, blob in material.items()}
+            plan = WorkingContextPlan(schema_version=2, task_id=self.workspace.task_id, run_id=self.workspace.run_id,
                 source_snapshot_sha256=self.workspace.source_snapshot_sha256, parent_call_id=parent_call_id,
                 policy=self.policy, model_profile_json=self.profile_json, original_messages_json=source,
-                original_sha256=sha256(source), packet_json=packet.model_dump_json(), source_material_json=canonical(material),
+                original_sha256=sha256(source), packet_json=packet.model_dump_json(), source_material_json=canonical(manifest),
+                solver_projection_json=projection.model_dump_json(),
                 visible_receipts_json=canonical(receipts), selection_json=canonical(selection),
                 stage_messages_json=_serialized(stage), stage_sha256=sha256(_serialized(stage)),
                 prompt_sha256=sha256(WORKING_CONTEXT_PROMPT), selection_ms=(time.monotonic() - started) * 1000)
             self._check_receipts(plan, call_store, actions)
             if len(canonical(plan.model_dump(mode="json")).encode("utf-8")) > MAX_ARTIFACT_BYTES:
                 raise WorkingContextError("working_context_material_limit")
+            self.materials.audit_namespace()
             self.io._save(path, plan.model_dump(mode="json"))
             return plan
         except WorkingContextError:
@@ -809,7 +888,7 @@ class WorkingContextStore:
         packet = WorkingContextPacket.model_validate_json(plan.packet_json)
         if packet.contents()["focus"] != _focus(current).model_dump(mode="json"):
             raise ValueError("working context frozen focus changed")
-        _proof_packet(packet, frozen, _load(plan.source_material_json))
+        _proof_packet(packet, frozen, self._material(plan))
 
     def _link_value(self, plan: WorkingContextPlan, intent: ModelCallIntent, request: PreparedRequest | None,
                     view: list[BaseMessage], compaction: CompactionPlan | None,
@@ -874,11 +953,17 @@ class WorkingContextStore:
             if self.directory.exists():
                 self.io._guard(self.directory, file=False)
                 for path in self.directory.iterdir():
+                    if path.name == "materials" and self.format_version == 2:
+                        self.io._guard(path, file=False)
+                        continue
                     self.io._guard(path)
                     match = _FILE.fullmatch(path.name)
                     if match is None:
                         raise ValueError("unexpected working context artifact")
                     entries.setdefault(match[1], set()).add(match[2])
+            material_summary = self.materials.audit_namespace() if self.format_version == 2 else None
+            if material_summary is not None and not self.policy.enabled and any(material_summary.values()):
+                raise ValueError("disabled working context has unexpected material")
             found = []
             if entries and not self.policy.enabled:
                 raise ValueError("disabled working context has unexpected frozen artifacts")
@@ -913,7 +998,7 @@ class WorkingContextStore:
                         call_store.replay(intent)
                 elif solver is not None and solver.state != "reserved":
                     raise ValueError("working context dispatched solver has no frozen link")
-                found.append({"parent_call_id": parent, "plan_sha256": sha256(canonical(plan.model_dump(mode="json"))),
+                fact = {"parent_call_id": parent, "plan_sha256": sha256(canonical(plan.model_dump(mode="json"))),
                     "original_sha256": plan.original_sha256, "stage_sha256": plan.stage_sha256,
                     "final_view_sha256": None if linked is None else linked["final_view_sha256"],
                     "packet_sha256": WorkingContextPacket.model_validate_json(plan.packet_json).payload_sha256,
@@ -923,7 +1008,18 @@ class WorkingContextStore:
                     "final_bytes": None if linked is None else len(linked["final_view_messages_json"].encode("utf-8")),
                     "materialized_bytes": sum(item["bytes"] for item in _load(plan.source_material_json).values()),
                     "selection": _load(plan.selection_json), "solver_state": None if solver is None else solver.state,
-                    "solver_link_saved": linked is not None, "authority": "host_reference_selection"})
+                    "solver_link_saved": linked is not None, "authority": "host_reference_selection"}
+                if plan.schema_version == 2:
+                    projection = SolverContextProjection.model_validate_json(plan.solver_projection_json or "")
+                    manifest = _load(plan.source_material_json)
+                    fact.update({"format_version": 2, "audit_packet_bytes": len(
+                        WorkingContextPacket.model_validate_json(plan.packet_json).canonical_payload_json.encode("utf-8")),
+                        "solver_projection_bytes": len(projection.canonical_payload_json.encode("utf-8")),
+                        "material_manifest_bytes": len(plan.source_material_json.encode("utf-8")),
+                        "unique_referenced_material_bytes": sum(item["bytes"] for item in {
+                            item["sha256"]: item for item in manifest.values()}.values()),
+                        "run_material_observation": material_summary})
+                found.append(fact)
             if self.policy.enabled:
                 for record in call_store.records(self.workspace.task_id, self.workspace.run_id, kind="solver"):
                     if record.intent.call_id not in entries:

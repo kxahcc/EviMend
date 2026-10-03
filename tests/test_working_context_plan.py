@@ -49,6 +49,7 @@ from dfx_agent.working_context_plan import (
     WorkingContextStore,
     _select_messages,
 )
+from dfx_agent.working_context_projection import project_working_context
 from dfx_agent.workspace import CandidateWorkspace
 
 FIXED = {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"}
@@ -287,13 +288,18 @@ def test_rehashed_packet_cannot_change_original_projection_or_delete_required_cl
         value["evidence"]["infer1"]["statement"] = "rehashed unconfirmed alteration"
         value["evidence"]["infer1"]["artifact_sha256"] = sha256(value["evidence"]["infer1"]["statement"])
     replacement = WorkingContextPacket(canonical_payload_json=canonical(value), payload_sha256=sha256(canonical(value)),
-        max_bytes=host.policy.max_packet_bytes)
+        max_bytes=json.loads(selected.packet_json)["max_bytes"])
     raw = selected.model_dump(mode="json")
-    stage, selection = _select_messages(host.messages, replacement, json.loads(selected.visible_receipts_json), host.policy)
-    raw.update(packet_json=replacement.model_dump_json(), stage_messages_json=message_json(stage),
-               stage_sha256=sha256(message_json(stage)), selection_json=canonical(selection))
-    with pytest.raises((ValueError, KeyError), match="closure|authority|projection|reference"):
-        WorkingContextPlan.model_validate_json(canonical(raw))
+    with pytest.raises(WorkingContextError):
+        projection = project_working_context(replacement, max_bytes=host.policy.max_packet_bytes)
+        stage, selection = _select_messages(host.messages, replacement,
+            json.loads(selected.visible_receipts_json), host.policy, projection=projection)
+        raw.update(packet_json=replacement.model_dump_json(), solver_projection_json=projection.model_dump_json(),
+            stage_messages_json=message_json(stage), stage_sha256=sha256(message_json(stage)),
+            selection_json=canonical(selection))
+        path = host.store.directory / f"{selected.parent_call_id}.plan.json"
+        path.write_text(canonical(raw), encoding="utf-8")
+        host.store.audit(host.calls, host.actions, [])
 
 
 @pytest.mark.parametrize("field", ["messages", "tools", "parameters"])
@@ -421,14 +427,15 @@ def test_recovery_rejects_changed_receipts_sources_and_solver_chronology(tmp_pat
         raw = json.loads(path.read_text(encoding="utf-8"))
         if fault == "source_bytes":
             material = json.loads(raw["source_material_json"])
-            material["workspace/diagnoses/diagnosis1.json"]["base64"] = "e30="
+            material["workspace/diagnoses/diagnosis1.json"]["bytes"] += 1
             raw["source_material_json"] = canonical(material)
         else:
             receipt = json.loads(raw["visible_receipts_json"])
             receipt[0]["ledger_position"] += 10
             raw["visible_receipts_json"] = canonical(receipt)
         path.write_text(canonical(raw), encoding="utf-8")
-    with pytest.raises(WorkingContextError, match="working_context_plan_invalid"):
+    expected_error = "working_context_material_invalid" if fault == "source_bytes" else "working_context_plan_invalid"
+    with pytest.raises(WorkingContextError, match=expected_error):
         host.plan()
 
 
@@ -441,6 +448,25 @@ def test_disabled_policy_and_unexpected_material_have_explicit_behavior(tmp_path
     host.plan()
     with pytest.raises(WorkingContextError, match="working_context_plan_invalid"):
         disabled.audit(host.calls, host.actions, [])
+
+
+def test_orphan_and_pending_observation_cannot_change_frozen_plan_or_authority(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path)
+    selected = host.plan()
+    original = host.store.audit(host.calls, host.actions, [])[0]
+    host.store.materials.put(b"unreferenced synthetic crash residue")
+    pending = host.store.materials.directory / ("pending-" + "a" * 32 + ".blob-part")
+    pending.write_bytes(b"partial")
+    before = frozen_files(host.store.directory)
+    observed = host.store.audit(host.calls, host.actions, [])[0]
+    summary = observed.pop("run_material_observation")
+    previous = original.pop("run_material_observation")
+    assert observed == original
+    assert summary["unique_blob_count"] == previous["unique_blob_count"] + 1
+    assert summary["pending_count"] == 1 and summary["pending_bytes"] == 7
+    assert host.plan() == selected
+    assert host.calls.usage_summary("task1", "run1")["reserved_calls"] == 0
+    assert frozen_files(host.store.directory) == before
 
 
 @pytest.mark.parametrize("invalid", [float("inf"), float("nan"), -1.0])

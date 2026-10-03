@@ -114,6 +114,7 @@ def test_historical_resume_keeps_all_bytes_untouched(
         session.pop("execution_provenance")
     session["context_profile"].pop("host_working_context")
     session["context_profile"].pop("working_context_prompt_sha256")
+    session["context_profile"].pop("working_context_format", None)
     (work / "session.json").write_text(json.dumps(session), encoding="utf-8")
     _forbid_resume_effects(monkeypatch, executor)
     before, task_before, request_count = _tree(work), _tree(task), len(requests)

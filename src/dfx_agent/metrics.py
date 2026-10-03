@@ -404,17 +404,20 @@ def _session(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationV
         working_policy = WorkingContextPolicy.model_validate({
             "enabled": variant.working_context_enabled, **configuration.working_context.model_dump(mode="json"),
         })
-        expected_profile = context_profile(policy, working_policy)
+        expected_profile = context_profile(policy, working_policy,
+                                           working_context_format=profile.get("working_context_format", 1))
     elif value["schema_version"] == 10:
         working_policy = WorkingContextPolicy.model_validate(profile["host_working_context"])
         if working_policy.enabled:
             raise ValueError("evaluation schema 1 cannot enable a working context factor")
-        expected_profile = context_profile(policy, working_policy)
+        expected_profile = context_profile(policy, working_policy,
+                                           working_context_format=profile.get("working_context_format", 1))
     else:
         # New runtime defaults must never be inserted into an old frozen profile.
         expected_profile = context_profile(policy)
         expected_profile.pop("host_working_context", None)
         expected_profile.pop("working_context_prompt_sha256", None)
+        expected_profile.pop("working_context_format", None)
     if canonical(profile) != canonical(expected_profile):
         raise ValueError("unsupported context profile")
     return value
