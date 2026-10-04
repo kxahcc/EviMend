@@ -15,6 +15,7 @@ from test_provider_loop import scripted_adapter, settings, wire_response
 from dfx_agent import agent
 from dfx_agent.actions import TOOL_ACTIONS, ToolActionStore
 from dfx_agent.agent import run_fixed_agent, run_provider_agent
+from dfx_agent.applicability_handoff import APPLICABILITY_TOOLS
 from dfx_agent.context_compaction import (
     CompactionPolicy,
     CompactionStore,
@@ -123,9 +124,9 @@ def test_mock_summary_has_no_tools_keeps_graph_and_counts_all_costs(
     assert report["model_calls"] == len(requests) == 4
     assert report["known_tokens"] == report["completion"]["cost"]["total_tokens"] == 60
     assert report["tool_calls"] == 2 and len(report["completion"]["context_compactions"]) == 1
-    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS)
+    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
     for index in (0, 1, 3):
-        assert {item["function"]["name"] for item in requests[index]["tools"]} == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS)
+        assert {item["function"]["name"] for item in requests[index]["tools"]} == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
         assert_paired_wire_history(requests[index]["messages"])
     assert requests[2].get("tools", []) == []
     assert SUMMARY in json.dumps(requests[3]["messages"])

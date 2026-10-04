@@ -1,0 +1,274 @@
+{
+  "session_id": "session-2026-10-05-W07-applicability-sdk",
+  "date": "2026-10-05",
+  "work_started_date": "2026-10-04",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "source_start_commit": "3b242ac",
+  "work_package": "W07 tri-state experience SDK, actual solver visibility, reporting, evaluation and portable evidence",
+  "user_request_summary": "继续推进到实测前可完整审查节点；本批仅完善领域harness和离线合成自检，不启动真实模型或HarmonyOS。",
+  "goal": "把三态经验前提判断接入模型实际输入和共同预算，从原件重建运行/报告/对照/导出；缺证据保持未知。",
+  "changes": [
+    "Explicit ApplicabilityPolicy 冻结完整profile；None保持无知识10/7/4或普通知识11/8/5，显式on/off使用12/9/6及共同19工具。",
+    "SolverVisibilityStore在reserve后dispatch前冻结实际消息、固定/PreparedRequest、工作上下文及压缩计划；完成solver的完整可见回执决定焦点，主机ContextVar绑定父调用。",
+    "完整实际已见诊断/假设/当前候选与原件引用准入；摘要ID、未见context及同轮兄弟后来结果不能升格；缺焦点返回ordinary guidance和unknown。",
+    "准备返回完整指导/context和review_proposal_schema；三态review/read保留完整过程、冲突及原未知问题；semantic_authority仍为model_inference，应用接受门不变。",
+    "显式off不做前提评分、不发布三态记录，但同知识、同工具、同预算；模型固定/mock均验证真实发送而非仅独立对象。",
+    "恢复在可写账本/Graph前审读原批准、实际发送和领域原件，完成回执回放；未保存结果未知、不盲重发。",
+    "报告从父模型实际响应/action/request/receipt重建关联；孤立context/review不算使用，缺账本只核原件，成本未知。",
+    "EvaluationManifest4固定共同知识、工具、模型和预算，显式比较applicability_enabled；旧schema拒绝新namespace/字段，缺报告也不豁免原件漂移。",
+    "私有export保全actual solver输入/context/review/materials，完整SDK context+review包迁移且原任务/库不可用后可只读重聚合。",
+    "发布前预留两处ASCII三态完整片段；来源链接只保存完整焦点/有序可见动作摘要和数量，实际原件完整保留；600大历史回读反例不重复展开历史。",
+    "预算拒绝尾部逐行认证但按parent保存count/complete/unknown及完整有序links hash；原ledger和全部费用不裁剪，最终双份完整片段有精确容量门。",
+    "更新现有7份主文档及模块/测试导览；没有改提交模板、data_B、资源配置、依赖锁、全局环境。"
+  ],
+  "independent_review": [
+    "子代理分工实现可见性、SDK交接和报告/评测/导出，主代理实际provider切片与集成；独立只读审查不作为模型效果证据。",
+    "最终容量审查发现可见focus/actions在每个read关联重复，按原件摘要/count保留；随后发现拒绝行可超max_tool_calls，逐行认证后按parent聚合预算拒绝，不减少原账本费用。",
+    "最终只读复核确认unknown预算拒绝保持state/hash/count、不读不存在的receipt、不算成功使用；新增实际SDK及mixed complete/unknown反例。",
+    "七份文档语义审查修复Export清单4漏写、知识片段容量误称全报告、无知识disabled歧义、缺焦点回退及session10–12范围；主文档与代码边界一致。"
+  ],
+  "limitations": [
+    "所有solver decisions、provider transport、检查及历史知识仍为合成，不证明自主推理、语义适用、修复效果或论文创新。",
+    "静态Skill/受管CLI配置、反馈提炼/演进、真实历史来源闭包及成本、完整ResearchProfile尚未实现。",
+    "三态和知识片段门不保证全领域报告或多任务矩阵总容量。",
+    "实际符号链接反例仍受当前Windows账户权限限制，模拟断言不代替它们。",
+    "云端提供方兼容性、真实模型预算/计费、HarmonyOS工具链/设备/应用oracle仍未知。",
+    "Earlier ordinary-path publication left a pending member at inferred 260-character target; shorter 257-character fixture passed. Root cause was not preserved/reproduced; general Windows path-boundary admission/publication remains an integration gate."
+  ],
+  "next_work": "W07 controlled static Skills using locked SDK middleware and approved resource manifest, plus managed knowledge/applicability configuration input; no real model/application runs.",
+  "real_model_runs": 0,
+  "application_builds": 0,
+  "device_replays": 0,
+  "source_sha256_at_completion": {
+    "src/dfx_agent/actions.py": "025f1fef1723c84931b8518f5d908057f596c20ec51ede7e7b23d0db0beb6664",
+    "src/dfx_agent/agent.py": "e9576e9d840354a5e30a544cf9f386cfe67a0ff9cf513963c95969ba3d4fda60",
+    "src/dfx_agent/models.py": "240bdd569426c2fa37da09a04d8cfd089da3fad3e4f0d6ae939e1d46446a0484",
+    "src/dfx_agent/reporting.py": "9292bce9b5bfab22731f9f639c3355da03a52b0cadf599b2e310fe364b2b5d25",
+    "src/dfx_agent/metrics.py": "c78b890238d18c0aa43a88d5f42d64842e4f30d54767866e0e5ff4a31ae22e88",
+    "src/dfx_agent/exporting.py": "9f4bc4c9273463bcd5a9d0c327db3c717742e89113939ce39aa6a7c24609df7d",
+    "src/dfx_agent/provenance.py": "269b53f2b082651ab94ea740a90ddc312844c1713d58c17ed3ec96e5c47d4933",
+    "src/dfx_agent/solver_visibility.py": "6eb6587c0daa13066f93e53e2365598362dcbbf1e56b81e1b43b255419b05eb3",
+    "src/dfx_agent/applicability_handoff.py": "8df5f46de8b1cc359262146972910a16939f1ced092dbbbfed896a7f8e3ecfd5",
+    "tests/test_solver_visibility.py": "0943c8673fbbb4f2bb9f4550fcaee0f5188b1bb34c26e82d66a6db6fac68eed3",
+    "tests/test_applicability_handoff.py": "9ab4854a86442e3c293cb46c76390aa93ec624a4ec73934c758c8e1c72608015",
+    "tests/test_applicability_sdk.py": "6e22b4c7e685771352a715e50e3fdf43ee778c2355c514e3006d29974fb695a6",
+    "tests/test_applicability_provider.py": "ddeaf399977716a80f368c606b8ab300d468acaf829953e33a9ef36c0d296724",
+    "tests/test_applicability_reporting.py": "5df9d606416d5f348162258adce0271df3cd8de7e8784eb14368b00d9c59ad8f",
+    "tests/test_compaction_loop.py": "d8a485f055f86b13482ca92bad67db4c3362fb67c570285c0c674be3987bcc8e",
+    "tests/test_context_boundary.py": "25b26d2845dc1087ac31f2b51e4489f779285e5014109d398c7c659cf7719d31",
+    "tests/test_provider_loop.py": "bc0beb499c14c6b94adc6a492cdaa8aa1f2dd34b37cd37df24673193b3b4a01e",
+    "tests/test_task_handoff.py": "1f369df30335b58abfc7e912c868f68acf2c02ac34769b8e60a6a130e2a598b4"
+  },
+  "validation": {
+    "tests": [
+      {
+        "path": "tests/test_knowledge_sdk.py",
+        "managed_run_id": "d627f33b-6bb4-4fda-b424-3b82f3af2acf",
+        "summary": "21 passed in 54.51s",
+        "passed": 21,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_knowledge_reporting.py",
+        "managed_run_id": "bcf92943-3d0c-4e24-b616-a69c1f8869ab",
+        "summary": "57 passed in 121.08s (0:02:01)",
+        "passed": 57,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_agent_loop.py",
+        "managed_run_id": "5658dc8b-77bb-45b8-84e8-4f17495ccad7",
+        "summary": "12 passed in 14.01s",
+        "passed": 12,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_provider_loop.py",
+        "managed_run_id": "898dbb61-d723-4153-8222-29aed14ca7b4",
+        "summary": "17 passed in 20.35s",
+        "passed": 17,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_tool_authorization.py",
+        "managed_run_id": "b284448e-c40b-47dd-8da7-1556fc0a3cda",
+        "summary": "18 passed in 19.87s",
+        "passed": 18,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_task_handoff.py",
+        "managed_run_id": "12ce13c3-82d8-4a95-ace9-9e7aeab73cf8",
+        "summary": "9 passed in 16.41s",
+        "passed": 9,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_context_boundary.py",
+        "managed_run_id": "c4fa0caf-a0c0-4594-8055-69e7554c5800",
+        "summary": "24 passed in 22.11s",
+        "passed": 24,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_compaction_loop.py",
+        "managed_run_id": "f8c62031-03a1-441e-bfa7-fd366fd9cfd8",
+        "summary": "13 passed in 25.83s",
+        "passed": 13,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_reporting.py",
+        "managed_run_id": "18f92bab-6ce4-4ce2-b086-7caab7c7cbde",
+        "summary": "45 passed in 64.46s (0:01:04)",
+        "passed": 45,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_provenance_reporting.py",
+        "managed_run_id": "e1746536-7c1e-4bf2-ab29-1e85aedd8a0a",
+        "summary": "12 passed in 4.77s",
+        "passed": 12,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_metrics.py",
+        "managed_run_id": "d49d5055-33b4-40c6-ae1a-452f287de6f8",
+        "summary": "64 passed, 1 skipped in 25.24s",
+        "passed": 64,
+        "skipped": 1
+      },
+      {
+        "path": "tests/test_exporting.py",
+        "managed_run_id": "392ed88d-c23c-482c-84c2-4efbfa7e6ce1",
+        "summary": "64 passed, 1 skipped in 77.83s (0:01:17)",
+        "passed": 64,
+        "skipped": 1
+      },
+      {
+        "path": "tests/test_solver_visibility.py",
+        "managed_run_id": "5bfb1805-a369-4022-be25-67c07b579997",
+        "summary": "39 passed, 2 skipped in 12.84s",
+        "passed": 39,
+        "skipped": 2
+      },
+      {
+        "path": "tests/test_applicability_handoff.py",
+        "managed_run_id": "0796a4bf-9c1f-444a-82bd-17faedd7a6f5",
+        "summary": "28 passed in 25.34s",
+        "passed": 28,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_applicability_sdk.py",
+        "managed_run_id": "50fa1102-0571-4822-937e-3c8869b7216a",
+        "summary": "4 passed in 33.11s",
+        "passed": 4,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_applicability_provider.py",
+        "managed_run_id": "68bd96b6-ebd0-44a2-926b-301df1311fc6",
+        "summary": "7 passed in 68.93s (0:01:08)",
+        "passed": 7,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_applicability_reporting.py",
+        "managed_run_id": "0e9d36a3-0bfb-4e62-b651-3fb7629b37d5",
+        "summary": "35 passed in 159.55s (0:02:39)",
+        "passed": 35,
+        "skipped": 0
+      }
+    ],
+    "selected_files": 17,
+    "passed": 469,
+    "skipped": 4,
+    "scope": "selected_file_managed_runs_not_full_repository_run; synthetic_only; 12 baseline regression files completed before final applicability-only compact report patch, final 5 new files rerun after patch",
+    "source_checkpoint_note": "12 baseline files passed before the final new-domain compact source links/budget rejection patch; final 5 new applicability files passed after source freeze. The last reporting fixture path was corrected then that full file rerun; no product source changed.",
+    "skipped_reason": "actual Windows symlink creation unavailable for 2 solver_visibility cases and 1 each metrics/exporting; mocked-link assertions do not replace them.",
+    "quality": {
+      "ruff": {
+        "managed_run_id": "d01d108b-e333-4dd5-88d4-5b918789c662",
+        "summary": "All checks passed!"
+      },
+      "pyright": {
+        "managed_run_id": "e8efad1f-f81f-4ba7-880c-5c51b17b46b6",
+        "summary": "0 errors, 0 warnings, 0 informations"
+      },
+      "docs": {
+        "managed_run_id": "fb2bfdb6-0129-4fc0-93bd-e3c5efd15fa6",
+        "summary": "Documents: 14; errors: 0; optional notes: 0",
+        "manual_review": "Actual input/focus vs semantic inference, explicit off fairness, old generations, restore admission, unknown costs, compact source links, exact fragment capacity and portable evidence checked against code; static Skill/CLI/evolution remain pending."
+      }
+    },
+    "counterexamples": [
+      "实际固定SDK三态×完整回读，以及HTTP mock三态×工作上下文on/off进入实际请求，提案schema/引用均来自实际返回context。",
+      "同响应兄弟后来结果、摘要ID、未见/不完整context、异候选/版本/来源、改写实际请求及孤立记录拒绝或保持未使用。",
+      "完成review在Graph前崩溃回放，恢复零新发布；缺批准/不同profile/缺初始化账本在可写资源前拒绝。",
+      "完整SDK context/review私有包迁移，原目录不可用后全文只读重聚合；旧代残留/未知profile/缺report损坏原件仍拒绝。",
+      "600次大焦点/历史来源包装两处真实缩进容量，摘要绑定完整有序集合；精确片段边界与发布前容量拒绝。",
+      "实际同父3/4工具超预算全计费；预算摘要四字段伪改重hash仍拒绝；真实receipt前中断和完成/未知混合不丢状态。"
+    ],
+    "intermediate_failed_runs": [
+      {
+        "run_id": "93067441-6d45-41d1-a4d8-ceb55ca5bc69",
+        "issue": "mock wire ToolMessage 无 name，fixture按name读取失败；未使用实际assistant tool_call映射。"
+      },
+      {
+        "run_id": "c68f94dc-7329-4b3a-a3a5-41e4ff44bdc9",
+        "issue": "同类 fixture 修复不足，仍6失败；最终按实际wire tool_call_id到function.name映射修复。"
+      },
+      {
+        "run_id": "6293292e-1648-45ed-98b6-42f04b095d04",
+        "issue": "visibility fixture 原call哈希未包含LangChain规范 type=tool_call，10失败；改核实际保存响应。"
+      },
+      {
+        "run_id": "28db2877-9d25-4db4-9bdb-27c52070b43f",
+        "issue": "handoff fixture 缺必需max_bytes及既有check计数断言错误，7失败；补真实合法参数并核先前executor调用。"
+      },
+      {
+        "run_id": "04382cb4-43f0-4646-8577-d3f7953ac394",
+        "issue": "SDK期待的未知问题对象遗漏schema_version=1，2失败；改完整对象比较。"
+      },
+      {
+        "run_id": "933dcb83-943d-433b-9247-11c6c29038ae",
+        "issue": "off fixture run-off路径留下未发布检索member，1失败；缩短为run2后通过。按同一根路径推算目标为260与257字符，疑似Windows长度边界，但原临时目录已回收，未保全复现根因；不能据此保证任意Windows长路径发布。拒绝标准未放宽，STATUS保留全链路路径验收欠项。"
+      },
+      {
+        "run_id": "a881fac1-ef0f-44d0-969b-920d8a4369b2",
+        "issue": "Ruff 9项导入/未使用变量问题已修。"
+      },
+      {
+        "run_id": "6af73ab5-13ef-4472-9a62-09259c887a3d",
+        "issue": "Pyright 4项fixed_request可空下标访问；加显式dict守卫。"
+      },
+      {
+        "run_id": "387f9910-2070-4ec4-bdd9-935e417c5789",
+        "issue": "新增中断测试fixture回读路径遗漏make_task内部input子目录，1失败34通过；仅修正真实fixture路径，不改产品或验收判据。"
+      }
+    ]
+  },
+  "environment": {
+    "observed_at_utc": "2026-10-04T18:50:16.1401574Z",
+    "managed_bytes_by_category": {
+      "cache": 107220044,
+      "work": 1146230,
+      "artifacts": 3188100,
+      "env": 107635855,
+      "state": 55821,
+      "tmp": 27307,
+      "tools": 41432064,
+      "python": 59906689
+    },
+    "export_bytes": 912885,
+    "total_bytes": 321524995,
+    "total_mib": 306.6,
+    "active_state": "none",
+    "owner_valid": true,
+    "resource_enforcement": "job_guarded_setup_quality_offline_agent_metrics_and_export",
+    "changes": "No install/download, no config/limits/global environment change; existing project Python 3.13.5 and locked dependencies reused; tests under serial Windows Job.",
+    "evidence_retention": "Existing managed environment/caches/logs retained; isolated pytest export packages removed by managed temporary cleanup; no new standing private export package."
+  }
+}

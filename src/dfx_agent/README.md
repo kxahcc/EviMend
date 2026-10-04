@@ -1,6 +1,6 @@
 # 离线证据与修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-04。
+状态：当前使用说明。最后维护：2026-10-05。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
 当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 支持固定响应和模拟模型协议，已把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实云端传输、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。导出是未脱敏的本机私有包，正式应用汇总、执行版本来源和公开脱敏/提交仍待接入，实际验收见 STATUS。
@@ -87,7 +87,7 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 失败后 `link_failed_check` 返回反馈及 feedback_id，再决策时成对传该 feedback_id 与原 candidate_id；主机重新核对已保存失败检查、候选源码哈希和原观察。`decisions/<ID>.json` 保存建议及上下文摘要；`inspect_analysis(decision_id=...)` 可回读，默认列出决策和反馈 ID。`register_candidate` 可选成对传 decision_id/direction_id，核对同诊断、所选提议方向及声明义务；建议不强迫模型采用某一修法。失败与义务的关联仍是推断，只建议重审相关方向。
 
-`agent-report.json` 的无知识 schema 7/completion 4 绑定 session 10 中保存的 execution_provenance；主机明确批准知识时使用 11/8/5，另保存 knowledge_profile 和 knowledge_facts。记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 与 9/6/3 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。working_context_plans 记录可见动作水位、组织视图/实际发送哈希、选择范围与保留成本；context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
+`agent-report.json` 的无知识 schema 7/completion 4 绑定 session 10 中保存的 execution_provenance；主机明确批准知识时使用 11/8/5，另保存 knowledge_profile 和 knowledge_facts。显式三态启停策略使用 12/9/6，另保存 applicability_profile、applicability_facts 和 solver-inputs 中的实际发送记录。记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 与 9/6/3 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。working_context_plans 记录可见动作水位、组织视图/实际发送哈希、选择范围与保留成本；context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
 
 `reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。知识运行必须另传主机实际 `task_directory=task`，不从模型字段取外部路径；build_completion 同样要求它。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，保留完整核验依据使用受管私有 Export。
 
@@ -103,7 +103,7 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 清单 schema 1 的 configuration 中 model_profile_sha256、context_profile_sha256 和 search_limits_sha256 分别取 `sha256(canonical(session[字段]))`，tool_schema_sha256 取 session 同名值，再列出共同 capabilities/max_calls/max_known_tokens/max_seconds/max_candidates/max_tool_calls。canonical/sha256 由 model_calls.py 提供；不要对随意缩进或不同排序的 JSON 直接取这些配置哈希。聚合会重算任务提示及实际主机/solver 工具定义，核对所有 session 与同组预算；旧普通 solver 原始请求体未保存，不声称完整历史请求重建；新运行启用工作上下文时另外核验保存的完整发送回执。
 
-清单 schema 2 用于显式上下文对照：configuration 另给 `working_context={max_packet_bytes,max_view_bytes,retain_groups}`，variants 每项必有 `working_context_enabled`；这些限制仍共享。此时上下文配置哈希取 `sha256(canonical(metrics.shared_context_profile(session["context_profile"])))`，只将 enabled 归一为 false，保留压缩及其他参数。清单 schema 3 继承该结构，configuration 另给 `knowledge_profile=knowledge_run.shared_knowledge_profile(session["knowledge_profile"])`，固定全部组共用的快照、scope、retriever、索引哈希及知识原件清单；排除 task/run 特有批准，但不放宽知识或工具。该代只支持普通检索，不增加三态/学习因素。`parse_evaluation_manifest` 显式区分三代，不给旧清单倒填默认值；1/2 拒绝知识运行，1 还拒绝开启工作上下文的运行。
+清单 schema 2 用于显式上下文对照：configuration 另给 `working_context={max_packet_bytes,max_view_bytes,retain_groups}`，variants 每项必有 `working_context_enabled`；这些限制仍共享。此时上下文配置哈希取 `sha256(canonical(metrics.shared_context_profile(session["context_profile"])))`，只将 enabled 归一为 false，保留压缩及其他参数。清单 schema 3 继承该结构，configuration 另给 `knowledge_profile=knowledge_run.shared_knowledge_profile(session["knowledge_profile"])`，固定全部组共用的快照、scope、retriever、索引哈希及知识原件清单；排除 task/run 特有批准，但不放宽知识或工具。该代支持普通检索；schema 4 继承同一共享配置，variants 另必填 applicability_enabled，用 session 12 的同工具启停比较，不接纳学习因素。`parse_evaluation_manifest` 显式区分四代，不给旧清单倒填默认值；1/2 拒绝知识运行，1 还拒绝开启工作上下文的运行。
 
 新运行的 context_profile 冻结 working_context_format=2：plan schema 2 以路径、摘要和大小引用同 run 的 working-context/materials 原字节，重复材料只保存一次；完整审计 packet 仍保留逐文件来源。模型投影只将 sources 清单替换为有摘要的统计，保留其他领域内容全文，覆盖判断使用实际投影。材料/审计产物沿用 MAX_ARTIFACT_BYTES 单产物限额，WorkingContextPolicy.max_packet_bytes 限制求解投影；超限明确停止，不放大配置。旧 session 10 缺标记时按 format 1 只读核验原 inline 计划和原预算解释；旧报告/包摘要不倒填，来源不兼容不能续跑。
 
@@ -111,7 +111,7 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 缺目录、缺报告、失败和未知成本均保留在分母；损坏证据拒绝整批，不跳过。首次与最新定位/候选分开，repeat 与任务/谱系分开，不宣称独立样本。所有应用指标为 null、accepted=false。全旧 session 8 数据维持原汇总形状及历史版本 null；存在新来源时，逐行保留原记录，按 compatibility_sha256 列出来源与未知项，已知兼容身份不一致拒绝合并。缺报告的新来源仍须绑定匹配工作区和会话，不能据此补零费用或成功。从现有记录生成清单不能证明当时预登记，正式实验须先冻结清单与完整应用执行来源。程序 API 为 load_evaluation_manifest / aggregate_evaluation / write_evaluation_report；写入只允许新报告且不能与输入重叠。
 
-`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile，以及新 session 10 的兼容来源身份。旧 schema 1–9 不续跑，不自动升级，须保留证据并另建工作 ID。来源准入拒绝时 CLI 返回 3，工作进程保留原终态；已准入后运行失败仍记录 failed。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile，以及 session 10–12 的兼容来源身份。旧 schema 1–9 不续跑，不自动升级，须保留证据并另建工作 ID。来源准入拒绝时 CLI 返回 3，工作进程保留原终态；已准入后运行失败仍记录 failed。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
 
 ### 运行来源与恢复兼容
 
@@ -147,7 +147,7 @@ Verify 仍须使用当前已初始化的受管环境，核对其 owner、依赖�
 
 两种离线模型共享 context_profile：关闭 SDK 自动摘要和人类消息/工具结果卸载，避免它们写入冻结原版或绕过调用恢复。默认不压缩，序列化消息超限以 context_limit 停止，格式不支持以 context_format_unsupported 停止；字节限额定义在 models.py，与云端 Token 窗口不同。可选主机压缩由 context_compaction.py 的 CompactionPolicy 配置，保留原 Graph 全历史、system、启动任务和近期完整工具组，只替换模型发送视图中的较早闭合前缀。首版重新摘要全部前缀；摘要输入、输出或必须保留的尾部过大仍停止，不支持无限历史。
 
-脚本顶层可添加 `"context_compaction":{"policy":{"enabled":true}}`；默认参数及约束以 CompactionPolicy 为准。固定响应 schema 1/3 还须按实际摘要顺序提供独立 `responses`，每项 `{"text":"归纳文字","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`；缺失列表在需要新摘要时停止。mock schema 2/4 禁止独立列表，摘要响应与 solver 响应在 model.responses 中按所有实际请求顺序交错。程序入口对应 `compaction_policy=CompactionPolicy(...)`，固定入口额外接受 compaction_responses；策略及提示指纹在 session 10 冻结，恢复不得替换。此配置仍不允许真实模型。
+脚本顶层可添加 `"context_compaction":{"policy":{"enabled":true}}`；默认参数及约束以 CompactionPolicy 为准。固定响应 schema 1/3 还须按实际摘要顺序提供独立 `responses`，每项 `{"text":"归纳文字","usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`；缺失列表在需要新摘要时停止。mock schema 2/4 禁止独立列表，摘要响应与 solver 响应在 model.responses 中按所有实际请求顺序交错。程序入口对应 `compaction_policy=CompactionPolicy(...)`，固定入口额外接受 compaction_responses；策略及提示指纹在 session 10–12 冻结，恢复不得替换。此配置仍不允许真实模型。
 
 摘要使用无工具请求、独立 compaction-model-N 身份及统一预算，work/compactions 保存冻结原消息、有效摘要视图和 solver 绑定。摘要先保存 usage，再验证非空 text_only、输出限额和确实缩短；返回工具或无效归纳以 context_summary_invalid 停止，不重试、不执行摘要工具。结果未落 Graph 前恢复只回放已完成摘要，已发出未保存不重发；摘要耗尽额度后没有免费 solver。摘要包装的 authority 始终是 model_inference，“已通过”不能生成检查事实；reporting.read_completion 同时重建核验来源、响应及有效发送视图。合成验收用 test_context_compaction.py 与 test_compaction_loop.py，归纳质量和模型效果仍待实测。
 
@@ -173,13 +173,13 @@ store 内 `materials/` 保存原批准字节，`entries/` 保存内容及来源�
 
 普通经验检索已接实际 SDK 程序接口：主机将审核过的 `KnowledgeRetriever` 与精确 `TaskKnowledgeBinding` 包成 `HostKnowledgeInput(retriever, approval)`，首次 `run_fixed_agent` 或 `run_provider_agent` 传 `knowledge=host_input`。入口把该快照/索引的完整原件闭包复制进当前 work 的 `knowledge/`，固定 `knowledge-profile.json` 和批准记录；不复制整库、外部旧查询或未批准内容。模型获得 `search_experience(tags, text, offset, limit)` 与 `read_experience(query_id, entry_id)`，不接收快照、scope 或文件路径参数。搜索返回完整命中页，回读只允许该页实际条目，保留全部前提、未知问题、步骤、保留行为及反例。无批准时原 14 工具及 10/7/4 形状不变，有批准时增加两工具；复用既有能力和调用/工具/Token/时间预算。
 
-知识续跑只传 `resume=True, knowledge_approval=original_approval`，不得再次传入库；主机必须明确提供原批准，不能从已存 profile 自行取得授权。原外部库不可用仍可从 run 原件恢复。来源、全部查询和完整 ToolMessage 回执在可写账本及 Graph 前只读审计；完整运行缺账本拒绝，未保存结果保留未知，已完成搜索/回读回放而不重做。搜索发布前既核原件容量，也核双份完整报告的 ASCII 转义容量及共享工具预算下的关联余量，拒绝后不写新查询、不截断指导。报告关联原 solver 请求、动作身份、批准范围和完整原指导，孤立查询不冒充模型使用。私有 Export 保留这些原件、批准、查询及索引，可在迁移后只依赖包内任务/知识重聚合。该入口暂未暴露到离线脚本/CLI；程序接口须在受管任务内调用，日常用上述受管测试入口验证，不能直接绕过 Job。相关测试为 `test_knowledge_run.py`、`test_knowledge_sdk.py`、`test_knowledge_reporting.py`。当前无真实模型或应用实验，也无三态发送或学习收益。
+知识续跑只传 `resume=True, knowledge_approval=original_approval`，不得再次传入库；主机必须明确提供原批准，不能从已存 profile 自行取得授权。原外部库不可用仍可从 run 原件恢复。来源、全部查询和完整 ToolMessage 回执在可写账本及 Graph 前只读审计；完整运行缺账本拒绝，未保存结果保留未知，已完成搜索/回读回放而不重做。搜索发布前既核原件容量，也核报告中两处完整知识片段的 ASCII 转义容量及共享工具预算下的关联余量，拒绝后不写新查询、不截断指导。报告关联原 solver 请求、动作身份、批准范围和完整原指导，孤立查询不冒充模型使用。私有 Export 保留这些原件、批准、查询及索引，可在迁移后只依赖包内任务/知识重聚合。该入口暂未暴露到离线脚本/CLI；程序接口须在受管任务内调用，日常用上述受管测试入口验证，不能直接绕过 Job。相关测试为 `test_knowledge_run.py`、`test_knowledge_sdk.py`、`test_knowledge_reporting.py`。当前无真实模型或应用实验；三态发送另走下述显式 SDK 策略入口，学习收益仍未知。
 
-经验前提交接入口为 `ApplicabilityStore(workspace, task_directory, ledger, retriever, approval)`。`approval` 是主机显式提供的 `TaskKnowledgeBinding`，固定实际任务/运行、分析版本、日志、批准知识快照与 scope；构造不创建目录，`bind()` 才固定该 run 批准。`record_query(tags=..., text=..., offset=..., limit=...)` 由主机填入快照和范围，生成绑定查询；`prepare_context(bound_query_id, focus)` 冻结当前诊断、假设、候选和已核验原材料。模型提案只使用该 context 的经验页和登记引用，`review(proposal)` 保存完整前提判断、指导、原未知问题、当前义务及三态建议。该入口无 CLI、SDK、模型调用或执行能力。
+经验前提交接入口为 `ApplicabilityStore(workspace, task_directory, ledger, retriever, approval)`。`approval` 是主机显式提供的 `TaskKnowledgeBinding`，固定实际任务/运行、分析版本、日志、批准知识快照与 scope；构造不创建目录，`bind()` 才固定该 run 批准。`record_query(tags=..., text=..., offset=..., limit=...)` 由主机填入快照和范围，生成绑定查询；`prepare_context(bound_query_id, focus)` 冻结当前诊断、假设、候选和已核验原材料。模型提案只使用该 context 的经验页和登记引用，`review(proposal)` 保存完整前提判断、指导、原未知问题、当前义务及三态建议。这个独立 Store 本身不调度 CLI、SDK、模型或执行；实际 SDK 集成由下述 applicability_handoff 入口承接。
 
 run 内 `experience-bindings/approved.json` 保存主机批准，`experience-queries/` 保存绑定查询，`applicability-contexts/`、`applicability-materials/` 保存冻结上下文及原字节，`applicability-reviews/` 保存审查记录。`read_query`、`read_context`、`read_review` 对照外部批准并只读重核；合法后续检查不重写旧上下文，新证据需新 context。原版源码/日志不能标为候选观察，直接或递归推断中的执行依据须匹配当前候选与版本；历史同异常案例不能代替这些依据。语义状态仍为 model_inference，保存 supported 只提供可尝试步骤，不确认根因、修复或业务成功；contradicted 暂停照搬，unknown 提供原查证问题，不改共同接受门。
 
-完整知识、冻结材料及输出共同受 `applicability_contracts.py` 的容量约束，不同根之间采用保守计数；捕获和审计读取另有累计字节/次数门，闭合收尾也计入。发布前先完成原件关闭核验，冻结上下文还按下一次审计的实际路径预检预算；回读从原诊断材料重验引用、位置和版本，重写哈希不能绕过准入。`prepare_context` 前段复用的当前任务核验仍由外层 Job 保护，尚无完整累计 I/O 计量；不得把这些边界当实际性能或 Token 指标。合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_applicability_contracts.py` 和同入口的 `tests/test_applicability.py`。三态接口与 SDK 可见焦点、实际发送及对应报告/评测身份的集成，受控静态 Skill 和自动学习仍待接入。
+完整知识、冻结材料及输出共同受 `applicability_contracts.py` 的容量约束，不同根之间采用保守计数；捕获和审计读取另有累计字节/次数门，闭合收尾也计入。发布前先完成原件关闭核验，冻结上下文还按下一次审计的实际路径预检预算；回读从原诊断材料重验引用、位置和版本，重写哈希不能绕过准入。`prepare_context` 前段复用的当前任务核验仍由外层 Job 保护，尚无完整累计 I/O 计量；不得把这些边界当实际性能或 Token 指标。合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_applicability_contracts.py` 和同入口的 `tests/test_applicability.py`。SDK 入口显式传入 applicability_policy=ApplicabilityPolicy(enabled=True/False)，两组固定相同三项三态工具、完整知识和总预算；不传该参数保持普通经验运行。session/report/completion 使用 12/9/6，冻结实际 solver-inputs 请求；模型不能指定当前焦点或父调用。准备工具必须已见查询；已见诊断和假设时冻结 context 并提供 review_proposal_schema，否则返回 unknown 与普通指导，审查要求已见完整 context，兄弟工具后产生记录及摘要里的 ID 不取得可见权限。缺焦点回普通指导与 unknown，关闭组只提供普通指导。报告保留完整 context/review 和实际调用来源，恢复先只读核原件及原配置，导出能从包内重核。独立内层对象仍保留其显式主机输入边界，SDK 外层新增 actual_solver_input 认证，语义仍为推断。受管软件自检见 test_solver_visibility.py、test_applicability_handoff.py、test_applicability_sdk.py、test_applicability_provider.py 和 test_applicability_reporting.py；该程序配置尚未接离线脚本/CLI，静态 Skill 和自动学习仍待接入。
 
 `acceptance.py` 当前只供独立程序调用：准备者冻结与候选无关的共同协议，可信打包器绑定完整运行源码，执行端按检查 ID 回传原版和候选的结果，接受门对缺失、模拟、版本错配和行为失败返回 `not_verified`。这些适配器及业务 oracle 尚未接入；该模块的合成 `verified_under_protocol` 测试值不是本项目已修复应用的成绩。
 

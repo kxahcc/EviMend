@@ -33,6 +33,13 @@ from .actions import (
 )
 from .applicability import ApplicabilityStore
 from .applicability_contracts import TaskKnowledgeBinding
+from .applicability_handoff import (
+    ApplicabilityPolicy,
+    applicability_tools,
+    audit_run_applicability,
+    audit_stored_applicability,
+    normalize_applicability_profile,
+)
 from .conditions import ConditionRequest, ConditionStore, SyntheticObservations
 from .context_compaction import CompactionPolicy, CompactionStore
 from .contracts import (
@@ -77,6 +84,7 @@ from .provenance import (
     validate_session_provenance,
 )
 from .reporting import _owned_file, build_completion
+from .solver_visibility import SolverVisibilityStore
 from .source_search import SourceSearch, search_limits
 from .task import digest, verify_task
 from .task_strategy import build_system_prompt, build_task_message
@@ -114,7 +122,11 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
            task_directory: Path, crash_log: str, crash_sha256: str,
            policy_features: PolicyFeatures, host_capabilities: frozenset[str] | None = None,
            condition_store: ConditionStore | None = None, *,
-           knowledge_store: ApplicabilityStore | None = None) -> list[Any]:
+           knowledge_store: ApplicabilityStore | None = None,
+           applicability_policy: ApplicabilityPolicy | None = None,
+           solver_visibility: SolverVisibilityStore | None = None,
+           model_calls: ModelCallStore | None = None,
+           actions: ToolActionStore | None = None) -> list[Any]:
     analysis = AnalysisStore(workspace)
     decisions = DecisionStore(workspace)
     conditions = condition_store or (ConditionStore(workspace) if (workspace.root / "condition-inputs.json").exists()
@@ -404,7 +416,13 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
     tools = [read_log, list_source, read_source, search_source, inspect_analysis, record_diagnosis, edit_source,
             register_candidate, run_check, consult_rule, plan_repair_action,
             record_obligation, link_failed_check, evaluate_condition]
-    return tools if knowledge_store is None else [*tools, *experience_tools(knowledge_store)]
+    if knowledge_store is not None:
+        tools.extend(experience_tools(knowledge_store))
+    if applicability_policy is not None:
+        if knowledge_store is None or solver_visibility is None:
+            raise ValueError("applicability requires approved knowledge and frozen solver inputs")
+        tools.extend(applicability_tools(knowledge_store, solver_visibility, model_calls, actions, applicability_policy))
+    return tools
 
 
 class ResumeAdmissionRejected(ValueError):
@@ -426,14 +444,18 @@ def _resume_session(task: Path, work: Path, run_id: str,
     session = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(session, dict) or session.get("run_id") != run_id:
         raise ValueError("resume session identity differs")
-    if session.get("schema_version") not in (10, 11):
+    if session.get("schema_version") not in (10, 11, 12):
         raise ValueError("historical sessions are read-only")
-    if session["schema_version"] == 11:
+    if session["schema_version"] in (11, 12):
         profile = normalize_run_knowledge_profile(session["knowledge_profile"])
         if knowledge_approval is None or knowledge_approval.model_dump(mode="json") != profile["approval"]:
             raise ValueError("knowledge resume requires the original external host approval")
     elif "knowledge_profile" in session or knowledge_approval is not None:
         raise ValueError("a session without knowledge cannot acquire approval")
+    if session["schema_version"] == 12:
+        normalize_applicability_profile(session["applicability_profile"])
+    elif "applicability_profile" in session:
+        raise ValueError("historical session cannot acquire applicability configuration")
     saved = validate_session_provenance(session)
     if saved is None:
         raise ValueError("legacy execution provenance is unknown; session is read-only")
@@ -463,6 +485,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     working_context_policy: WorkingContextPolicy | None = None,
                     knowledge: HostKnowledgeInput | None = None,
                     knowledge_approval: TaskKnowledgeBinding | None = None,
+                    applicability_policy: ApplicabilityPolicy | None = None,
                     compaction_responses: list[AIMessage] | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
@@ -473,6 +496,10 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     policy_features = policy_features or PolicyFeatures()
     compaction_policy = compaction_policy or CompactionPolicy()
     working_context_policy = working_context_policy or WorkingContextPolicy()
+    applicability_profile = (None if applicability_policy is None else
+        normalize_applicability_profile(applicability_policy.model_dump(mode="json")))
+    if applicability_profile is not None:
+        applicability_policy = ApplicabilityPolicy.model_validate_json(canonical(applicability_profile))
     if (resume and knowledge is not None) or (not resume and knowledge_approval is not None):
         raise ValueError("knowledge input is startup-only; resume accepts the original approval")
     session = preflight_resume(task, work, run_id, knowledge_approval=knowledge_approval) if resume else {}
@@ -496,6 +523,10 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         knowledge_profile = (session.get("knowledge_profile") if resume else
             prepare_run_knowledge(workspace, task, knowledge, ledger=ledger))
         knowledge_store = read_run_knowledge(workspace, task, knowledge_profile, ledger=ledger)
+        if applicability_profile is not None and knowledge_store is None:
+            raise ValueError("applicability requires explicit approved knowledge")
+        if resume and session.get("applicability_profile") != applicability_profile:
+            raise ValueError("resume applicability configuration differs")
         if resume and knowledge_profile is not None:
             model_path, action_path = workspace.root / "model-calls.sqlite", workspace.root / "tool-actions.sqlite"
             if model_path.exists() and action_path.exists():
@@ -510,13 +541,25 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                 for folder in (workspace.root / "experience-queries", workspace.root / "knowledge/retrievals"):
                     if folder.exists() and any(folder.iterdir()):
                         raise ValueError("knowledge restoration has records but missing accounted ledgers")
-        tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
-                       task_info["crash_sha256"], policy_features, capabilities, conditions,
-                       knowledge_store=knowledge_store)
-        system_prompt = build_system_prompt(policy_features)
         model_profile = (provider_adapter.profile() if provider_adapter is not None else
                          {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
-        session_identity = {"schema_version": 10 if knowledge_profile is None else 11,
+        working_context_store = WorkingContextStore(workspace, task, ledger, working_context_policy, model_profile)
+        solver_visibility = (None if applicability_profile is None else
+            SolverVisibilityStore(workspace, task, ledger, model_profile, working_context_store=working_context_store))
+        audit_stored_applicability(workspace, task, ledger, knowledge_profile, applicability_profile)
+        if resume and applicability_profile is not None:
+            model_path, action_path = workspace.root / "model-calls.sqlite", workspace.root / "tool-actions.sqlite"
+            if model_path.exists() and action_path.exists():
+                audit_run_applicability(workspace, task, ledger, knowledge_profile, applicability_profile,
+                    ModelCallStore(model_path, read_only=True), ToolActionStore(action_path, read_only=True))
+            elif (workspace.root / "solver-inputs").exists() and any((workspace.root / "solver-inputs").iterdir()):
+                raise ValueError("applicability restoration lacks accounted ledgers")
+        tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
+                       task_info["crash_sha256"], policy_features, capabilities, conditions,
+                       knowledge_store=knowledge_store, applicability_policy=applicability_policy,
+                       solver_visibility=solver_visibility)
+        system_prompt = build_system_prompt(policy_features)
+        session_identity = {"schema_version": 12 if applicability_profile is not None else (10 if knowledge_profile is None else 11),
                             "run_id": run_id, "started_at": started_at.isoformat(),
                             "execution_provenance": execution_provenance,
                             "max_calls": max_calls, "max_known_tokens": max_known_tokens,
@@ -537,6 +580,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                             ]).encode("utf-8")), "search_limits": search_limits()}
         if knowledge_profile is not None:
             session_identity["knowledge_profile"] = knowledge_profile
+        if applicability_profile is not None:
+            session_identity["applicability_profile"] = applicability_profile
     except (OSError, ValueError, KeyError, TypeError) as exc:
         if resume:
             raise ResumeAdmissionRejected("resume saved facts or configuration differ") from exc
@@ -550,6 +595,11 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     remaining_seconds = (started_at + timedelta(seconds=max_seconds) - datetime.now(UTC)).total_seconds()
     model_calls = ModelCallStore(workspace.root / "model-calls.sqlite")
     actions = ToolActionStore(workspace.root / "tool-actions.sqlite")
+    if applicability_policy is not None:
+        tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
+            task_info["crash_sha256"], policy_features, capabilities, conditions,
+            knowledge_store=knowledge_store, applicability_policy=applicability_policy,
+            solver_visibility=solver_visibility, model_calls=model_calls, actions=actions)
     model_type = AccountedProviderModel if provider_adapter is not None else FixedResponseModel
     provider_arguments: dict[str, Any] = {"adapter": provider_adapter} if provider_adapter is not None else {}
     model = model_type(responses=responses, max_calls=max_calls,
@@ -559,9 +609,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                compactor=CompactionStore(workspace.root, workspace.task_id, run_id,
                                                          compaction_policy, model_profile),
                                compaction_responses=compaction_responses or [],
-                               working_context_store=WorkingContextStore(
-                                   workspace, task, ledger, working_context_policy, model_profile),
+                               working_context_store=working_context_store,
                                action_store=actions,
+                               solver_visibility_store=solver_visibility,
                                **provider_arguments)
     register_harness_profile(model._llm_type, HarnessProfile(
         excluded_tools=frozenset({"ls", "read_file", "write_file", "edit_file", "glob", "grep", "execute", "task",
@@ -580,7 +630,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                  human_message_token_limit_before_evict=None),
             ToolAuthorizationMiddleware(
                 workspace, model_calls, actions, capabilities=capabilities, max_calls=max_calls,
-                max_candidates=max_candidates, max_tool_calls=max_tool_calls, deadline=model.deadline),
+                max_candidates=max_candidates, max_tool_calls=max_tool_calls, deadline=model.deadline,
+                applicability_enabled=applicability_policy is not None and applicability_policy.enabled),
         ]
         graph = create_deep_agent(
             model=model, tools=tools, system_prompt=system_prompt,
@@ -661,7 +712,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                   task_directory=task)
     status = completion["suggested_status"]
     report: dict[str, Any] = {
-        "schema_version": 7 if knowledge_profile is None else 8, "task_id": workspace.task_id, "run_id": run_id,
+        "schema_version": 9 if applicability_profile is not None else (7 if knowledge_profile is None else 8), "task_id": workspace.task_id, "run_id": run_id,
         "execution_provenance": execution_provenance,
         "source_snapshot_sha256": workspace.source_snapshot_sha256,
         "status": status, "application_verification": "not_run",
@@ -688,6 +739,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     if knowledge_profile is not None:
         report["knowledge_profile"] = knowledge_profile
         report["knowledge_facts"] = completion["knowledge_facts"]
+    if applicability_profile is not None:
+        report["applicability_profile"] = applicability_profile
+        report["applicability_facts"] = completion["applicability_facts"]
     _atomic_json(workspace.root / "agent-report.json", report)
     return report
 

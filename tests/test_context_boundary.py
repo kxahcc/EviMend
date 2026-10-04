@@ -18,6 +18,7 @@ from test_provider_loop import scripted_adapter, wire_response
 from dfx_agent import agent
 from dfx_agent.actions import TOOL_ACTIONS
 from dfx_agent.agent import run_fixed_agent, run_provider_agent
+from dfx_agent.applicability_handoff import APPLICABILITY_TOOLS
 from dfx_agent.knowledge_handoff import KNOWLEDGE_TOOLS
 from dfx_agent.model_calls import ModelCallStore, canonical
 from dfx_agent.models import (
@@ -114,7 +115,7 @@ def test_sdk_context_and_large_results_never_summarize_or_write_backend(
     assert summaries == [] and writes == []
     assert report["model_calls"] == 2 and report["tool_calls"] == 1
     assert report["stopped_reason"] is None
-    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS)
+    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
     assert _manifest(work / "base") == before
     assert not (work / "base/conversation_history").exists()
     assert not (work / "base/large_tool_results").exists()

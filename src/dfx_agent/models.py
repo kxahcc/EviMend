@@ -33,6 +33,7 @@ from .model_calls import (
     sha256,
 )
 from .model_provider import AdapterError, ChatCompletionsAdapter, PreparedRequest
+from .solver_visibility import SolverVisibilityError, SolverVisibilityStore
 from .working_context import WorkingContextError
 from .working_context_plan import (
     WORKING_CONTEXT_PROMPT,
@@ -97,6 +98,7 @@ class FixedResponseModel(BaseChatModel):
     active_compaction: CompactionPlan | None = Field(default=None, exclude=True)
     working_context_store: WorkingContextStore | None = Field(default=None, exclude=True)
     action_store: ToolActionStore | None = Field(default=None, exclude=True)
+    solver_visibility_store: SolverVisibilityStore | None = Field(default=None, exclude=True)
     active_working_context: WorkingContextPlan | None = Field(default=None, exclude=True)
     active_view: list[BaseMessage] = Field(default_factory=list, exclude=True)
     active_fixed_request: dict[str, Any] | None = Field(default=None, exclude=True)
@@ -212,11 +214,18 @@ class FixedResponseModel(BaseChatModel):
                     self.active_working_context, intent, request,
                     view_messages=self.active_view, compaction=self.active_compaction,
                     fixed_request=self.active_fixed_request)
+            if self.solver_visibility_store is not None:
+                self.solver_visibility_store.capture(
+                    intent, view_messages=self.active_view, prepared_request=request,
+                    fixed_request=self.active_fixed_request,
+                    working_context_plan=self.active_working_context, compaction=self.active_compaction)
         except ModelCallBudget as exc:
             raise ModelLimit("model_budget") from exc
         except ContextCompactionError as exc:
             raise ModelLimit(exc.reason) from exc
         except WorkingContextError as exc:
+            raise ModelLimit(exc.reason) from exc
+        except SolverVisibilityError as exc:
             raise ModelLimit(exc.reason) from exc
         finally:
             self._refresh_usage()

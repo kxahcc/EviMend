@@ -7,6 +7,7 @@ import sqlite3
 import time
 from collections.abc import Callable
 from contextlib import closing
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
@@ -17,6 +18,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.types import Command
 from pydantic import BaseModel, ValidationError
 
+from .applicability_contracts import ApplicabilityProposal
 from .conditions import ConditionRequest, ConditionStore
 from .contracts import ActionProposal, authorize_action
 from .decisions import DecisionRequest, DecisionStore
@@ -29,6 +31,9 @@ TOOL_ACTIONS: dict[str, tuple[str, str]] = {
     "read_log": ("inspect_existing", "read_log"),
     "search_experience": ("inspect_existing", "read_source"),
     "read_experience": ("inspect_existing", "read_source"),
+    "prepare_experience_context": ("inspect_existing", "read_source"),
+    "review_experience": ("record_analysis", "record_analysis"),
+    "read_experience_review": ("inspect_existing", "read_source"),
     "list_source": ("inspect_existing", "read_source"),
     "read_source": ("inspect_existing", "read_source"),
     "search_source": ("inspect_existing", "read_source"),
@@ -45,6 +50,13 @@ TOOL_ACTIONS: dict[str, tuple[str, str]] = {
 }
 OFFLINE_CAPABILITIES = frozenset(capability for _, capability in TOOL_ACTIONS.values())
 
+_ACTIVE_SOLVER_CALL: ContextVar[str | None] = ContextVar("dfx_active_solver_call", default=None)
+
+
+def current_solver_call() -> str | None:
+    """Host middleware scope; tool arguments never provide this identity."""
+    return _ACTIVE_SOLVER_CALL.get()
+
 
 class ToolActionUncertain(RuntimeError):
     """A tool may have run; its effects must not be blindly repeated."""
@@ -52,6 +64,11 @@ class ToolActionUncertain(RuntimeError):
 
 class ToolActionStore:
     """Persist authorization before effects and a receipt before graph checkpointing."""
+
+    @staticmethod
+    def current_solver_call() -> str | None:
+        """Expose the active middleware scope without accepting a model identity."""
+        return current_solver_call()
 
     def __init__(self, path: Path, *, read_only: bool = False):
         if type(read_only) is not bool:
@@ -172,11 +189,13 @@ class ToolAuthorizationMiddleware(AgentMiddleware):
 
     def __init__(self, workspace: CandidateWorkspace, model_calls: ModelCallStore,
                  actions: ToolActionStore, *, capabilities: frozenset[str], max_calls: int,
-                 max_candidates: int, max_tool_calls: int, deadline: float):
+                 max_candidates: int, max_tool_calls: int, deadline: float,
+                 applicability_enabled: bool = False):
         self.workspace, self.model_calls, self.actions = workspace, model_calls, actions
         self.capabilities = capabilities
         self.max_calls, self.max_candidates = max_calls, max_candidates
         self.max_tool_calls, self.deadline = max_tool_calls, deadline
+        self.applicability_enabled = applicability_enabled
         self.lock = RLock()
 
     def _parent_call(self, request: ToolCallRequest) -> str:
@@ -227,6 +246,15 @@ class ToolAuthorizationMiddleware(AgentMiddleware):
             if (decision.task_id != self.workspace.task_id or decision.run_id != self.workspace.run_id or
                     decision.plan.source_snapshot_sha256 != self.workspace.source_snapshot_sha256):
                 raise ValueError("decision belongs to another tool owner or version")
+        if name == "review_experience" and self.applicability_enabled:
+            applicability = ApplicabilityProposal.model_validate_json(args["applicability_json"])
+            target_ids.extend([applicability.diagnosis_id, *applicability.hypothesis_ids])
+            candidate_id = applicability.candidate_id
+            for premise in applicability.premises:
+                evidence_ids.extend(use.evidence_id for use in (*premise.support, *premise.contradictions))
+            if (applicability.task_id != self.workspace.task_id or applicability.run_id != self.workspace.run_id or
+                    applicability.source_snapshot_sha256 != self.workspace.source_snapshot_sha256):
+                raise ValueError("applicability belongs to another tool owner or version")
         payload = {"record_id": action_id, "created_at": datetime.now(UTC),
                    "task_id": self.workspace.task_id, "run_id": self.workspace.run_id,
                    "source_snapshot_sha256": self.workspace.source_snapshot_sha256,
@@ -286,7 +314,11 @@ class ToolAuthorizationMiddleware(AgentMiddleware):
                 rejection = "invalid_proposal_or_arguments"
 
             def invoke() -> ToolMessage:
-                result = handler(request)
+                token = _ACTIVE_SOLVER_CALL.set(parent_call)
+                try:
+                    result = handler(request)
+                finally:
+                    _ACTIVE_SOLVER_CALL.reset(token)
                 if not isinstance(result, ToolMessage):
                     raise ToolActionUncertain("offline tool returned an unsupported command")
                 return result
