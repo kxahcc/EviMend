@@ -352,7 +352,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 ### 3.1 工作上下文、经验与 Skill 的实施契约
 
-本节定义 W07 新机制的输入、行为与拒绝边界，分步实施。通用修复路径继续可用；来源/引用核验、确定性记录和合成分支不能证明模型推理正确、经验可迁移或修复效果。模型提出语义判断，主机核验已登记事实及权限，不把结构完整性当语义确认。
+本节定义 W07 新机制的输入、行为与拒绝边界，分步实施。工作上下文已有模型发送路径；经验准入、知识快照及冻结快照内的确定性检索已有独立主机接口，尚未接入 SDK。通用修复路径继续可用；来源/引用核验、确定性记录和合成分支不能证明模型推理正确、经验可迁移或修复效果。模型提出语义判断，主机核验已登记事实及权限，不把结构完整性当语义确认。
 
 #### 3.1.1 工作上下文和当前焦点
 
@@ -390,9 +390,9 @@ format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materia
 
 #### 3.1.2 经验、检索和适用性交接
 
-经验机制的目标是让 Agent 在新任务中获得可查证的历史指导：保留适用前提、未知查证问题、过程、保留行为和反例，再用当前证据判断能否借用。历史经验不作为当前根因或补丁已通过的依据。当前 `knowledge_contracts.py` 和 `knowledge.py` 已实现独立的材料准入、不可变经验与知识快照 API；检索、适用性判断及学习接入仍属后续设计。
+经验机制的目标是让 Agent 在新任务中获得可查证的历史指导：保留适用前提、未知查证问题、过程、保留行为和反例，再用当前证据判断能否借用。历史经验不作为当前根因或补丁已通过的依据。`knowledge_contracts.py`、`knowledge.py`、`retrieval_contracts.py` 和 `knowledge_retrieval.py` 提供独立的材料准入、不可变经验、知识快照及确定性检索 API；当前任务绑定、三态适用性、SDK 接入与学习仍属后续设计。
 
-已实现路径是**主机审核完整可见投影 → 捕获获准材料原字节 → 按来源权限准入 → 物化经验条目 → 固定条目与检索配置快照 → 回读完整来源闭包**。主机须先审核整个 SolverProjection 文档，为其原字节设定 MaterialGrant；ExperienceDraft 只引用已批准的材料 ID，不能提交任意新指导文本或自填权限、验证资格与成本。结构校验与主机角色声明不能识别自由文本中暗含的答案，审核完整投影仍是主机责任，不宣称已有语义防泄漏能力。
+已实现路径是**主机审核完整可见投影 → 捕获获准材料原字节 → 按来源权限准入 → 物化经验条目 → 固定条目与检索配置快照 → 显式建立派生索引 → 有界排序和分页 → 显式保存并重算检索记录**。主机须先审核整个 SolverProjection 文档，为其原字节设定 MaterialGrant；ExperienceDraft 只引用已批准的材料 ID，不能提交任意新指导文本或自填权限、验证资格与成本。结构校验与主机角色声明不能识别自由文本中暗含的答案，审核完整投影仍是主机责任，不宣称已有语义防泄漏能力。
 
 | 已实现对象/入口 | 内容及行为义务 |
 |---|---|
@@ -402,29 +402,39 @@ format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materia
 | SolverProjection / ExperienceContent | 完整指导包含标签、触发说明、带唯一 premise_id 的非空前提及必需 unknown_question、非空过程、观察分支、保留行为、反例与退出条件。标签可为空表达未知；不得携带 task/run、完整旧轨迹、隐藏测试/标签、参考补丁或案例到答案映射字段。epistemic_status 固定 historical_guidance_not_current_evidence，derivation_authority 由对应主机 projection role 约束 |
 | HistoricalSource / LimitedValidationScope | history 原文只接受主机定义的 synthetic_fixture 描述：历史 task/run/lineage_group_id、源码及成对候选身份、报告/产物摘要、有限验证范围与 unknown/passed/failed、oracle 和环境说明。报告/产物摘要仅是该 fixture 的声明字段，不认证实际报告、执行器或应用结果；投影的 validation_scopes 必须逐项等于有序 history 的范围，不由模型重新总结成更强结论 |
 | ExperiencePayload / ExperienceEntry | 保存完整投影、全部原来源 grant、有序 history 及主机赋予的提炼调用/成本。application_qualification 恒为 none；已知 Token 须有 derivation_call_id 且仅标 host_declaration，未知成本保留 null/unknown，不等同于实际 ModelCallStore usage。entry_id 为 experience- 加完整 payload 的 content_sha256；规范字符串是内容事实，读取 contents() 返回独立副本 |
-| PermissionScope / RetrieverSpec | scope 固定 solve 用途、目标 split 和 excluded_lineage_groups。检索配置冻结 tags_text_v1、标签/文本权重、返回及查询限额、entry_id tie-break 和 unknown_tag_policy=keep；当前只固定行为身份，尚不执行排序、查询或三态判断 |
+| PermissionScope / RetrieverSpec | scope 固定 solve 用途、目标 split 和 excluded_lineage_groups；主机检索请求的整个 scope 必须与快照相等。检索配置冻结 tags_text_v1、标签/文本权重、返回及查询限额、entry_id tie-break 和 unknown_tag_policy=keep；用于确定性排序，不执行三态判断 |
 | SnapshotPayload / KnowledgeSnapshot | 显式选择条目，拒绝重复并按 entry_id 升序固定各 entry/content/projection 摘要；scope、完整检索配置与 skill_files 一并参与 snapshot_sha256。当前 skill_files 强制为空，不接受声称已加载的 Skill 版本。快照引用同 store 中已物化的来源闭包，不是仅保存数据库位置，也不是已有独立导出包 |
+| MemoryQuery | 必需 snapshot_sha256 和 PermissionScope，保存输入标签原文、有限 text、offset 与可空 limit。匹配标签按 strip().casefold() 规范化，规范后空白、过长或重复拒绝；字符数按 text 加原标签原文累计，不能通过 trim 掩盖输入容量。空查询可浏览全部成员，未知标签不按词表丢弃 |
+| IndexDescriptor / build_index | 固定 snapshot、SQLite 原字节摘要/大小、成员数、完整派生 rows_sha256 及 retriever_sha256。描述符自身规范内容摘要作为 index_sha256。KnowledgeRetriever.build_index 由主机显式发布固定快照的索引；描述符和库文件均不可改写，已有部分文件、缺失或漂移不自动修复 |
+| RetrievalHit / RetrievalPayload | 每项保存 entry/content/projection 摘要、完整 SolverProjection、score 及升序唯一 matched_tags/matched_terms；payload 保存完整查询、描述符摘要、冻结检索配置、全体/正分成员数、完整返回页、下一 offset 及容量。结构校验核对身份、投影全文摘要、分页、排序、匹配查询子集与得分；真实匹配和完整成员还须由运行时重算。ranking_status 恒为 relevance_not_applicability |
+| RetrievalRecord / query / record / read_record | record_id 为 retrieval- 加完整规范 payload 的 content_sha256；contents() 返回副本。query 纯读取并返回记录对象，record 才显式持久化；read_record 重新核验来源与索引、重执行保存的查询并比对完整记录，不只检查自报摘要。KnowledgeRetriever.read_projection 先核验记录，只返回该记录实际返回页中的指导副本 |
 
 来源权限由主机 registry 赋予。学习准入只接纳 origin_split 为 curated/development 且明确允许 learn 的来源，restricted 一律拒绝；projection 须为 curated_projection/inference_projection 并标 solver_approved，synthetic_history 的原文仅作审计材料。hidden_test、reference_patch、evaluation_label、raw_session 等 role 即使登记在 registry 中也不能成为此包的经验来源；candidate_validation/confirmation 来源不能回流提炼。
 
-冻结或回读快照时再核对**所有原来源 grant 的 solve 用途与目标 split 交集**，不因某一来源只作审计而跳过权限；任一历史 lineage_group_id 落入 excluded_lineage_groups 时拒绝该选择。该范围由主机显式传入，不从标签或 task_id 自动推断谱系。read_projection 只返回已绑定快照中的指导副本，并先核验整张快照闭包；history 原文不随它转成当前 Evidence。空快照可以显式冻结，但缺失或破损快照不会自动退成空库。
+冻结或回读快照时再核对**所有原来源 grant 的 solve 用途与目标 split 交集**，不因某一来源只作审计而跳过权限；任一历史 lineage_group_id 落入 excluded_lineage_groups 时拒绝该选择。该范围由主机显式传入，不从标签或 task_id 自动推断谱系。KnowledgeStore.read_projection 只返回已绑定快照中的指导副本，并先核验整张快照闭包；history 原文不随它转成当前 Evidence。空快照可以显式冻结，但缺失或破损快照不会自动退成空库。检索前核对完整请求 scope 与快照 scope，再核验整张来源闭包；权限错误不能变成少返回几项或空结果。
 
-excluded_lineage_groups 只排除已经显式声明的 HistoricalSource 谱系。没有 history 的获准 projection 也可能合法，因此该过滤不能自动证明指导文字或 model_inference 已穷尽来源、未包含目标答案；仍依赖主机完整审阅投影并如实声明来源。未来自动提炼须另增派生依据闭包和学习调用核验，不能沿用此包的字段完整性作为全量来源证明。当前读取只核对给定快照内冻结的 scope，不自动感知调用者的实际任务；主机负责选择已批准的快照，后续 SDK 准入须把该快照、scope 与当前 task/run 绑定，不能由模型任选其他快照取得权限。
+excluded_lineage_groups 只排除已经显式声明的 HistoricalSource 谱系。没有 history 的获准 projection 也可能合法，因此该过滤不能自动证明指导文字或 model_inference 已穷尽来源、未包含目标答案；仍依赖主机完整审阅投影并如实声明来源。未来自动提炼须另增派生依据闭包和学习调用核验，不能沿用此包的字段完整性作为全量来源证明。query 核对主机传入 scope 与给定快照内冻结的 scope；记录审计回读重放保存查询的 scope，均不认证调用者实际 task/run。主机负责选择已批准的快照；后续 SDK 准入须把该快照、scope 与当前 task/run 绑定，不能将这个独立 API 直接暴露给模型，让模型任选其他快照或自填更宽范围取得权限。
 
-KnowledgeStore 的 root 由受管主机预先建立；constructor 和读取方法不创建目录。发布操作才可在核验该 root 后建立固定 materials/entries/snapshots 子目录，按原字节摘要保存材料、按内容身份保存规范条目和快照；已有文件必须字节一致，不能覆盖或修复。先发布材料再发布引用对象，部分失败留下的 pending/孤立文件不取得权威资格，也不自动清理。原材料可保留获准的空白/换行，原字节 grant 摘要与解析后规范对象摘要分开；条目、投影、全部来源权限、历史描述及检索配置均由各自完整内容身份绑定。单产物和 registry 总输入遵循 `knowledge_contracts.MAX_PAYLOAD_BYTES`，快照条目数遵循 `MAX_SNAPSHOT_ENTRIES`，其他长度/集合约束以同模块 schema 为准，不截断或自动放宽。
+KnowledgeStore 的 root 由受管主机预先建立；constructor 和读取方法不创建目录。发布操作才可在核验该 root 后建立固定 materials/entries/snapshots 子目录，按原字节摘要保存材料、按内容身份保存规范条目和快照；检索显式发布另使用 indexes/retrievals 子目录。已有文件必须字节一致，不能覆盖或修复。先发布材料再发布引用对象，部分失败留下的 pending/孤立文件不取得权威资格，也不自动清理。原材料可保留获准的空白/换行，原字节 grant 摘要与解析后规范对象摘要分开；条目、投影、全部来源权限、历史描述及检索配置均由各自完整内容身份绑定。单产物和 registry 总输入遵循 `knowledge_contracts.MAX_PAYLOAD_BYTES`，快照条目数遵循 `MAX_SNAPSHOT_ENTRIES`，其他长度/集合约束以两个契约模块 schema 为准，不截断或自动放宽。
 
-每次完整引用闭包另受 `knowledge_contracts.MAX_CLOSURE_BYTES` 约束，与单产物限额是独立协议容量。_ReadSet 在某一唯一路径首次读取前按实查大小占用闭包预算，同路径重复引用不重复占容量，但仍重新读取核验；所有公开读取方法使用同一门。admit_entry 在发布任何文件前核对规范 entry 字节与不同摘要原材料的总量；freeze_snapshot 先核对已有读取闭包加最终 snapshot 字节，再发布。超限拒绝，不留下通过部分引用“瘦身”的快照。这是有界性保证，仍有重复 I/O，未据此宣称大库性能或实际 Token 收益。
+每次完整引用闭包另受 `knowledge_contracts.MAX_CLOSURE_BYTES` 约束，与单产物限额是独立协议容量。_ReadSet 在某一唯一路径首次读取前按实查大小占用闭包预算，同路径重复引用不重复占容量，但仍重新读取核验；所有公开读取方法使用同一门。admit_entry 在发布任何文件前核对规范 entry 字节与不同摘要原材料的总量；freeze_snapshot 先核对已有读取闭包加最终 snapshot 字节，再发布。检索将来源、索引/描述符及最终记录共同纳入一次闭包容量，即使 query 不写文件也预留完整输出记录；它还按 `retrieval_contracts.MAX_INDEX_READ_BYTES` 和 `MAX_INDEX_READ_CALLS` 限制该次操作的累计原字节读取与调用，finish 的重复读取同样计数。超限拒绝，不通过部分引用“瘦身”，不截断命中项或自动提高限额。记录的 source_closure_bytes 是按唯一路径统计的来源容量，index_bytes 是 SQLite 与描述符原字节总量；二者不是累计 I/O、实际 Token 或耗时。这是有界性保证，仍有重复 I/O，未据此宣称大库性能或实际 Token 收益。
 
-构建和回读按引用重新读取 CAS 原字节，核对文件名/规范内容/摘要、原材料解析全文与已保存对象、权限及引用闭包。路径检查覆盖完整未解析祖先，拒绝链接、重解析点、共享文件和非正规文件；读取前后核对路径及文件描述符，闭包完成后重读全部引用并独立核对 FD change-time 和祖先身份，包括同长度且恢复 mtime 的改写。下一次操作不凭 size/mtime 缓存。此为受管单 writer 的串行主机协议，不宣称 OS 并发锁、原子沙箱或自然语言语义认证。
+构建和回读按引用重新读取 CAS 原字节，核对文件名/规范内容/摘要、原材料解析全文与已保存对象、权限及引用闭包。路径检查覆盖完整未解析祖先，拒绝链接、重解析点、共享文件和非正规文件；读取前后核对路径及文件描述符，闭包完成后重读全部引用并独立核对 FD change-time 和祖先身份，包括同长度且恢复 mtime 的改写。检索同一次闭包还包括索引、描述符和已保存记录；下一次操作不凭 size/mtime 缓存。此为受管单 writer 的串行主机协议，不宣称 OS 并发锁、原子沙箱或自然语言语义认证。
 
-当前没有发布别名、MemoryQuery/RetrievalRecord、SQLite 索引、SDK 上下文接入、自动提炼/学习调用，也没有知识快照的会话、报告、导出与评测集成。以下接口与行为属于后续实现，不能从独立 store 已可回读推断已参与 Agent 求解：
+SQLite 索引仅是快照派生物，不授予权限或证据资格。`indexes/<snapshot_sha256>.sqlite` 与同名 `.json` 描述符由 build_index 显式生成；查询和回读不新建、重建或修复索引。库仅接受固定 meta/entries/tags 结构；search_text 来自获准 guidance 的实际文字值，包括标签、触发、前提/未知问题、步骤/观察分支、保留行为、反例和退出条件，不加入 schema 字段名、premise/step ID、原 history 或审计描述。每次读取原 SQLite 字节，核对描述符与摘要，在内存中 deserialize，用只读连接逐行比对原快照推导的完整行及行摘要，再执行排名查询；额外结构/行、sidecar、缺文件及原字节漂移均拒绝。索引即使重新计算了自报摘要，只要实际行与原快照推导值不符，也不能通过。
+
+tags_text_v1 用规范标签精确匹配；text 按 casefold 后的 `\w+` 提取排序去重词，按各词是否为 guidance 文本子串计数，对应参数化 SQLite `instr()`。得分为冻结的 tag_weight × 命中标签数 + text_weight × 命中独立词数，不按重复出现频次加分。候选集合始终是该快照全部成员，包括零分、未知/缺标签成员；只按分数降序、entry_id 升序分页，不以相关性声称前提成立。limit 为空时使用冻结 max_results，显式 limit 不得越过它；字符限额按 text 加输入标签原文核验，独立词数遵循 `retrieval_contracts.MAX_QUERY_TERMS`。超出 SQL 有符号整数评分能力拒绝，不发生浮点升格或截断。SQLite 原文件/页边界遵循 `retrieval_contracts.MAX_SQL_BYTES`；构建连接和每个读取连接各用 `retrieval_contracts.MAX_SQL_STEPS` 限制执行步数，索引校验与排名是分别受限的连接。协议容量常量由契约代码定义，不复制为本机资源配置，不替代外层受管进程的限制。
+
+独立新对象使用 schema 1、严格禁止额外字段、冻结嵌套 tuple 并重验传入实例。RetrievalRecord 的规范 payload 和哈希绑定完整查询、检索行为、投影、排序/分页及容量；这些内部一致性仍不能单独证明索引行或语义。read_record 使用同一次来源闭包读取保存的原记录，再从原快照、索引和保存查询重算全文，对比记录而不是信任 matched_tags、分数或正分成员数。查询返回的历史指导仍保持原权威与 unknown/failed 等有限历史范围，不生产当前 Evidence、诊断确认或应用接受结果。
+
+当前没有发布别名、SDK 上下文接入、自动提炼/学习调用，也没有知识快照及检索记录的会话、报告、导出与评测集成。以下接口与行为属于后续实现，不能从独立检索已可重算推断已参与 Agent 求解：
 
 | 后续对象/入口 | 拟议内容及行为义务 |
 |---|---|
-| MemoryQuery / RetrievalRecord | 当前任务引用、操作/平台/义务标签、有限文本、冻结快照及检索策略；登记排序依据、完整返回 ID 和分页。标签与文本用于确定性有界排序，unknown/缺标签保持可返回，不按“无适用依据”硬过滤；来源权限过滤单独核验 |
+| 当前任务检索绑定 | 主机把已批准快照及 scope 与当前 task/run 固定，再接受操作/平台/义务标签和有限文本；模型不能变更快照、权限或检索策略。新会话记录实际所用知识身份、查询与可见结果，恢复不换最新版 |
 | ApplicabilityProposal / Review | 固定 entry/快照/投影摘要及当前 task/run/诊断/假设/候选；逐 premise 保存 supported/contradicted/unknown、当前引用、理由与问题。主机核验前提覆盖、引用、版本和来源，保留模型判断及 semantic_authority，不伪装为主机语义结论 |
 
-后续首版 SQLite 使用参数化查询、规范条目/标签与明确 tie-break；索引只提供检索，查询仍核验实际条目和原快照。模型的 supported 返回可尝试过程及当前验证义务，contradicted 暂停照搬并保留冲突，unknown 提供会改变修法的查证问题；能力或预算不足时保留未知走通用路径或报告 unresolved。三态均不授予探针权限、不硬拒绝候选、不修改共同接受门；可信适配器若核验某一明确谓词，另记谓词及范围，不能自动确认整项业务语义。
+后续模型的 supported 返回可尝试过程及当前验证义务，contradicted 暂停照搬并保留冲突，unknown 提供会改变修法的查证问题；能力或预算不足时保留未知走通用路径或报告 unresolved。三态均不授予探针权限、不硬拒绝候选、不修改共同接受门；可信适配器若核验某一明确谓词，另记谓词及范围，不能自动确认整项业务语义。
 
 Agent 启动、恢复及发布别名以后接入时，须绑定当时已物化的具体快照，SQLite 快照不得依赖未合并 WAL；别名变化只影响新任务，恢复不能换最新版或空库。新增快照配置须明确进入新会话、报告、导出及评测，不补写旧运行；普通检索和增强组读相同投影，基础组继续保留通用读取、反思和验证能力。Skill 版本及演进的后续义务见第 3.1.3 节。
 

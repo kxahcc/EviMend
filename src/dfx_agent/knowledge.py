@@ -142,8 +142,10 @@ def _fd_identity(root: Path, path: Path) -> tuple[int, int, int, int, int, int]:
 class _ReadSet:
     """Close this operation's complete referenced material, without a cache."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, max_read_bytes: int | None = None, max_read_calls: int | None = None):
         self.root = root
+        self.max_read_bytes, self.max_read_calls = max_read_bytes, max_read_calls
+        self.read_bytes = self.read_calls = 0
         self.receipts: dict[Path, tuple[str, int, tuple[int, int, int, int, int, int],
                                         tuple[int, int, int, int, int, int]]] = {}
         self.parents: dict[Path, tuple[int, int, int, int]] = {}
@@ -160,6 +162,14 @@ class _ReadSet:
         self.sizes[path] = size
         self.byte_count += size
 
+    def _raw(self, path: Path, size: int, expected_hash: str | None = None) -> bytes:
+        if ((self.max_read_bytes is not None and self.read_bytes + size > self.max_read_bytes) or
+                (self.max_read_calls is not None and self.read_calls + 1 > self.max_read_calls)):
+            raise ValueError("knowledge cumulative read budget exceeded")
+        self.read_calls += 1
+        self.read_bytes += size
+        return _read(self.root, path, expected_hash=expected_hash, expected_bytes=size)
+
     def read(self, path: Path, *, expected_hash: str | None = None, expected_bytes: int | None = None) -> bytes:
         path = _path(self.root, path)
         before = path.lstat()
@@ -167,7 +177,7 @@ class _ReadSet:
         if expected_bytes is not None and before.st_size != expected_bytes:
             raise ValueError("knowledge closure declared size differs")
         self.reserve(path, before.st_size)
-        raw = _read(self.root, path, expected_hash=expected_hash, expected_bytes=before.st_size)
+        raw = self._raw(path, before.st_size, expected_hash)
         receipt = digest(raw), len(raw), _identity(path.lstat()), _fd_identity(self.root, path)
         if path in self.receipts and self.receipts[path] != receipt:
             raise ValueError("knowledge source changed between closure reads")
@@ -181,7 +191,7 @@ class _ReadSet:
 
     def finish(self) -> None:
         for path, (key, length, _, _) in self.receipts.items():
-            _read(self.root, path, expected_hash=key, expected_bytes=length)
+            self._raw(path, length, key)
         # Close all receipts after the last byte reread. Windows lstat ctime
         # alone misses an in-place edit with restored mtime; fstat observes
         # change time. This remains a serial host protocol, not an OS lock.
@@ -387,14 +397,20 @@ class KnowledgeStore:
         except _INVALID as exc:
             raise KnowledgeError("knowledge_snapshot_invalid") from exc
 
-    def _snapshot(self, snapshot_sha256: str) -> tuple[KnowledgeSnapshot, dict[str, SolverProjection]]:
+    def _snapshot_manifest(self, snapshot_sha256: str, reads: _ReadSet) -> tuple[KnowledgeSnapshot, SnapshotPayload]:
         require_hash(snapshot_sha256)
-        reads = _ReadSet(self.root)
         raw = reads.read(self.root / "snapshots" / (snapshot_sha256 + ".json"))
         snapshot = KnowledgeSnapshot.model_validate_json(encode(_object(raw)))
         if snapshot.snapshot_sha256 != snapshot_sha256 or encode(snapshot).encode("utf-8") != raw:
             raise ValueError("knowledge snapshot filename or canonical bytes differ")
         contents = SnapshotPayload.model_validate_json(snapshot.payload_json)
+        return snapshot, contents
+
+    def _snapshot(self, snapshot_sha256: str, *, reads: _ReadSet | None = None
+                  ) -> tuple[KnowledgeSnapshot, dict[str, SolverProjection]]:
+        own_reads = reads is None
+        reads = _ReadSet(self.root) if reads is None else reads
+        snapshot, contents = self._snapshot_manifest(snapshot_sha256, reads)
         projections: dict[str, SolverProjection] = {}
         for ref in contents.entries:
             entry, payload = self._entry(ref.entry_id, reads)
@@ -402,7 +418,8 @@ class KnowledgeStore:
             if entry.content_sha256 != ref.content_sha256 or content_hash(payload.projection) != ref.projection_sha256:
                 raise ValueError("knowledge snapshot entry or projection binding differs")
             projections[ref.entry_id] = payload.projection
-        reads.finish()
+        if own_reads:
+            reads.finish()
         return snapshot, projections
 
     def read_snapshot(self, snapshot_sha256: str) -> KnowledgeSnapshot:
