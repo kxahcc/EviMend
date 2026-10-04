@@ -10,6 +10,7 @@ import base64
 import difflib
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -57,6 +58,7 @@ from .working_context import (
     _guard,
     _load,
     build_working_context,
+    candidate_focus_matches,
 )
 from .working_context_materials import WorkingContextMaterials
 from .working_context_projection import (
@@ -437,17 +439,21 @@ def _select_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
         "action_watermark": [item["action"]["action_id"] for item in receipts]}
 
 
-def _capture_material(workspace: CandidateWorkspace, task: Path, packet: WorkingContextPacket) -> dict[str, bytes]:
+def _capture_material(workspace: CandidateWorkspace, task: Path, packet: WorkingContextPacket, *,
+                      reader: Callable[[Path], bytes] | None = None,
+                      max_references: int | None = None) -> dict[str, bytes]:
     references = {item["reference"] for item in packet.contents()["sources"]}
     # A standalone obligation may cite an evidence item whose containing
     # diagnosis is not selected. Freeze that original admission container too.
     needed_evidence = set(packet.contents()["evidence"])
     for path in sorted((workspace.root / "diagnoses").glob("*.json")):
-        bundle = _load(_guard(path).read_bytes())
+        bundle = _load(_guard(path).read_bytes() if reader is None else reader(path))
         if any(item["record_id"] in needed_evidence for item in bundle["evidence"]):
             references.add("workspace/" + path.relative_to(workspace.root).as_posix())
     for file in _files(workspace.base).values():
         references.add("workspace/" + file.relative_to(workspace.root).as_posix())
+    if max_references is not None and len(references) > max_references:
+        raise WorkingContextError("working_context_material_limit")
     material = {}
     for reference in sorted(references):
         scope, relative = reference.split("/", 1)
@@ -455,8 +461,11 @@ def _capture_material(workspace: CandidateWorkspace, task: Path, packet: Working
         before = path.stat()
         if before.st_size > MAX_ARTIFACT_BYTES:
             raise WorkingContextError("working_context_material_limit")
-        with path.open("rb") as source:
-            raw = source.read(min(before.st_size + 1, MAX_ARTIFACT_BYTES + 1))
+        if reader is None:
+            with path.open("rb") as source:
+                raw = source.read(min(before.st_size + 1, MAX_ARTIFACT_BYTES + 1))
+        else:
+            raw = reader(path)
         after = _guard(path).stat()
         if len(raw) > MAX_ARTIFACT_BYTES:
             raise WorkingContextError("working_context_material_limit")
@@ -753,7 +762,11 @@ def _verify_projection_closure(value: dict[str, Any], raw: dict[str, bytes]) -> 
         required.update(item["record_id"] for item in bundles[focus.diagnosis_id]["obligations"])
         if focus.current_candidate_id is not None:
             current_candidate = expected["candidates"][focus.current_candidate_id]
-            if current_candidate["diagnosis_id"] != focus.diagnosis_id:
+            if not candidate_focus_matches(Diagnosis.model_validate_json(canonical(current)),
+                    CandidatePatch.model_validate_json(canonical(current_candidate)),
+                    [Evidence.model_validate_json(canonical(item)) for item in bundles[focus.diagnosis_id]["evidence"]],
+                    {key: CandidatePatch.model_validate_json(canonical(item))
+                     for key, item in expected["candidates"].items()}):
                 raise ValueError("frozen focus candidate has another diagnosis")
             required.update(current_candidate["restores"] + current_candidate["preserves"])
         if focus.decision_id is not None and expected["decisions"][focus.decision_id]["request"]["diagnosis_id"] != focus.diagnosis_id:

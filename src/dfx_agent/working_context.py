@@ -116,6 +116,34 @@ def _load(value: str | bytes) -> Any:
     return result
 
 
+def candidate_focus_matches(diagnosis: Diagnosis, candidate: CandidatePatch, facts: list[Evidence],
+                            related: dict[str, CandidatePatch]) -> bool:
+    """A failed candidate may be reviewed by a new, explicitly linked diagnosis.
+
+    This reference predicate follows source/check authentication, never replaces
+    it. A model-declared feedback_candidate_id alone is insufficient.
+    """
+    if candidate.diagnosis_id == diagnosis.record_id:
+        return True
+    previous = related.get(diagnosis.feedback_candidate_id or "")
+    if previous is None:
+        return False
+    same_owner = (diagnosis.task_id, diagnosis.run_id, diagnosis.source_snapshot_sha256)
+    if any((item.task_id, item.run_id, item.source_snapshot_sha256) != same_owner for item in (candidate, previous)):
+        return False
+    # A revised candidate from the same originating diagnosis may be the new
+    # host-selected focus. Its predecessor's observation stays historical.
+    if candidate.candidate_id != previous.candidate_id and (
+            candidate.diagnosis_id is None or candidate.diagnosis_id != previous.diagnosis_id):
+        return False
+    return any(
+        fact.kind == "local_execution" and fact.execution_scope == "synthetic" and
+        fact.evaluated_candidate_id == previous.candidate_id and
+        fact.execution_snapshot_sha256 == previous.candidate_snapshot_sha256
+        for fact in facts
+    )
+
+
 def _guard(path: Path, *, directory: bool = False) -> Path:
     """Check the unresolved path chain, including junctions and shared files."""
     path = path.absolute()
@@ -511,7 +539,8 @@ class _Builder:
                 raise ValueError("working context hypothesis belongs to another diagnosis")
             if focus.current_candidate_id is not None:
                 candidate, _ = self.candidate(focus.current_candidate_id)
-                if candidate.diagnosis_id != focus.diagnosis_id:
+                if not candidate_focus_matches(diagnosis, candidate, self.bundles[focus.diagnosis_id]["evidence"],
+                        {key: CandidatePatch.model_validate_json(canonical(item)) for key, item in self.candidates.items()}):
                     raise ValueError("current candidate belongs to another focus diagnosis")
             if focus.decision_id is not None:
                 decision = self.decision(focus.decision_id)

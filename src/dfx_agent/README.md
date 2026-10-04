@@ -171,6 +171,12 @@ store 内 `materials/` 保存原批准字节，`entries/` 保存内容及来源�
 
 `indexes/` 的每快照 SQLite 与描述文件只保存批准指导的派生字段，不索引原历史、成本或对象 ID；`retrievals/` 保存显式发布的查询记录。标签规范后去重匹配，查询原拼写保留并拒绝规范重复；文本以去重 Unicode 词作子串匹配，空查询可按 ID 浏览。分数使用冻结权重，零分和未知标签条目保留，相关性不等于适用性。每次检索核完整来源及索引全部行，再按固定参数 SQL 排序；缺失、破损、附属日志、结构/行错配、超量或超数值能力均拒绝，不自动重建。独立容量和每连接 SQL 门由 `retrieval_contracts.py` 定义；query 的索引核验和排序分别用受限连接，累计读取包含闭包收尾。新增合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_knowledge_retrieval.py` 及同入口的 `tests/test_retrieval_contracts.py`，没有模型、SDK 求解或应用实验。
 
+经验前提交接入口为 `ApplicabilityStore(workspace, task_directory, ledger, retriever, approval)`。`approval` 是主机显式提供的 `TaskKnowledgeBinding`，固定实际任务/运行、分析版本、日志、批准知识快照与 scope；构造不创建目录，`bind()` 才固定该 run 批准。`record_query(tags=..., text=..., offset=..., limit=...)` 由主机填入快照和范围，生成绑定查询；`prepare_context(bound_query_id, focus)` 冻结当前诊断、假设、候选和已核验原材料。模型提案只使用该 context 的经验页和登记引用，`review(proposal)` 保存完整前提判断、指导、原未知问题、当前义务及三态建议。该入口无 CLI、SDK、模型调用或执行能力。
+
+run 内 `experience-bindings/approved.json` 保存主机批准，`experience-queries/` 保存绑定查询，`applicability-contexts/`、`applicability-materials/` 保存冻结上下文及原字节，`applicability-reviews/` 保存审查记录。`read_query`、`read_context`、`read_review` 对照外部批准并只读重核；合法后续检查不重写旧上下文，新证据需新 context。原版源码/日志不能标为候选观察，直接或递归推断中的执行依据须匹配当前候选与版本；历史同异常案例不能代替这些依据。语义状态仍为 model_inference，保存 supported 只提供可尝试步骤，不确认根因、修复或业务成功；contradicted 暂停照搬，unknown 提供原查证问题，不改共同接受门。
+
+完整知识、冻结材料及输出共同受 `applicability_contracts.py` 的容量约束，不同根之间采用保守计数；捕获和审计读取另有累计字节/次数门，闭合收尾也计入。发布前先完成原件关闭核验，冻结上下文还按下一次审计的实际路径预检预算；回读从原诊断材料重验引用、位置和版本，重写哈希不能绕过准入。`prepare_context` 前段复用的当前任务核验仍由外层 Job 保护，尚无完整累计 I/O 计量；不得把这些边界当实际性能或 Token 指标。合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_applicability_contracts.py` 和同入口的 `tests/test_applicability.py`。静态 Skill、实际发送、会话/报告/导出身份与自动学习仍待接入。
+
 `acceptance.py` 当前只供独立程序调用：准备者冻结与候选无关的共同协议，可信打包器绑定完整运行源码，执行端按检查 ID 回传原版和候选的结果，接受门对缺失、模拟、版本错配和行为失败返回 `not_verified`。这些适配器及业务 oracle 尚未接入；该模块的合成 `verified_under_protocol` 测试值不是本项目已修复应用的成绩。
 
 `backends.py` 和 `remote_service.py` 另提供 HTTPX 客户端及 FastAPI 模拟服务的程序接口。`tests/test_remote_contract.py` 使用进程内 `TestClient`，显式推进模拟工作者状态，检查请求幂等、响应丢失后的恢复、取消待确认、产物哈希及离线行为；不启动常驻服务、真实设备或应用构建。模拟服务只返回 `scope=synthetic` 和 `application_verification=not_run`。后续真实应用执行改走本机受管作业适配器；其 SDK/设备能力与完整工程尚未配置，不能把 HTTP 协议自检当作应用验证。

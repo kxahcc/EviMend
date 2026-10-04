@@ -352,7 +352,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 ### 3.1 工作上下文、经验与 Skill 的实施契约
 
-本节定义 W07 新机制的输入、行为与拒绝边界，分步实施。工作上下文已有模型发送路径；经验准入、知识快照及冻结快照内的确定性检索已有独立主机接口，尚未接入 SDK。通用修复路径继续可用；来源/引用核验、确定性记录和合成分支不能证明模型推理正确、经验可迁移或修复效果。模型提出语义判断，主机核验已登记事实及权限，不把结构完整性当语义确认。
+本节定义 W07 新机制的输入、行为与拒绝边界，分步实施。工作上下文已有模型发送路径；经验准入、知识快照、确定性检索，以及绑定当前任务的冻结上下文和三态适用性交接已有独立主机接口。经验机制尚未接入 SDK、会话、报告或导出，静态 Skill 与学习仍待实现。通用修复路径继续可用；来源/引用核验、确定性记录和合成分支不能证明模型推理正确、经验可迁移或修复效果。模型提出语义判断，主机核验已登记事实及权限，不把结构完整性当语义确认。
 
 #### 3.1.1 工作上下文和当前焦点
 
@@ -366,7 +366,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 闭包从焦点诊断、明确假设、候选恢复/保留义务和决策方向出发，加入支持/反驳证据、绑定/条件/因果步骤依据、区分问题及尚未解决项。首包保守保留选中诊断的完整 alternatives、问题与证据，hypothesis_ids 只是焦点提示，不删除反向依据。义务、假设和决策可以相互引用，按 visited 集合求固定点；证据 basis 派生环按既有约束拒绝。回读重查既有登记的全局 target namespace，诊断/假设/义务与 Evidence ID 不得重名；结构义务回到其唯一原诊断，不按文件顺序猜 owner。无法找到引用或版本不符时拒绝构建，不能生成删减后的“有效”包。
 
-相关失败显式由 feedback_decision_ids 引入，重新核对原失败候选、源码、检查结果和关联义务；原候选 A 的反馈可以影响当前 B 的决定，但内容始终标记 A，不能说 B 已失败。首包仅接纳与当前焦点共享已登记义务 ID 的历史关联，仍标记 semantic_relevance=unknown，不把引用交集当语义确认；其他关系须后续显式提案核验，不自动推断。如果焦点决策本身依赖反馈或有限条件，则必须一并保留原范围与结果。候选和诊断关联不匹配须拒绝；旧反例不会因年龄而自动省略。
+相关失败显式由 feedback_decision_ids 引入，重新核对原失败候选、源码、检查结果和关联义务；原候选 A 的反馈可以影响当前 B 的决定，但内容始终标记 A，不能说 B 已失败。首包仅接纳与当前焦点共享已登记义务 ID 的历史关联，仍标记 semantic_relevance=unknown，不把引用交集当语义确认；其他关系须后续显式提案核验，不自动推断。如果焦点决策本身依赖反馈或有限条件，则必须一并保留原范围与结果。当前候选属于焦点诊断时直接匹配；否则新诊断须以 feedback_candidate_id 明确指向已登记的 previous，并有该诊断内已核验的同 previous/执行快照失败 synthetic local_execution。主机可以将该 previous 或与其同原诊断、同 task/run/分析源码的已登记修订候选选为当前焦点，但 previous 的失败观察仍为旧候选范围，不能因此充当修订候选的当前证据；仅声明 ID 或其他不匹配拒绝。旧反例不会因年龄而自动省略。
 
 首版核验 source_fact 的原版行片段和摘要、输入日志原字节/引用内容、推断声明的摘要及完整依据、合成执行的注册候选与已保存检查；来源字段原样保留。推断和模型义务保持 unknown/model_inference，不能从磁盘改标获得可信资格。无哈希的历史草稿读取不纳入当前结构化事实；主机焦点由调用方显式提供，首包不认证它是已完成 SDK 动作的最新选择。
 
@@ -390,9 +390,9 @@ format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materia
 
 #### 3.1.2 经验、检索和适用性交接
 
-经验机制的目标是让 Agent 在新任务中获得可查证的历史指导：保留适用前提、未知查证问题、过程、保留行为和反例，再用当前证据判断能否借用。历史经验不作为当前根因或补丁已通过的依据。`knowledge_contracts.py`、`knowledge.py`、`retrieval_contracts.py` 和 `knowledge_retrieval.py` 提供独立的材料准入、不可变经验、知识快照及确定性检索 API；当前任务绑定、三态适用性、SDK 接入与学习仍属后续设计。
+经验机制让 Agent 在新任务中获得可查证的历史指导：保留适用前提、未知查证问题、过程、保留行为和反例，再用当前证据判断能否借用。历史经验不作为当前根因或补丁已通过的依据。`knowledge_contracts.py`、`knowledge.py`、`retrieval_contracts.py` 和 `knowledge_retrieval.py` 提供材料准入、不可变经验、知识快照及确定性检索；`applicability_contracts.py` 和 `applicability.py` 提供独立的当前任务绑定、冻结上下文和三态交接。均为主机 API，尚未接入 SDK 求解、静态 Skill、会话/报告/导出或学习。
 
-已实现路径是**主机审核完整可见投影 → 捕获获准材料原字节 → 按来源权限准入 → 物化经验条目 → 固定条目与检索配置快照 → 显式建立派生索引 → 有界排序和分页 → 显式保存并重算检索记录**。主机须先审核整个 SolverProjection 文档，为其原字节设定 MaterialGrant；ExperienceDraft 只引用已批准的材料 ID，不能提交任意新指导文本或自填权限、验证资格与成本。结构校验与主机角色声明不能识别自由文本中暗含的答案，审核完整投影仍是主机责任，不宣称已有语义防泄漏能力。
+已实现路径是**主机审核完整可见投影 → 捕获获准材料原字节 → 按来源权限准入 → 物化经验条目 → 固定条目与检索配置快照 → 显式建立派生索引 → 有界排序和分页 → 将查询绑定到主机批准的当前任务 → 冻结显式焦点及原件 → 逐前提核验当前引用并保留三态建议**。主机须先审核整个 SolverProjection 文档，为其原字节设定 MaterialGrant；ExperienceDraft 只引用已批准的材料 ID，不能提交任意新指导文本或自填权限、验证资格与成本。结构校验与主机角色声明不能识别自由文本中暗含的答案，审核完整投影仍是主机责任，不宣称已有语义防泄漏能力。
 
 | 已实现对象/入口 | 内容及行为义务 |
 |---|---|
@@ -408,14 +408,21 @@ format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materia
 | IndexDescriptor / build_index | 固定 snapshot、SQLite 原字节摘要/大小、成员数、完整派生 rows_sha256 及 retriever_sha256。描述符自身规范内容摘要作为 index_sha256。KnowledgeRetriever.build_index 由主机显式发布固定快照的索引；描述符和库文件均不可改写，已有部分文件、缺失或漂移不自动修复 |
 | RetrievalHit / RetrievalPayload | 每项保存 entry/content/projection 摘要、完整 SolverProjection、score 及升序唯一 matched_tags/matched_terms；payload 保存完整查询、描述符摘要、冻结检索配置、全体/正分成员数、完整返回页、下一 offset 及容量。结构校验核对身份、投影全文摘要、分页、排序、匹配查询子集与得分；真实匹配和完整成员还须由运行时重算。ranking_status 恒为 relevance_not_applicability |
 | RetrievalRecord / query / record / read_record | record_id 为 retrieval- 加完整规范 payload 的 content_sha256；contents() 返回副本。query 纯读取并返回记录对象，record 才显式持久化；read_record 重新核验来源与索引、重执行保存的查询并比对完整记录，不只检查自报摘要。KnowledgeRetriever.read_projection 先核验记录，只返回该记录实际返回页中的指导副本 |
+| TaskKnowledgeBinding / ApplicabilityStore.bind | 外部主机 approval 固定 task_id、run_id、分析 source_snapshot_sha256、crash_sha256、知识 snapshot_sha256 和完整 PermissionScope。bind 核验实际工作区、任务、日志及快照范围后保存 approved.json；每次读写都对照外部批准值，保存对象自报的身份不能扩大权限，同一运行不能替换批准内容 |
+| BoundQueryPayload / BoundQuery / record_query / read_query | payload 固定 binding_sha256、retrieval_id 和 retrieval_sha256；record_id 为 bound-query- 加规范内容摘要。record_query 仅接受 tags/text/offset/limit，快照与 scope 由主机填入；read_query 重算原检索记录并核对外部批准范围，不接纳其他任务绑定或未经绑定的检索记录 |
+| ContextMaterial / ContextPayload | 每项固定 task/ 或 workspace/ 逻辑引用、原字节 sha256 与 bytes；引用须规范、排序、大小写唯一，拒绝越界、末尾点/空格及平台歧义路径。payload 固定 binding_sha256、bound_query_id、完整 WorkingContextPacket 及原件清单。packet 仅以规范字符串持有内容；既有 packet 实例也重验，不靠 model_construct 跳过其哈希或容量检查 |
+| ApplicabilityContext / prepare_context / read_context | context_id 为 app-context- 加完整 payload_sha256。prepare_context 从主机显式焦点构建当前 packet，核验 task/run/源码、诊断、假设、证据、候选及引用闭包，按引用数和读前容量门捕获原件，核定完整输出容量后不可改写发布；read_context 只读取冻结材料、重算原查询并核验原件闭包，不从最新检查重建旧上下文 |
+| EvidenceUse / PremiseAssessment | 引用只允许 original_analysis 或 current_candidate；前者不得带候选，后者须有成对候选 ID/执行快照。逐 premise_id 保存 supported/contradicted/unknown、支持/冲突引用及非空 reason。同项引用按 evidence_id 唯一，支持与冲突不得重合；supported 须有支持且无冲突，contradicted 须有冲突，unknown 可无引用或保留尚未解决的证据关系，不能由字段名升格语义 |
+| ApplicabilityProposal | 固定 context、经验 entry/content/projection 摘要、当前 task/run/分析源码、diagnosis_id、有序非空 hypothesis_ids 和成对可空候选。逐项且按原指导顺序覆盖全部 premise，不接受新增、遗漏、重复或重排；候选引用还须匹配提案候选/执行快照。运行时核验完整显式焦点、实际返回页成员及当前引用，模型不能通过填写有效 ID 自选其他范围 |
+| PremiseQuestion / ReviewPayload / ApplicabilityReview / review / read_review | review 固定外部 binding、context/query/retrieval、完整 proposal 与原 SolverProjection、派生 status/next_action、unknown 原问题及升序唯一当前 obligation_ids；record_id 为 app-review- 加完整规范内容摘要。read_review 从冻结原件重算完整审查对象，不只验证自报哈希。semantic_authority 固定 model_inference，current_evidence_authentication 固定 registered_frozen_sources，focus_recency 固定 explicit_host_input_not_authenticated，application_verification 固定 not_run |
 
 来源权限由主机 registry 赋予。学习准入只接纳 origin_split 为 curated/development 且明确允许 learn 的来源，restricted 一律拒绝；projection 须为 curated_projection/inference_projection 并标 solver_approved，synthetic_history 的原文仅作审计材料。hidden_test、reference_patch、evaluation_label、raw_session 等 role 即使登记在 registry 中也不能成为此包的经验来源；candidate_validation/confirmation 来源不能回流提炼。
 
 冻结或回读快照时再核对**所有原来源 grant 的 solve 用途与目标 split 交集**，不因某一来源只作审计而跳过权限；任一历史 lineage_group_id 落入 excluded_lineage_groups 时拒绝该选择。该范围由主机显式传入，不从标签或 task_id 自动推断谱系。KnowledgeStore.read_projection 只返回已绑定快照中的指导副本，并先核验整张快照闭包；history 原文不随它转成当前 Evidence。空快照可以显式冻结，但缺失或破损快照不会自动退成空库。检索前核对完整请求 scope 与快照 scope，再核验整张来源闭包；权限错误不能变成少返回几项或空结果。
 
-excluded_lineage_groups 只排除已经显式声明的 HistoricalSource 谱系。没有 history 的获准 projection 也可能合法，因此该过滤不能自动证明指导文字或 model_inference 已穷尽来源、未包含目标答案；仍依赖主机完整审阅投影并如实声明来源。未来自动提炼须另增派生依据闭包和学习调用核验，不能沿用此包的字段完整性作为全量来源证明。query 核对主机传入 scope 与给定快照内冻结的 scope；记录审计回读重放保存查询的 scope，均不认证调用者实际 task/run。主机负责选择已批准的快照；后续 SDK 准入须把该快照、scope 与当前 task/run 绑定，不能将这个独立 API 直接暴露给模型，让模型任选其他快照或自填更宽范围取得权限。
+excluded_lineage_groups 只排除已经显式声明的 HistoricalSource 谱系。没有 history 的获准 projection 也可能合法，因此该过滤不能自动证明指导文字或 model_inference 已穷尽来源、未包含目标答案；仍依赖主机完整审阅投影并如实声明来源。未来自动提炼须另增派生依据闭包和学习调用核验，不能沿用此包的字段完整性作为全量来源证明。低层 KnowledgeStore/KnowledgeRetriever 核对给定快照及冻结 scope，检索审计回读重放保存查询，仍不认证调用者实际 task/run。新增 ApplicabilityStore 以外部主机 approval 将具体快照、scope 与实际 workspace/task/run/日志绑定；不能把低层 API 直接开放给模型自选范围。SDK 后续接入还须冻结并认证实际会话所用配置与工具动作，不能把独立主机绑定视为 SDK 已接入。
 
-KnowledgeStore 的 root 由受管主机预先建立；constructor 和读取方法不创建目录。发布操作才可在核验该 root 后建立固定 materials/entries/snapshots 子目录，按原字节摘要保存材料、按内容身份保存规范条目和快照；检索显式发布另使用 indexes/retrievals 子目录。已有文件必须字节一致，不能覆盖或修复。先发布材料再发布引用对象，部分失败留下的 pending/孤立文件不取得权威资格，也不自动清理。原材料可保留获准的空白/换行，原字节 grant 摘要与解析后规范对象摘要分开；条目、投影、全部来源权限、历史描述及检索配置均由各自完整内容身份绑定。单产物和 registry 总输入遵循 `knowledge_contracts.MAX_PAYLOAD_BYTES`，快照条目数遵循 `MAX_SNAPSHOT_ENTRIES`，其他长度/集合约束以两个契约模块 schema 为准，不截断或自动放宽。
+KnowledgeStore 的 root 由受管主机预先建立；constructor 和读取方法不创建目录。发布操作才可在核验该 root 后建立固定 materials/entries/snapshots 子目录，按原字节摘要保存材料、按内容身份保存规范条目和快照；检索显式发布另使用 indexes/retrievals 子目录。已有文件必须字节一致，不能覆盖或修复。先发布材料再发布引用对象，部分失败留下的 pending/孤立文件不取得权威资格，也不自动清理。原材料可保留获准的空白/换行，原字节 grant 摘要与解析后规范对象摘要分开；条目、投影、全部来源权限、历史描述及检索配置均由各自完整内容身份绑定。单产物和 registry 总输入遵循 `knowledge_contracts.MAX_PAYLOAD_BYTES`，快照条目数遵循 `MAX_SNAPSHOT_ENTRIES`，其他长度/集合约束以相应契约模块 schema 为准，不截断或自动放宽。
 
 每次完整引用闭包另受 `knowledge_contracts.MAX_CLOSURE_BYTES` 约束，与单产物限额是独立协议容量。_ReadSet 在某一唯一路径首次读取前按实查大小占用闭包预算，同路径重复引用不重复占容量，但仍重新读取核验；所有公开读取方法使用同一门。admit_entry 在发布任何文件前核对规范 entry 字节与不同摘要原材料的总量；freeze_snapshot 先核对已有读取闭包加最终 snapshot 字节，再发布。检索将来源、索引/描述符及最终记录共同纳入一次闭包容量，即使 query 不写文件也预留完整输出记录；它还按 `retrieval_contracts.MAX_INDEX_READ_BYTES` 和 `MAX_INDEX_READ_CALLS` 限制该次操作的累计原字节读取与调用，finish 的重复读取同样计数。超限拒绝，不通过部分引用“瘦身”，不截断命中项或自动提高限额。记录的 source_closure_bytes 是按唯一路径统计的来源容量，index_bytes 是 SQLite 与描述符原字节总量；二者不是累计 I/O、实际 Token 或耗时。这是有界性保证，仍有重复 I/O，未据此宣称大库性能或实际 Token 收益。
 
@@ -427,14 +434,19 @@ tags_text_v1 用规范标签精确匹配；text 按 casefold 后的 `\w+` 提取
 
 独立新对象使用 schema 1、严格禁止额外字段、冻结嵌套 tuple 并重验传入实例。RetrievalRecord 的规范 payload 和哈希绑定完整查询、检索行为、投影、排序/分页及容量；这些内部一致性仍不能单独证明索引行或语义。read_record 使用同一次来源闭包读取保存的原记录，再从原快照、索引和保存查询重算全文，对比记录而不是信任 matched_tags、分数或正分成员数。查询返回的历史指导仍保持原权威与 unknown/failed 等有限历史范围，不生产当前 Evidence、诊断确认或应用接受结果。
 
-当前没有发布别名、SDK 上下文接入、自动提炼/学习调用，也没有知识快照及检索记录的会话、报告、导出与评测集成。以下接口与行为属于后续实现，不能从独立检索已可重算推断已参与 Agent 求解：
+ApplicabilityStore 的构造器只保存外部批准参数，不创建文件；bind、record_query、prepare_context 和 review 是显式发布入口，read_query、read_context 和 read_review 是纯历史读取。每个发布入口先预留输出容量及关闭/回读预算，完成已读原件的 finish 核验，再发布并独立回读审计；prepare_context 还须通过下述完整审计序列预检。记录分别进入同 run 的 experience-bindings/approved.json、experience-queries、applicability-contexts 和 applicability-reviews，当前任务原件保存在 applicability-materials/<sha256>.blob。主机批准值与每条记录的绑定摘要均核验，context 和 review 还重核完整当前来源；不能仅凭某个保存对象的哈希自行授予读取其他知识或任务的资格。发布非跨文件事务，失败时可能保留完整但未引用的材料，不能自动填补缺项或把它们当任务事实。
 
-| 后续对象/入口 | 拟议内容及行为义务 |
-|---|---|
-| 当前任务检索绑定 | 主机把已批准快照及 scope 与当前 task/run 固定，再接受操作/平台/义务标签和有限文本；模型不能变更快照、权限或检索策略。新会话记录实际所用知识身份、查询与可见结果，恢复不换最新版 |
-| ApplicabilityProposal / Review | 固定 entry/快照/投影摘要及当前 task/run/诊断/假设/候选；逐 premise 保存 supported/contradicted/unknown、当前引用、理由与问题。主机核验前提覆盖、引用、版本和来源，保留模型判断及 semantic_authority，不伪装为主机语义结论 |
+显式焦点必须指定诊断及非空假设；主机核对其实际归属，但不认证它是 SDK 最新已见焦点。当前候选可与焦点诊断直接匹配，或按第 3.1.1 节的失败 previous 关联接纳同归属修订候选；该关联只允许主机选择焦点，不扩大证据范围。当前引用须来自该焦点诊断的已登记证据：source_fact/log_observation 属于原版分析，不可标为 current_candidate；local_execution 及递归依赖它的 model_inference 则必须核对实际 evaluated_candidate_id、execution_snapshot_sha256 与当前候选一致。旧 previous 的失败及其派生推断可以保留在完整上下文，但不能成为新候选的当前支撑。引用的存在、来源和版本由主机核验，引用对前提的语义支持程度仍是模型判断。
 
-后续模型的 supported 返回可尝试过程及当前验证义务，contradicted 暂停照搬并保留冲突，unknown 提供会改变修法的查证问题；能力或预算不足时保留未知走通用路径或报告 unresolved。三态均不授予探针权限、不硬拒绝候选、不修改共同接受门；可信适配器若核验某一明确谓词，另记谓词及范围，不能自动确认整项业务语义。
+review 保留每项前提及理由，整体状态按 contradicted 优先、unknown 次之、其余 supported 派生。supported 只提供 offer_process，即完整可尝试指导与当前焦点假设/候选的已登记验证义务；contradicted 为 avoid_copy，即暂停照搬并保留冲突；unknown 为 clarify，即保留每项 unknown 对应的原 unknown_question，不自行改写成更强的问题。存在 contradicted 时仍保留其他 unknown 的问题，未知关系不能因整体分支而消失。三态均不授予工具或探针权限、不硬拒绝候选、不改变 Diagnosis/RepairObligation 状态或共同接受门。能力或预算不足时，后续 SDK 可继续通用路径或报告 unresolved；该回退尚未由本独立 API 调度。可信适配器若核验明确谓词，须另记谓词及范围，不能自动确认整项业务语义。
+
+历史 context/review 的分析内容只使用当时不可改写 CAS 原件，并重核原 task/workspace、源码/日志、诊断、义务、证据、候选和检查闭包；入口仍核对外部 approval 与实际工作区、任务和日志身份，原指导同时从固定知识快照及保存查询重算。冻结诊断的原 bundle 从 CAS 回读后还重跑 validate_references，使用冻结源码的实际行数核对引用、位置和源码版本；给伪造 bundle 及外层记录重算哈希不能绕过原准入约束。正常后续检查不重建或覆写旧上下文，继续分析须 prepare_context 生成新源点，再提交新的提案；旧 context/review 保留当时已知与未知状态。CAS 损坏、缺失或内容漂移拒绝，不能回退到 live checks、最新版库或模型自述来修补历史。
+
+容量由 applicability_contracts 的 MAX_CONTEXT_BYTES/MAX_CONTEXT_FILES 及各原件上限约束：知识原件与派生检索闭包、当前任务原件、本地绑定/上下文/审查记录和待发布输出按实查字节保守合计；不同 root 不做全局 CAS 去重，逻辑路径相同内容也不保证只计一次。捕获前先检查引用数，读取前核对剩余容量，发布完整输出前核定总容量，超限拒绝，不截断前提或原件。新 local capture/audit 阶段以 MAX_CONTEXT_READ_BYTES/MAX_CONTEXT_READ_CALLS 累计读取，包含关闭时原字节重读。prepare_context 发布前纯模拟实际下一次 read_context 的完整审计序列，核定审计容量及累计字节/次数：owner 原件与其 CAS 副本是不同路径，分别计费；多项逻辑材料引用同一 CAS 时初读逐引用计费，闭包容量及关闭重读按唯一路径计算。预检及当前原件闭合全部通过才发布，关闭后不再扩展读取或新增发布预留，重复关闭不重读收费。KnowledgeRetriever 的来源/index/记录读取另按自身阶段限额核验，不把这些独立阶段说成一次全局累计 I/O 门。
+
+既有 build_working_context 前段的任务/来源扫描仍没有累计 I/O 门，受外层受管 Job、单来源和最终 packet 限额约束；不能声称 prepare_context 整个操作的全部扫描都已由新增累计读计数覆盖。_capture_material 新增可选 reader/max_references 供本入口捕获时计数，旧 SDK 默认调用方式保持原行为。本批没有新增真实模型调用或 ModelCallStore 成本核验；字节容量与读取次数不等于 Token、耗时、语义准确性或修复收益。
+
+当前没有发布别名、静态 Skill、经验 SDK 接入、自动提炼/学习调用，也没有知识快照、绑定、查询、context/review 的会话、报告、导出与评测集成。独立对象已能闭合核验，不代表已经参与 Agent 实际求解或具备演进能力。
 
 Agent 启动、恢复及发布别名以后接入时，须绑定当时已物化的具体快照，SQLite 快照不得依赖未合并 WAL；别名变化只影响新任务，恢复不能换最新版或空库。新增快照配置须明确进入新会话、报告、导出及评测，不补写旧运行；普通检索和增强组读相同投影，基础组继续保留通用读取、反思和验证能力。Skill 版本及演进的后续义务见第 3.1.3 节。
 

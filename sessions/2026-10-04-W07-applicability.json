@@ -1,0 +1,185 @@
+{
+  "session_id": "session-2026-10-04-W07-applicability",
+  "date": "2026-10-04",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "source_start_commit": "fbbf359",
+  "work_package": "W07 current-task binding and tri-state historical guidance handoff",
+  "user_request_summary": "继续推进设计实现，完成当前可验收批次；只做合成软件验证，不启动真实模型或 HarmonyOS 实验。",
+  "goal": "将批准经验与当前任务和登记证据绑定，逐前提保存可尝试、暂停照搬或查证建议，从冻结原件审计而不升级模型语义权威。",
+  "changes": [
+    "新增 schema 1 TaskKnowledgeBinding、BoundQuery、ApplicabilityContext/Proposal/Review；完整规范内容寻址，冻结嵌套对象并重验实例。",
+    "主机外部 approval 固定 task/run、源码/日志、knowledge snapshot/scope，saved binding 不能自行扩大资格；construct/read 无创建。",
+    "record_query 只接检索提示，主机填写已批准 snapshot/scope；context 只能使用完整实际命中页及明确主机焦点。",
+    "逐项覆盖原经验前提，supported/contradicted 要有引用；矛盾优先、未知次之，全部 unknown 保留原查证问题，三态均保留完整指导和当前登记验证义务。",
+    "当前依据须属于冻结焦点诊断；原版源码/日志不当候选观察，直接及递归推断中的执行依据核对实际候选版本，旧失败不能变成新候选事实。",
+    "working_context 共享候选焦点谓词：真实已登记失败可关联新诊断及同起源修订候选；单独 feedback_candidate_id 无资格。capture 新 reader/count 参数默认不改变旧 SDK 路径。",
+    "原材料按 CAS 保存，context/review 回读重核完整当前闭包与固定知识；正常后续检查不重建旧判断，新增证据须新 context。",
+    "从冻结原诊断 bundle 重跑 validate_references，使用冻结源码行数重验引用、位置和版本，重算外层哈希不能绕过原准入。",
+    "发布前预留完整输出和关闭读取预算并完成原件 finish；prepare_context 另纯模拟实际下一次 audit 的初读及 closing 序列，owner 原件/CAS 分路计费，同 CAS 多引用初读逐引用而闭包/关闭按路径去重。",
+    "新增接口只检查来源/引用/版本和结构关系；semantic_authority=model_inference、focus_recency=explicit_host_input_not_authenticated、application_verification=not_run。",
+    "更新现有开发入口、架构、规格、说明和 STATUS，无新当前 Markdown、无第二任务台账；竞赛模板、原数据、配置、依赖和既有 session/report/completion 协议不改。"
+  ],
+  "source_sha256_at_completion": {
+    "src/dfx_agent/applicability_contracts.py": "11cf82da4c60cb4240589bdf4e2f7ddd3a873e51e875a1ebf5e64e16f260e2c3",
+    "src/dfx_agent/applicability.py": "60125581a1eb3162b949e681fcf9aa0f9ebd867d6cd8a5a5417d59a7c20620f7",
+    "src/dfx_agent/working_context.py": "4b5213521ea8b9e55597f4ea0b76f978ec2770937d2f46b2f25b792cf82bb3ec",
+    "src/dfx_agent/working_context_plan.py": "b74dca5408cfc5bf64a086472685307cea3b269bec9b09cc78bf807270e6427e",
+    "tests/test_applicability_contracts.py": "ab36ce7428a2e218cbe70972633a37fa9a240a31f65c981fcbda1477fd9db401",
+    "tests/test_applicability.py": "ae38293a38e7bee99557a3c5067c33b349e66792a5dfeb855514c37be6777955"
+  },
+  "validation": {
+    "tests": [
+      {
+        "path": "tests/test_applicability_contracts.py",
+        "managed_run_id": "89487649-7c59-4e9f-ae14-78c6b4267dad",
+        "summary": "160 passed in 0.87s",
+        "passed": 160,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_applicability.py",
+        "managed_run_id": "8e7f8307-1e39-4318-b199-5fdde6df3d9b",
+        "summary": "72 passed in 63.17s",
+        "passed": 72,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_working_context.py",
+        "managed_run_id": "a80f5d21-f4b4-4c90-9e0d-f53052cdcd09",
+        "summary": "60 passed in 10.67s",
+        "passed": 60,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_working_context_plan.py",
+        "managed_run_id": "d1c073fa-1561-42b9-b87f-28a2864d99b9",
+        "summary": "33 passed in 24.85s",
+        "passed": 33,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_working_context_handoff.py",
+        "managed_run_id": "1fa3643a-485d-4807-a49f-ff9f770a8517",
+        "summary": "14 passed in 82.56s",
+        "passed": 14,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_agent_loop.py",
+        "managed_run_id": "4a971059-4722-4b25-b7c7-9df44bfedbed",
+        "summary": "12 passed in 15.55s",
+        "passed": 12,
+        "skipped": 0
+      }
+    ],
+    "selected_files": 6,
+    "passed": 351,
+    "skipped": 0,
+    "scope": "selected_file_runs_not_full_repository_run; synthetic_only",
+    "chronology_note": "接口最终72项验收后只整理导入格式，随后 Ruff/Pyright 与冻结源码的 SDK/修复循环/计划回归通过；未变更行为或放宽门槛。",
+    "quality": {
+      "ruff": {
+        "managed_run_id": "d84c260a-9266-41c3-b64c-562dfa7f72bc",
+        "summary": "All checks passed!"
+      },
+      "pyright": {
+        "managed_run_id": "391854fa-9090-4134-8e1d-744fb4612439",
+        "summary": "0 errors, 0 warnings, 0 informations"
+      },
+      "docs": {
+        "managed_run_id": "8f6e9ffb-8baa-4224-832a-f836c000b488",
+        "summary": "Documents: 14; errors: 0; optional notes: 0",
+        "manual_review": "核对 task/run 批准与实际焦点差别、冻结引用/原件准入、捕获和独立审计预算、同知识对照、语义权威、未接 SDK/导出的边界及 STATUS 下一包。"
+      }
+    },
+    "counterexamples": [
+      "三态优先顺序、业务前提矛盾、部分未知、原问题不改写和完整同知识投影保留。",
+      "跨 task/run、scope/snapshot、诊断/假设/候选版本、非实际返回页、前提遗漏/重复与未登记引用拒绝。",
+      "原版误作候选、旧候选执行事实及两层推断依据误作当前、其他诊断事实和无实际失败的 feedback 声明拒绝。",
+      "同长度恢复 mtime 的原件修改、缺失 CAS/知识、重哈希伪造 context/review/bundle、missing basis 和 foreign root-cause version 拒绝。",
+      "新合法检查产生新 context，旧 context/review 仍从原件回读；纯读取和重复发布不新增动作，返回值不可修改原记录。",
+      "绑定/查询/context/review 初读可容但 closing 超限时拒绝且零新文件；审计22/23次漏算反例在发布前拒绝。",
+      "实际独立 read_context 的读取序列测量与预算模拟一致，calls/bytes/capacity 逐项收紧拒绝；祖先链接先于叶读取拒绝。"
+    ],
+    "independent_review": [
+      "独立审查识别发布后的 closing 才拒绝和冻结 bundle 只验哈希不足，补齐发布前关闭预算与原 validate_references 复验。",
+      "再次审查指出 owner 原件和 CAS 审计复制漏算，改为实际序列预算模拟并加反例；最终只读审查确认实现匹配算法且未发现阻塞缺陷。",
+      "审查不视为语义、模型或应用效果验证；主代理亦人工核对原字节事实、共同权限与跨文档状态。"
+    ],
+    "retained_intermediate_runs": [
+      {
+        "managed_run_id": "f2718524-43a3-49a9-a3ea-ffb6d16d2fa7",
+        "summary": "5 failed, 55 passed",
+        "resolution": "KnowledgeError 是 RuntimeError，显式归一；新诊断/修订候选焦点须承接实际失败，修正共享谓词而非放松当前版本引用。"
+      },
+      {
+        "managed_run_id": "28e0a4b1-676b-413e-970f-8c3daac60178",
+        "summary": "2 failed, 59 passed",
+        "resolution": "同起源修订候选焦点关联补齐，旧候选观察冒充当前仍拒绝。"
+      },
+      {
+        "managed_run_id": "464f2bf1-f831-45fd-b75e-c087c714308d",
+        "summary": "61 passed in 53.86s",
+        "resolution": "此后继续补发布预算及原诊断引用反例，不计为最终接口数量。"
+      },
+      {
+        "managed_run_id": "2d8ad242-937a-4232-b303-676e9a4d5352",
+        "summary": "67 passed in 51.34s",
+        "resolution": "此后补实际审计 owner/CAS 漏算与测量反例，最终72项。"
+      },
+      {
+        "managed_run_id": "c9bf70a1-d1db-468c-862c-0e0920f7ad1d",
+        "summary": "Ruff 4 issues",
+        "resolution": "Callable 导入、导入排序、fixture 变量及多余 kwargs 整理；反例断言保留。"
+      },
+      {
+        "managed_run_id": "c3ceb850-c1ba-43bd-a925-1e5cb50a1c02",
+        "summary": "Pyright 1 error",
+        "resolution": "为状态动作映射明确 NextAction 类型。"
+      },
+      {
+        "managed_run_id": "9d35fcda-aff6-4b65-982d-13bff1e4a815",
+        "summary": "Ruff 1 import organization issue",
+        "resolution": "规范多行导入后最终质量通过。"
+      },
+      {
+        "managed_run_id": "b3572b37-e417-4997-950c-541af8d37291",
+        "summary": "2 failed, 12 passed in 76.43s",
+        "resolution": "测试运行期间主代理调整 applicability.py 导入，主机来源保护拒绝后两项；固定全部源码后14项完整复验通过。没有关闭或放宽来源保护。"
+      }
+    ]
+  },
+  "environment": {
+    "observed_after_software_acceptance": true,
+    "managed_bytes_by_category": {
+      "cache": 107220044,
+      "python": 59906689,
+      "env": 107635855,
+      "tmp": 27307,
+      "state": 55821,
+      "artifacts": 2920468,
+      "work": 1146230,
+      "tools": 41432064
+    },
+    "export_bytes": 912885,
+    "combined_bytes": 321257363,
+    "active_state": "none",
+    "owner_valid": true,
+    "new_installations": 0,
+    "new_exports": 0,
+    "real_model_requests": 0,
+    "application_builds": 0,
+    "device_replays": 0,
+    "policy_changed": false,
+    "global_environment_changed": false
+  },
+  "limits": [
+    "独立 API 未进入 SDK、工具授权/实际可见焦点、session/report/completion、聚合、导出或 ResearchProfile。",
+    "新捕获和审计各阶段累计 I/O 有门，knowledge 检索另有自身阶段门；build_working_context 前段全树扫描尚无完整累计 I/O 账本，不能声称整次 prepare_context 已计完。",
+    "主机批准完整自然语言指导及声明来源，不自动认证语义无答案泄漏；历史应用和真实调用成本仍未知。",
+    "焦点为显式主机输入，来源/版本核验不证明经验前提成立、根因正确、模型遵循、修复成功、学习收益或论文创新。",
+    "未安装 HarmonyOS 工具链、SDK/模拟器或模型权重；静态 Skills、候选演进与真实效果仍待后续工作。"
+  ],
+  "next": "W07 在迁移配置和会话/报告/导出身份后，将批准知识与三态交接接入实际 SDK 可见焦点、工具授权和模型发送/恢复；再接受控静态 Skill，保持同知识/工具/预算对照。"
+}
