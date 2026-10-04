@@ -1,6 +1,6 @@
 # 离线证据与修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-03。
+状态：当前使用说明。最后维护：2026-10-04。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
 当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 支持固定响应和模拟模型协议，已把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实云端传输、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。导出是未脱敏的本机私有包，正式应用汇总、执行版本来源和公开脱敏/提交仍待接入，实际验收见 STATUS。
@@ -162,6 +162,10 @@ DecisionRequest 可增加 condition_result_ids 与完整 condition_scope，主�
 `value_sources.py` 提供独立的程序接口，不是 CLI 或 SDK 工具。由主机代码建立固定 profile 的 SyntheticValueAdapter，并提供 SyntheticBindingFixture；`ValueSourceStore(workspace, adapter).bind_operation(proposal, fixture_id)` 核对诊断、冻结版本和 UTF-8 原字节锚点。adapter.add_capture 追加固定 SyntheticCaptureFixture，`capture_values(request, fixture_id)` 先保存请求，再登记合成凭据；binding/intent/receipt/receipts 回读只做核验，不新建记录。工作目录内 value-sources/ 保存 manifest、bindings、requests 和 receipts；重开继续提供可信 adapter 与所需历史 fixture，不能只凭磁盘标签信任来源。请求不得自带值、角色映射、观测事件或确认状态。
 
 这里的 source_literal/execution_sample 是模拟请求模式，输出来源始终 synthetic_fixture；没有真实语法/类型适配、literal 提取、设备动作或新条件结果，也不改变 ConditionStore 和 session schema。测试覆盖原字节/父操作、参数角色、对象实例/代次/时序、缺前提、不可改写和恢复反例，执行入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_value_sources.py`。完整职责及未来迁移见 [模块规格第 3.0.1 节](../../docs/design-contracts.md#301-可信采值与算子绑定)。
+
+`knowledge.py` 也只提供独立主机程序接口，没有 CLI、SDK 工具、SQLite 检索或自动学习。主机先审查完整 `SolverProjection` 文档和来源用途，准备 `HostMaterialManifest`；`HostMaterialRegistry(source_root, manifest)` 在只读构造时捕获批准原字节。然后在预建的受管目录中建立 `KnowledgeStore(root)`，以只含材料 ID 的 `ExperienceDraft` 调用 `admit_entry`，以明确条目和 `PermissionScope` 调用 `freeze_snapshot`。`read_entry`、`read_snapshot`、`read_projection(snapshot_sha256, entry_id)` 核验并回读具体内容，不新建文件、不读取最新别名、不补缺失材料。后续 SDK 调用还须绑定真实任务范围及主机选定快照。
+
+store 内 `materials/` 保存原批准字节，`entries/` 保存内容及来源权限，`snapshots/` 绑定精确条目、投影、权限与检索声明；本批 Skill 列表为空。单记录、批准来源总量和一次引用集合的上限由 `knowledge_contracts.py` 定义，超限不截断；叶文件、祖先、读取时变化及闭合收尾均核验，采用串行主机读写协议。历史只接受主机合成描述，报告/产物哈希不等于实际报告认证，应用资格恒为无；历史范围和未知/失败会保留在指导中，原任务/候选/oracle 描述仅供审计。哈希不能判断自然语言是否含答案，完整指导须主机审核。原来源更新需新 registry，新条目或快照不会改写旧内容。字段、准入及未来协议迁移见 [规格第 3.1.2 节](../../docs/design-contracts.md#312-经验检索和适用性交接)。合成反例通过 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_knowledge_contracts.py` 与相同入口的 `tests/test_knowledge_store.py` 执行。
 
 `acceptance.py` 当前只供独立程序调用：准备者冻结与候选无关的共同协议，可信打包器绑定完整运行源码，执行端按检查 ID 回传原版和候选的结果，接受门对缺失、模拟、版本错配和行为失败返回 `not_verified`。这些适配器及业务 oracle 尚未接入；该模块的合成 `verified_under_protocol` 测试值不是本项目已修复应用的成绩。
 

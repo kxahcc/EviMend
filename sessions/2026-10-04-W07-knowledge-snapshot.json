@@ -1,0 +1,133 @@
+{
+  "session_id": "session-2026-10-04-W07-knowledge-snapshot",
+  "date": "2026-10-04",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "source_start_commit": "84d92fe",
+  "work_package": "W07 independent host-admitted experience and immutable knowledge snapshot",
+  "user_request_summary": "继续推进设计与开发；先完成合成软件能力，不自行启动真实模型或 HarmonyOS 应用实验。",
+  "goal": "主机批准的完整程序性指导及来源权限能够不可改写保存，具体知识快照可在来源更新后独立闭合回读。",
+  "changes": [
+    "新增严格、冻结、schema 1 的经验内容、完整求解投影、来源权限、历史 fixture、条目与知识快照契约；结构和内容身份重核，contents 返回副本。",
+    "主机审核完整 SolverProjection 原字节并赋予角色/权限，ExperienceDraft 仅选择批准材料 ID，不接受模型自填指导、权限、结果或资格。",
+    "HostMaterialRegistry 只读捕获显式批准原字节；使用新来源须新 registry，未选择 grant 的追加不改变旧条目。",
+    "KnowledgeStore 在主机预建 root 内物化 materials/entries/snapshots；构造和读取不创建文件，不提供最新别名、缺失回退或自动修复。",
+    "学习只接 curated/development 的允许来源；冻结和回读核对全部来源 solve/split 交集，排除已声明历史谱系。",
+    "指导含前提/未知问题/过程/观察分支/保留行为/反例/退出条件及精确历史有限范围；旧 task/candidate/oracle/env 描述仅作审计，历史不是当前 Evidence。",
+    "历史仅主机 synthetic fixture，应用资格恒 none；报告/产物摘要不是实际报告认证，声明提炼成本仅 host_declaration，未知/失败保持。",
+    "读取核验完整未解析路径、正规独立叶、原字节/长度/摘要、规范对象及权限；闭包结束重读并核对全部 FD change-time 与祖先身份，拒绝恢复 mtime 的同长度改写。",
+    "独立复核发现多个分别有界 registry 可拼成过大快照，补完整 unique-path closure 容量门及入库/最终快照发布前预算；重复 CAS 不重复占容量，但仍读取核验。",
+    "快照内容固定条目/投影/来源权限/scope/检索行为声明，Skill 列表必须为空；没有查询排序、SQLite、三态、SDK、自动学习、会话或知识导出集成。",
+    "同步既有归属文档、目录入口和下一包；保留竞赛模板、原数据、运行配置、依赖与既有 SDK 协议。"
+  ],
+  "source_sha256_at_completion": {
+    "src/dfx_agent/knowledge.py": "f8bb2bb61c5b316963ba5eb6382291929081514be6ae46b587a3744ea1eaaeb6",
+    "src/dfx_agent/knowledge_contracts.py": "10c354fc584e1367a6bdbb3f393c7d615512076ba0ee2196c56519ca505aa9db",
+    "tests/test_knowledge_contracts.py": "f20fc34b825fe219eed2e3d2c436e366d1be03e25e43686de0c3725ca5d64afc",
+    "tests/test_knowledge_store.py": "56156c5cac0525fce93c6634545b42041fd22f51d9ee45acf1c6ca396b107b4a"
+  },
+  "validation": {
+    "tests": [
+      {
+        "path": "tests/test_knowledge_contracts.py",
+        "managed_run_id": "44f50623-4d3b-4f63-b5f0-22df23f15e41",
+        "summary": "124 passed in 0.38s",
+        "passed": 124,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_knowledge_store.py",
+        "managed_run_id": "126e06f2-6456-4d21-88fd-c7ebdd991580",
+        "summary": "85 passed in 6.62s",
+        "passed": 85,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_agent_loop.py",
+        "managed_run_id": "353bf837-cab0-480d-a803-120e6a223fa1",
+        "summary": "12 passed in 16.63s",
+        "passed": 12,
+        "skipped": 0
+      },
+      {
+        "path": "tests/test_readonly_evidence.py",
+        "managed_run_id": "33404bce-d8a4-48b5-ad8a-3a0de4f48a32",
+        "summary": "27 passed, 3 skipped in 6.69s",
+        "passed": 27,
+        "skipped": 3,
+        "skip_reason": "Current Windows account lacks symbolic-link capability (WinError 1314)."
+      }
+    ],
+    "selected_files": 4,
+    "passed": 248,
+    "skipped": 3,
+    "scope": "selected_file_runs_not_full_repository_run; synthetic_only",
+    "chronology_note": "最终契约在 closure 代码修订后运行，既有 SDK/只读回归与最后存储测试均使用该源码；随后未改行为，只完善文档和批次记录。",
+    "quality": {
+      "ruff": {"managed_run_id": "5a661a0a-45b3-43c6-9b91-fb5950632d77", "summary": "All checks passed!"},
+      "pyright": {"managed_run_id": "397dc41a-1a39-4da5-afdb-81a477983dcc", "summary": "0 errors, 0 warnings, 0 informations"},
+      "docs": {"managed_run_id": "b58da65a-ee66-4345-b20e-8e940f0b9c22", "summary": "Documents: 14; errors: 0; optional notes: 0", "manual_review": "Cross-document scope, owned fields, API behavior, task permission and planned integration reviewed; no current Markdown added."}
+    },
+    "independent_review": {
+      "scope": "Read-only code/contracts/tests review; no reviewer jobs or mutations.",
+      "finding_fixed": "Individual material caps did not bound a multi-registry snapshot closure; reserve unique bytes before first I/O and account final envelopes before publication.",
+      "final_review": "Entry/snapshot publication and all read methods use consistent closure accounting. Permission intersection, canonical original binding and unknown/failed qualification consistent; no further definite blocking defect found.",
+      "limits": "Trust host approval/source declaration and serial managed reads/writes; no arbitrary concurrent-writer OS atomicity, full prose provenance inference or semantic answer-leak certification."
+    },
+    "retained_intermediate_results": [
+      {"managed_run_id": "ade30e34-b3e7-4ba4-8a80-80d74bf2ab8d", "summary": "1 failed, 123 passed", "reason": "Deep JSON was correctly rejected before custom validator; test required one overly specific error message. Require ValidationError without binding parser wording; rejection retained."},
+      {"managed_run_id": "a8bcc76d-e5f4-4d75-b720-69f5988fd361", "summary": "124 passed in 0.37s", "scope": "Before final closure capacity addition."},
+      {"managed_run_id": "51a69f3e-5c7f-4fb1-bd21-e660a8ec2e91", "summary": "68 passed in 3.61s", "scope": "Earlier store implementation/tests."},
+      {"managed_run_id": "f6d1482f-e520-4dc7-9b74-0578a4a3f4ba", "summary": "79 passed in 5.25s", "scope": "FD/final-drift/selection tests before closure capacity addition."},
+      {"managed_run_id": "c8a7e1dc-7739-478e-baa1-aca7560953f8", "summary": "Ruff failed with I001, TRY004, B008", "reason": "Import formatting, invalid-type exception and constructed default argument; corrected and rerun."},
+      {"managed_run_id": "7a0d6d6c-6223-4ffa-bdbb-6079e51f2b45", "summary": "0 errors, 0 warnings, 0 informations", "scope": "Earlier type check; final rerun listed above."}
+    ],
+    "old_package_readonly_verification": [
+      {
+        "export_id": "w07-latency-20261003",
+        "managed_run_id": "54474dbc-5353-467e-915a-095995fa7988",
+        "context_format": 2,
+        "status": "passed",
+        "package_sha256": "728df16c4a0fbd6b44b6f37c1b59675edfbcf15664bfc15f983a6873a30bc4d8",
+        "aggregate_sha256": "a657c8b7ae7ab2b52033a0daf068d2a25a3aa861911244d09f4a922779d7c83a"
+      },
+      {
+        "export_id": "w07-send-20261003",
+        "managed_run_id": "9b89911d-0dd4-4078-b121-dd47ed0c5e39",
+        "context_format": "legacy_inline_without_format_marker",
+        "status": "passed",
+        "package_sha256": "6623338037e39d72ba7cd82d76205f5429fdecf35d09a2327cdc36bb89ad751b",
+        "aggregate_sha256": "40b7f3b0052b2c93ae0337e66601ff5b0c1d4cad69123ca9ef2a0bed362a2dc3"
+      }
+    ],
+    "old_package_scope_note": "Unchanged packages demonstrate legacy readonly compatibility only; they contain no new knowledge store and do not qualify knowledge export support."
+  },
+  "environment": {
+    "new_installations": [],
+    "global_environment_changes": [],
+    "runtime_config_changed": false,
+    "managed_environment": "Existing project Python 3.13.5 and locked dependencies; jobs serialized through scripts/local.ps1.",
+    "status_observation_after_selected_checks_and_old_packages": {
+      "managed_bytes": 319994665,
+      "export_bytes": 912885,
+      "active_state": "none",
+      "active_marker": false,
+      "remote_jobs_unknown": false
+    },
+    "new_export_packages": 0,
+    "test_tmp": "Existing managed runner owns/cleans fixture paths; logs and intermediate failures retained. No cleanup permission expanded.",
+    "real_model_calls": 0,
+    "application_builds": 0,
+    "device_replays": 0,
+    "fine_tuning_or_local_weights": "not_in_current_route"
+  },
+  "unchanged_boundaries": [
+    "Host approval of complete text and complete source declaration remains necessary; byte hashes are not signatures or semantic certification.",
+    "read_projection validates the frozen snapshot scope, not an arbitrary current caller task. SDK integration must bind host-selected snapshot/scope to task/run before exposing tools.",
+    "Historical report/artifact fields are synthetic host declarations, not authenticated actual reports. Declared tokens are not actual model ledger usage.",
+    "Unique closure capacity is not cumulative I/O capacity; repeated reads and indexing performance remain future work.",
+    "Skills, retrieval, applicability, aliases, learning and knowledge session/report/export/evaluation integration absent; existing session/report/completion 10/7/4 unchanged.",
+    "No contest templates or data_B changed; no API credentials, real model/application experiment or dependency installation."
+  ],
+  "next_work_package": "W07 bounded SQLite retrieval within an explicit immutable snapshot: MemoryQuery/RetrievalRecord, deterministic tag/text ordering and identical projection reads; then tri-state/current-scope handoff and static Skills."
+}
