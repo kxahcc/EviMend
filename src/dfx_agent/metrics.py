@@ -16,7 +16,7 @@ from typing import Any, Literal
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .actions import OFFLINE_CAPABILITIES, TOOL_ACTIONS, ToolActionStore
+from .actions import OFFLINE_CAPABILITIES, ToolActionStore
 from .agent import _tools
 from .conditions import ConditionStore
 from .context_compaction import CompactionPolicy
@@ -27,7 +27,7 @@ from .model_provider import _tool_descriptors
 from .models import context_profile
 from .policies import PolicyFeatures
 from .provenance import validate_session_provenance
-from .reporting import read_completion
+from .reporting import _KNOWLEDGE_ENTRIES, _knowledge_presence, read_completion
 from .source_search import search_limits
 from .task import CaseSelection, digest, require_relative_reference, verify_task
 from .task_strategy import build_system_prompt, build_task_message
@@ -218,9 +218,45 @@ class EvaluationManifestV2(_Frozen):
         return self
 
 
-AnyEvaluationManifest = EvaluationManifest | EvaluationManifestV2
+class RunConfigurationV3(RunConfigurationV2):
+    """One frozen knowledge baseline shared by every declared variant."""
+
+    knowledge_profile: dict[str, Any]
+
+    @model_validator(mode="after")
+    def valid_knowledge(self) -> RunConfigurationV3:
+        from .knowledge_run import normalize_shared_knowledge_profile
+
+        if canonical(self.knowledge_profile) != canonical(normalize_shared_knowledge_profile(self.knowledge_profile)):
+            raise ValueError("evaluation knowledge profile is not canonical")
+        return self
+
+
+class EvaluationManifestV3(_Frozen):
+    schema_version: Literal[3]
+    evaluation_id: str
+    scope: Literal["offline_synthetic"]
+    configuration: RunConfigurationV3
+    tasks: tuple[EvaluationTask, ...] = Field(min_length=1)
+    variants: tuple[EvaluationVariantV2, ...] = Field(min_length=1)
+    repeat_ids: tuple[str, ...] = Field(min_length=1)
+    runs: tuple[EvaluationCell, ...] = Field(min_length=1, max_length=MAX_CELLS)
+
+    @model_validator(mode="after")
+    def valid(self) -> EvaluationManifestV3:
+        EvaluationManifestV2.model_validate_json(canonical({
+            "schema_version": 2, "evaluation_id": self.evaluation_id, "scope": self.scope,
+            "configuration": self.configuration.model_dump(mode="json", exclude={"knowledge_profile"}),
+            "tasks": [item.model_dump(mode="json") for item in self.tasks],
+            "variants": [item.model_dump(mode="json") for item in self.variants],
+            "repeat_ids": list(self.repeat_ids), "runs": [item.model_dump(mode="json") for item in self.runs],
+        }))
+        return self
+
+
+AnyEvaluationManifest = EvaluationManifest | EvaluationManifestV2 | EvaluationManifestV3
 AnyEvaluationVariant = EvaluationVariant | EvaluationVariantV2
-AnyRunConfiguration = RunConfiguration | RunConfigurationV2
+AnyRunConfiguration = RunConfiguration | RunConfigurationV2 | RunConfigurationV3
 
 
 def parse_evaluation_manifest(value: object) -> AnyEvaluationManifest:
@@ -231,6 +267,8 @@ def parse_evaluation_manifest(value: object) -> AnyEvaluationManifest:
         return EvaluationManifest.model_validate_json(canonical(value))
     if value["schema_version"] == 2:
         return EvaluationManifestV2.model_validate_json(canonical(value))
+    if value["schema_version"] == 3:
+        return EvaluationManifestV3.model_validate_json(canonical(value))
     raise ValueError("unsupported evaluation manifest schema")
 
 
@@ -367,12 +405,18 @@ def _session(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationV
     provenance = validate_session_provenance(value)
     if provenance is not None:
         required.add("execution_provenance")
+    knowledge_evaluation = isinstance(configuration, RunConfigurationV3)
+    if knowledge_evaluation:
+        required.add("knowledge_profile")
     if set(value) != required or value["run_id"] != cell.run_id:
         raise ValueError("session schema or identity differs")
+    if knowledge_evaluation != (value["schema_version"] == 11):
+        raise ValueError("session and evaluation knowledge generations differ")
+    _knowledge_presence(workspace, value)
     current_evaluation = isinstance(configuration, RunConfigurationV2)
     if current_evaluation != isinstance(variant, EvaluationVariantV2):
         raise ValueError("evaluation configuration and variant schemas differ")
-    if current_evaluation and value["schema_version"] != 10:
+    if current_evaluation and value["schema_version"] != (11 if knowledge_evaluation else 10):
         raise ValueError("session and evaluation generations differ")
     if not isinstance(value["started_at"], str) or datetime.fromisoformat(value["started_at"]).tzinfo is None:
         raise ValueError("session time must have a timezone")
@@ -420,6 +464,11 @@ def _session(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationV
         expected_profile.pop("working_context_format", None)
     if canonical(profile) != canonical(expected_profile):
         raise ValueError("unsupported context profile")
+    if knowledge_evaluation:
+        from .knowledge_run import shared_knowledge_profile
+
+        if canonical(shared_knowledge_profile(value["knowledge_profile"])) != canonical(configuration.knowledge_profile):
+            raise ValueError("session knowledge differs from the shared evaluation baseline")
     return value
 
 
@@ -427,9 +476,16 @@ def _model_identity(session: dict[str, Any], store: ModelCallStore, workspace: C
                     ledger: CheckLedger, task_directory: Path, crash_sha256: str) -> list[str]:
     # Recreate the installed tool definitions without invoking any closure. An
     # explicit readback ConditionStore avoids _tools' registry-creation fallback.
+    knowledge = None
+    if session["schema_version"] == 11:
+        from .knowledge_run import read_run_knowledge
+
+        knowledge = read_run_knowledge(workspace, task_directory, session["knowledge_profile"], ledger=ledger)
+        if knowledge is None:
+            raise ValueError("knowledge session has no readable knowledge store")
     tools = _tools(workspace, ledger, session["max_candidates"], task_directory,
                    "crash.log", crash_sha256, PolicyFeatures.model_validate(session["policy_features"]),
-                   frozenset(session["capabilities"]), ConditionStore(workspace))
+                   frozenset(session["capabilities"]), ConditionStore(workspace), knowledge_store=knowledge)
     descriptors = [{"name": item.name, "description": item.description,
                     "schema": item.args_schema.model_json_schema()} for item in tools]
     if session["tool_schema_sha256"] != sha256(canonical(descriptors)):
@@ -450,7 +506,7 @@ def _model_identity(session: dict[str, Any], store: ModelCallStore, workspace: C
         if (intent.provider_id, intent.model_id) != expected or intent.kind not in ("solver", "context_compaction"):
             raise ValueError("model ledger differs from supported session identity")
         if intent.kind == "solver":
-            if intent.tool_names != expected_names or set(intent.tool_names) != set(TOOL_ACTIONS):
+            if intent.tool_names != expected_names:
                 raise ValueError("solver did not share the complete offline tool set")
             if intent.tool_schema_sha256 != expected_schema:
                 raise ValueError("solver wire tool schema differs from installed tool definitions")
@@ -465,8 +521,8 @@ def _model_identity(session: dict[str, Any], store: ModelCallStore, workspace: C
 def _outcome(completion: dict[str, Any]) -> str:
     if completion["suggested_status"] == "offline_checked" and completion["latest_candidate_check_status"] == "pass":
         return "pass"
-    if completion["schema_version"] == 4 and any(
-        reason.startswith("working_context_") for reason in completion["unresolved_reasons"]
+    if completion["schema_version"] in (4, 5) and any(
+        reason.startswith(("working_context_", "knowledge_")) for reason in completion["unresolved_reasons"]
     ):
         return "unknown"
     uncertain = {"model_result_unknown", "action_result_unknown", "check_result_unknown", "model_request_not_dispatched",
@@ -496,12 +552,22 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVaria
     if isinstance(variant, EvaluationVariantV2):
         value["working_context_enabled"] = variant.working_context_enabled
         value["working_context_plans"] = []
+    if isinstance(configuration, RunConfigurationV3):
+        value["knowledge_profile"] = None
+        value["knowledge_facts"] = None
     if cell.work_path is None:
         return value
     work = root / cell.work_path
     value.update(record_status="missing", status="missing", missing_reason="work_missing")
     if not work.exists():
         return value
+    if not isinstance(configuration, RunConfigurationV3):
+        for name in _KNOWLEDGE_ENTRIES:
+            try:
+                (work / name).lstat()
+            except FileNotFoundError:
+                continue
+            raise ValueError("historical evaluation cannot acquire knowledge evidence")
     state = _load(work / "run-state.json", MAX_MANIFEST_BYTES)
     if (not isinstance(state, dict) or type(state.get("schema_version")) is not int or state["schema_version"] != 1 or
             state.get("task") != "offline" or state.get("run_id") != cell.run_id or
@@ -517,13 +583,34 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVaria
                 workspace = CandidateWorkspace.reopen(root / task.task_path, work, cell.run_id)
                 session = _session(task, cell, variant, configuration, workspace)
                 value["execution_provenance"] = validate_session_provenance(session)
+                if session["schema_version"] == 11:
+                    from .knowledge_run import read_run_knowledge
+
+                    knowledge = read_run_knowledge(workspace, root / task.task_path, session["knowledge_profile"],
+                        ledger=CheckLedger(workspace, ReplayOnlyExecutor(task.protocol_sha256), read_only=True))
+                    if knowledge is None:
+                        raise ValueError("missing report session has no readable knowledge store")
+                    if (work / "model-calls.sqlite").exists() and (work / "tool-actions.sqlite").exists():
+                        from .knowledge_handoff import audit_run_knowledge
+
+                        audit_run_knowledge(workspace, root / task.task_path,
+                            CheckLedger(workspace, ReplayOnlyExecutor(task.protocol_sha256), read_only=True),
+                            session["knowledge_profile"], ModelCallStore(work / "model-calls.sqlite", read_only=True),
+                            ToolActionStore(work / "tool-actions.sqlite", read_only=True))
+                    else:
+                        from .knowledge_handoff import audit_stored_queries
+
+                        audit_stored_queries(workspace, root / task.task_path,
+                            CheckLedger(workspace, ReplayOnlyExecutor(task.protocol_sha256), read_only=True),
+                            session["knowledge_profile"])
+                    value["knowledge_profile"] = session["knowledge_profile"]
         return value
     workspace = CandidateWorkspace.reopen(root / task.task_path, work, cell.run_id)
     session = _session(task, cell, variant, configuration, workspace)
     calls = ModelCallStore(work / "model-calls.sqlite", read_only=True)
     actions = ToolActionStore(work / "tool-actions.sqlite", read_only=True)
     ledger = CheckLedger(workspace, ReplayOnlyExecutor(task.protocol_sha256), read_only=True)
-    completion = read_completion(workspace, ledger, calls, actions)
+    completion = read_completion(workspace, ledger, calls, actions, task_directory=root / task.task_path)
     schemas = _model_identity(session, calls, workspace, ledger, root / task.task_path, task.crash_sha256)
     artifacts = completion["candidate_artifacts"]
     first = artifacts[0] if artifacts else None
@@ -539,6 +626,9 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVaria
         value["execution_provenance"] = completion["execution_provenance"]
     if isinstance(variant, EvaluationVariantV2):
         value["working_context_plans"] = completion["working_context_plans"]
+    if isinstance(configuration, RunConfigurationV3):
+        value["knowledge_profile"] = completion["knowledge_profile"]
+        value["knowledge_facts"] = completion["knowledge_facts"]
     return value
 
 

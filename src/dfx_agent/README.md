@@ -87,9 +87,9 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 失败后 `link_failed_check` 返回反馈及 feedback_id，再决策时成对传该 feedback_id 与原 candidate_id；主机重新核对已保存失败检查、候选源码哈希和原观察。`decisions/<ID>.json` 保存建议及上下文摘要；`inspect_analysis(decision_id=...)` 可回读，默认列出决策和反馈 ID。`register_candidate` 可选成对传 decision_id/direction_id，核对同诊断、所选提议方向及声明义务；建议不强迫模型采用某一修法。失败与义务的关联仍是推断，只建议重审相关方向。
 
-`agent-report.json` 的 schema 7/completion 4 绑定 session 10 中保存的 execution_provenance，记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 与 9/6/3 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。working_context_plans 记录可见动作水位、组织视图/实际发送哈希、选择范围与保留成本；context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
+`agent-report.json` 的无知识 schema 7/completion 4 绑定 session 10 中保存的 execution_provenance；主机明确批准知识时使用 11/8/5，另保存 knowledge_profile 和 knowledge_facts。记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 与 9/6/3 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。working_context_plans 记录可见动作水位、组织视图/实际发送哈希、选择范围与保留成本；context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
 
-`reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，保留完整核验依据使用受管私有 Export。
+`reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。知识运行必须另传主机实际 `task_directory=task`，不从模型字段取外部路径；build_completion 同样要求它。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，保留完整核验依据使用受管私有 Export。
 
 ### 只读聚合已停止的合成记录
 
@@ -103,7 +103,7 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 清单 schema 1 的 configuration 中 model_profile_sha256、context_profile_sha256 和 search_limits_sha256 分别取 `sha256(canonical(session[字段]))`，tool_schema_sha256 取 session 同名值，再列出共同 capabilities/max_calls/max_known_tokens/max_seconds/max_candidates/max_tool_calls。canonical/sha256 由 model_calls.py 提供；不要对随意缩进或不同排序的 JSON 直接取这些配置哈希。聚合会重算任务提示及实际主机/solver 工具定义，核对所有 session 与同组预算；旧普通 solver 原始请求体未保存，不声称完整历史请求重建；新运行启用工作上下文时另外核验保存的完整发送回执。
 
-清单 schema 2 用于显式上下文对照：configuration 另给 `working_context={max_packet_bytes,max_view_bytes,retain_groups}`，variants 每项必有 `working_context_enabled`；这些限制仍共享。此时上下文配置哈希取 `sha256(canonical(metrics.shared_context_profile(session["context_profile"])))`，只将 enabled 归一为 false，保留压缩及其他参数。`parse_evaluation_manifest` 区分两代，不给旧清单倒填默认值。v1 可核验当前关闭工作上下文的运行，但不能接纳开启的运行。
+清单 schema 2 用于显式上下文对照：configuration 另给 `working_context={max_packet_bytes,max_view_bytes,retain_groups}`，variants 每项必有 `working_context_enabled`；这些限制仍共享。此时上下文配置哈希取 `sha256(canonical(metrics.shared_context_profile(session["context_profile"])))`，只将 enabled 归一为 false，保留压缩及其他参数。清单 schema 3 继承该结构，configuration 另给 `knowledge_profile=knowledge_run.shared_knowledge_profile(session["knowledge_profile"])`，固定全部组共用的快照、scope、retriever、索引哈希及知识原件清单；排除 task/run 特有批准，但不放宽知识或工具。该代只支持普通检索，不增加三态/学习因素。`parse_evaluation_manifest` 显式区分三代，不给旧清单倒填默认值；1/2 拒绝知识运行，1 还拒绝开启工作上下文的运行。
 
 新运行的 context_profile 冻结 working_context_format=2：plan schema 2 以路径、摘要和大小引用同 run 的 working-context/materials 原字节，重复材料只保存一次；完整审计 packet 仍保留逐文件来源。模型投影只将 sources 清单替换为有摘要的统计，保留其他领域内容全文，覆盖判断使用实际投影。材料/审计产物沿用 MAX_ARTIFACT_BYTES 单产物限额，WorkingContextPolicy.max_packet_bytes 限制求解投影；超限明确停止，不放大配置。旧 session 10 缺标记时按 format 1 只读核验原 inline 计划和原预算解释；旧报告/包摘要不倒填，来源不兼容不能续跑。
 
@@ -169,13 +169,17 @@ store 内 `materials/` 保存原批准字节，`entries/` 保存内容及来源�
 
 检索入口为 `KnowledgeRetriever(store)`：主机先 `build_index(snapshot_sha256, scope)`，再提供 `MemoryQuery(snapshot_sha256=..., scope=..., tags=(...), text=..., offset=..., limit=...)`。`query(query)` 返回规范 `RetrievalRecord` 且不写文件；需要保留时用 `record(query)` 显式发布。`read_record(record_id)` 从原快照和索引重算全文；`read_projection(record_id, entry_id)` 只返回该查询页实际命中的完整指导。它们核验保存查询的范围，尚不认证调用者的真实任务权限。
 
-`indexes/` 的每快照 SQLite 与描述文件只保存批准指导的派生字段，不索引原历史、成本或对象 ID；`retrievals/` 保存显式发布的查询记录。标签规范后去重匹配，查询原拼写保留并拒绝规范重复；文本以去重 Unicode 词作子串匹配，空查询可按 ID 浏览。分数使用冻结权重，零分和未知标签条目保留，相关性不等于适用性。每次检索核完整来源及索引全部行，再按固定参数 SQL 排序；缺失、破损、附属日志、结构/行错配、超量或超数值能力均拒绝，不自动重建。独立容量和每连接 SQL 门由 `retrieval_contracts.py` 定义；query 的索引核验和排序分别用受限连接，累计读取包含闭包收尾。新增合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_knowledge_retrieval.py` 及同入口的 `tests/test_retrieval_contracts.py`，没有模型、SDK 求解或应用实验。
+`indexes/` 的每快照 SQLite 与描述文件只保存批准指导的派生字段，不索引原历史、成本或对象 ID；`retrievals/` 保存显式发布的查询记录。标签规范后去重匹配，查询原拼写保留并拒绝规范重复；文本以去重 Unicode 词作子串匹配，空查询可按 ID 浏览。分数使用冻结权重，零分和未知标签条目保留，相关性不等于适用性。每次检索核完整来源及索引全部行，再按固定参数 SQL 排序；缺失、破损、附属日志、结构/行错配、超量或超数值能力均拒绝，不自动重建。独立容量和每连接 SQL 门由 `retrieval_contracts.py` 定义；query 的索引核验和排序分别用受限连接，累计读取包含闭包收尾。合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_knowledge_retrieval.py` 及同入口的 `tests/test_retrieval_contracts.py`；SDK 接入使用下面的主机边界。
+
+普通经验检索已接实际 SDK 程序接口：主机将审核过的 `KnowledgeRetriever` 与精确 `TaskKnowledgeBinding` 包成 `HostKnowledgeInput(retriever, approval)`，首次 `run_fixed_agent` 或 `run_provider_agent` 传 `knowledge=host_input`。入口把该快照/索引的完整原件闭包复制进当前 work 的 `knowledge/`，固定 `knowledge-profile.json` 和批准记录；不复制整库、外部旧查询或未批准内容。模型获得 `search_experience(tags, text, offset, limit)` 与 `read_experience(query_id, entry_id)`，不接收快照、scope 或文件路径参数。搜索返回完整命中页，回读只允许该页实际条目，保留全部前提、未知问题、步骤、保留行为及反例。无批准时原 14 工具及 10/7/4 形状不变，有批准时增加两工具；复用既有能力和调用/工具/Token/时间预算。
+
+知识续跑只传 `resume=True, knowledge_approval=original_approval`，不得再次传入库；主机必须明确提供原批准，不能从已存 profile 自行取得授权。原外部库不可用仍可从 run 原件恢复。来源、全部查询和完整 ToolMessage 回执在可写账本及 Graph 前只读审计；完整运行缺账本拒绝，未保存结果保留未知，已完成搜索/回读回放而不重做。搜索发布前既核原件容量，也核双份完整报告的 ASCII 转义容量及共享工具预算下的关联余量，拒绝后不写新查询、不截断指导。报告关联原 solver 请求、动作身份、批准范围和完整原指导，孤立查询不冒充模型使用。私有 Export 保留这些原件、批准、查询及索引，可在迁移后只依赖包内任务/知识重聚合。该入口暂未暴露到离线脚本/CLI；程序接口须在受管任务内调用，日常用上述受管测试入口验证，不能直接绕过 Job。相关测试为 `test_knowledge_run.py`、`test_knowledge_sdk.py`、`test_knowledge_reporting.py`。当前无真实模型或应用实验，也无三态发送或学习收益。
 
 经验前提交接入口为 `ApplicabilityStore(workspace, task_directory, ledger, retriever, approval)`。`approval` 是主机显式提供的 `TaskKnowledgeBinding`，固定实际任务/运行、分析版本、日志、批准知识快照与 scope；构造不创建目录，`bind()` 才固定该 run 批准。`record_query(tags=..., text=..., offset=..., limit=...)` 由主机填入快照和范围，生成绑定查询；`prepare_context(bound_query_id, focus)` 冻结当前诊断、假设、候选和已核验原材料。模型提案只使用该 context 的经验页和登记引用，`review(proposal)` 保存完整前提判断、指导、原未知问题、当前义务及三态建议。该入口无 CLI、SDK、模型调用或执行能力。
 
 run 内 `experience-bindings/approved.json` 保存主机批准，`experience-queries/` 保存绑定查询，`applicability-contexts/`、`applicability-materials/` 保存冻结上下文及原字节，`applicability-reviews/` 保存审查记录。`read_query`、`read_context`、`read_review` 对照外部批准并只读重核；合法后续检查不重写旧上下文，新证据需新 context。原版源码/日志不能标为候选观察，直接或递归推断中的执行依据须匹配当前候选与版本；历史同异常案例不能代替这些依据。语义状态仍为 model_inference，保存 supported 只提供可尝试步骤，不确认根因、修复或业务成功；contradicted 暂停照搬，unknown 提供原查证问题，不改共同接受门。
 
-完整知识、冻结材料及输出共同受 `applicability_contracts.py` 的容量约束，不同根之间采用保守计数；捕获和审计读取另有累计字节/次数门，闭合收尾也计入。发布前先完成原件关闭核验，冻结上下文还按下一次审计的实际路径预检预算；回读从原诊断材料重验引用、位置和版本，重写哈希不能绕过准入。`prepare_context` 前段复用的当前任务核验仍由外层 Job 保护，尚无完整累计 I/O 计量；不得把这些边界当实际性能或 Token 指标。合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_applicability_contracts.py` 和同入口的 `tests/test_applicability.py`。静态 Skill、实际发送、会话/报告/导出身份与自动学习仍待接入。
+完整知识、冻结材料及输出共同受 `applicability_contracts.py` 的容量约束，不同根之间采用保守计数；捕获和审计读取另有累计字节/次数门，闭合收尾也计入。发布前先完成原件关闭核验，冻结上下文还按下一次审计的实际路径预检预算；回读从原诊断材料重验引用、位置和版本，重写哈希不能绕过准入。`prepare_context` 前段复用的当前任务核验仍由外层 Job 保护，尚无完整累计 I/O 计量；不得把这些边界当实际性能或 Token 指标。合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_applicability_contracts.py` 和同入口的 `tests/test_applicability.py`。三态接口与 SDK 可见焦点、实际发送及对应报告/评测身份的集成，受控静态 Skill 和自动学习仍待接入。
 
 `acceptance.py` 当前只供独立程序调用：准备者冻结与候选无关的共同协议，可信打包器绑定完整运行源码，执行端按检查 ID 回传原版和候选的结果，接受门对缺失、模拟、版本错配和行为失败返回 `not_verified`。这些适配器及业务 oracle 尚未接入；该模块的合成 `verified_under_protocol` 测试值不是本项目已修复应用的成绩。
 

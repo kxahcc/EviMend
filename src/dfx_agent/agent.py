@@ -31,6 +31,8 @@ from .actions import (
     ToolActionUncertain,
     ToolAuthorizationMiddleware,
 )
+from .applicability import ApplicabilityStore
+from .applicability_contracts import TaskKnowledgeBinding
 from .conditions import ConditionRequest, ConditionStore, SyntheticObservations
 from .context_compaction import CompactionPolicy, CompactionStore
 from .contracts import (
@@ -44,6 +46,17 @@ from .contracts import (
 )
 from .decisions import DecisionRequest, DecisionStore, feedback_key
 from .diagnostics import AnalysisStore, DiagnosisSubmission
+from .knowledge_handoff import (
+    audit_run_knowledge,
+    audit_stored_queries,
+    experience_tools,
+)
+from .knowledge_run import (
+    HostKnowledgeInput,
+    normalize_run_knowledge_profile,
+    prepare_run_knowledge,
+    read_run_knowledge,
+)
 from .logs import MAX_LOG_BYTES
 from .model_calls import ModelCallStore, ModelCallUncertain, canonical
 from .model_provider import ChatCompletionsAdapter
@@ -100,7 +113,8 @@ def _known_obligations(workspace: CandidateWorkspace) -> dict[str, RepairObligat
 def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: int,
            task_directory: Path, crash_log: str, crash_sha256: str,
            policy_features: PolicyFeatures, host_capabilities: frozenset[str] | None = None,
-           condition_store: ConditionStore | None = None) -> list[Any]:
+           condition_store: ConditionStore | None = None, *,
+           knowledge_store: ApplicabilityStore | None = None) -> list[Any]:
     analysis = AnalysisStore(workspace)
     decisions = DecisionStore(workspace)
     conditions = condition_store or (ConditionStore(workspace) if (workspace.root / "condition-inputs.json").exists()
@@ -387,16 +401,18 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
         except (OSError, ValueError, ValidationError, KeyError) as exc:
             return f"rejected: {exc}"
 
-    return [read_log, list_source, read_source, search_source, inspect_analysis, record_diagnosis, edit_source,
+    tools = [read_log, list_source, read_source, search_source, inspect_analysis, record_diagnosis, edit_source,
             register_candidate, run_check, consult_rule, plan_repair_action,
             record_obligation, link_failed_check, evaluate_condition]
+    return tools if knowledge_store is None else [*tools, *experience_tools(knowledge_store)]
 
 
 class ResumeAdmissionRejected(ValueError):
     """The saved work has not been admitted for any new execution."""
 
 
-def _resume_session(task: Path, work: Path, run_id: str) -> dict[str, Any]:
+def _resume_session(task: Path, work: Path, run_id: str,
+                    knowledge_approval: TaskKnowledgeBinding | None = None) -> dict[str, Any]:
     absolute = work.absolute()
     for path in reversed((absolute, *absolute.parents)):
         info = path.lstat()
@@ -410,8 +426,14 @@ def _resume_session(task: Path, work: Path, run_id: str) -> dict[str, Any]:
     session = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(session, dict) or session.get("run_id") != run_id:
         raise ValueError("resume session identity differs")
-    if session.get("schema_version") != 10:
+    if session.get("schema_version") not in (10, 11):
         raise ValueError("historical sessions are read-only")
+    if session["schema_version"] == 11:
+        profile = normalize_run_knowledge_profile(session["knowledge_profile"])
+        if knowledge_approval is None or knowledge_approval.model_dump(mode="json") != profile["approval"]:
+            raise ValueError("knowledge resume requires the original external host approval")
+    elif "knowledge_profile" in session or knowledge_approval is not None:
+        raise ValueError("a session without knowledge cannot acquire approval")
     saved = validate_session_provenance(session)
     if saved is None:
         raise ValueError("legacy execution provenance is unknown; session is read-only")
@@ -419,10 +441,11 @@ def _resume_session(task: Path, work: Path, run_id: str) -> dict[str, Any]:
     return session
 
 
-def preflight_resume(task: Path, work: Path, run_id: str) -> dict[str, Any]:
+def preflight_resume(task: Path, work: Path, run_id: str, *,
+                     knowledge_approval: TaskKnowledgeBinding | None = None) -> dict[str, Any]:
     """Reject incompatible saved execution facts before any writable run resource."""
     try:
-        return _resume_session(task, work, run_id)
+        return _resume_session(task, work, run_id, knowledge_approval)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise ResumeAdmissionRejected(
             "resume execution provenance or session identity differs; legacy sessions are read-only") from exc
@@ -438,6 +461,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     provider_adapter: ChatCompletionsAdapter | None = None,
                     compaction_policy: CompactionPolicy | None = None,
                     working_context_policy: WorkingContextPolicy | None = None,
+                    knowledge: HostKnowledgeInput | None = None,
+                    knowledge_approval: TaskKnowledgeBinding | None = None,
                     compaction_responses: list[AIMessage] | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
@@ -448,7 +473,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     policy_features = policy_features or PolicyFeatures()
     compaction_policy = compaction_policy or CompactionPolicy()
     working_context_policy = working_context_policy or WorkingContextPolicy()
-    session = preflight_resume(task, work, run_id) if resume else {}
+    if (resume and knowledge is not None) or (not resume and knowledge_approval is not None):
+        raise ValueError("knowledge input is startup-only; resume accepts the original approval")
+    session = preflight_resume(task, work, run_id, knowledge_approval=knowledge_approval) if resume else {}
     execution_provenance = session["execution_provenance"] if resume else capture_execution_provenance()
     try:
         task_info = verify_task(task)
@@ -466,12 +493,31 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         else:
             conditions = ConditionStore(workspace, observations or SyntheticObservations([]))
             started_at = datetime.now(UTC)
+        knowledge_profile = (session.get("knowledge_profile") if resume else
+            prepare_run_knowledge(workspace, task, knowledge, ledger=ledger))
+        knowledge_store = read_run_knowledge(workspace, task, knowledge_profile, ledger=ledger)
+        if resume and knowledge_profile is not None:
+            model_path, action_path = workspace.root / "model-calls.sqlite", workspace.root / "tool-actions.sqlite"
+            if model_path.exists() and action_path.exists():
+                audit_run_knowledge(workspace, task, ledger, knowledge_profile,
+                    ModelCallStore(model_path, read_only=True), ToolActionStore(action_path, read_only=True))
+            else:
+                audit_stored_queries(workspace, task, ledger, knowledge_profile)
+                if (model_path.exists() or action_path.exists() or
+                        (workspace.root / "checkpoints.sqlite").exists() or
+                        (workspace.root / "agent-report.json").exists()):
+                    raise ValueError("knowledge restoration is missing an initialized ledger")
+                for folder in (workspace.root / "experience-queries", workspace.root / "knowledge/retrievals"):
+                    if folder.exists() and any(folder.iterdir()):
+                        raise ValueError("knowledge restoration has records but missing accounted ledgers")
         tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
-                       task_info["crash_sha256"], policy_features, capabilities, conditions)
+                       task_info["crash_sha256"], policy_features, capabilities, conditions,
+                       knowledge_store=knowledge_store)
         system_prompt = build_system_prompt(policy_features)
         model_profile = (provider_adapter.profile() if provider_adapter is not None else
                          {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
-        session_identity = {"schema_version": 10, "run_id": run_id, "started_at": started_at.isoformat(),
+        session_identity = {"schema_version": 10 if knowledge_profile is None else 11,
+                            "run_id": run_id, "started_at": started_at.isoformat(),
                             "execution_provenance": execution_provenance,
                             "max_calls": max_calls, "max_known_tokens": max_known_tokens,
                             "max_seconds": max_seconds, "max_candidates": max_candidates,
@@ -489,6 +535,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                 {"name": item.name, "description": item.description,
                                  "schema": item.args_schema.model_json_schema()} for item in tools
                             ]).encode("utf-8")), "search_limits": search_limits()}
+        if knowledge_profile is not None:
+            session_identity["knowledge_profile"] = knowledge_profile
     except (OSError, ValueError, KeyError, TypeError) as exc:
         if resume:
             raise ResumeAdmissionRejected("resume saved facts or configuration differ") from exc
@@ -609,10 +657,11 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     elif any(item["rejection"] == "budget_exhausted" for item in action_records):
         status, error = "budget_exhausted", error or "action_budget"
     ensure_execution_compatible(execution_provenance)
-    completion = build_completion(workspace, ledger, model_calls, actions, stopped_reason=error)
+    completion = build_completion(workspace, ledger, model_calls, actions, stopped_reason=error,
+                                  task_directory=task)
     status = completion["suggested_status"]
     report: dict[str, Any] = {
-        "schema_version": 7, "task_id": workspace.task_id, "run_id": run_id,
+        "schema_version": 7 if knowledge_profile is None else 8, "task_id": workspace.task_id, "run_id": run_id,
         "execution_provenance": execution_provenance,
         "source_snapshot_sha256": workspace.source_snapshot_sha256,
         "status": status, "application_verification": "not_run",
@@ -636,6 +685,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         "working_context_plans": completion["working_context_plans"],
         "adapter_error_reason": getattr(model, "request_error_reason", None),
     }
+    if knowledge_profile is not None:
+        report["knowledge_profile"] = knowledge_profile
+        report["knowledge_facts"] = completion["knowledge_facts"]
     _atomic_json(workspace.root / "agent-report.json", report)
     return report
 

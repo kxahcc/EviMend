@@ -170,7 +170,7 @@ def validate_session_provenance(session: object) -> dict[str, Any] | None:
         if "execution_provenance" in session:
             raise ValueError("historical session cannot acquire execution provenance")
         return None
-    if schema not in (9, 10) or "execution_provenance" not in session:
+    if schema not in (9, 10, 11) or "execution_provenance" not in session:
         raise ValueError("unsupported session provenance schema")
     return validate_execution_provenance(session["execution_provenance"])
 

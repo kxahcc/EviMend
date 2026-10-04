@@ -22,6 +22,26 @@ from .verification import CheckLedger
 from .working_context_plan import WorkingContextPolicy, WorkingContextStore
 from .workspace import CandidateWorkspace, _manifest
 
+_KNOWLEDGE_ENTRIES = ("knowledge-profile.json", "knowledge", "experience-bindings", "experience-queries",
+                      "applicability-contexts", "applicability-reviews", "applicability-materials")
+
+
+def _knowledge_presence(workspace: CandidateWorkspace, session: dict[str, Any] | None) -> bool:
+    current = session is not None and session["schema_version"] == 11
+    present = session is not None and "knowledge_profile" in session
+    if session is not None and "knowledge_facts" in session:
+        raise ValueError("session cannot acquire report knowledge facts")
+    if current != present:
+        raise ValueError("report knowledge profile and session generation differ")
+    if not current:
+        for name in _KNOWLEDGE_ENTRIES:
+            try:
+                (workspace.root / name).lstat()
+            except FileNotFoundError:
+                continue
+            raise ValueError("historical or no-knowledge session cannot acquire knowledge evidence")
+    return current
+
 
 def _owned_file(workspace: CandidateWorkspace, path: Path) -> Path:
     relative = path.relative_to(workspace.root)
@@ -45,14 +65,21 @@ def _owned_file(workspace: CandidateWorkspace, path: Path) -> Path:
 def _session(workspace: CandidateWorkspace, ledger: CheckLedger) -> dict[str, Any] | None:
     path = workspace.root / "session.json"
     if not path.exists():
+        _knowledge_presence(workspace, None)
         return None
     value = json.loads(_owned_file(workspace, path).read_text(encoding="utf-8"))
     if (not isinstance(value, dict) or value.get("run_id") != workspace.run_id or
             value.get("protocol_sha256") != ledger.executor.protocol_sha256):
         raise ValueError("report session or verification protocol differs")
     validate_session_provenance(value)
+    _knowledge_presence(workspace, value)
+    if value["schema_version"] == 11:
+        from .knowledge_run import normalize_run_knowledge_profile
+
+        if canonical(value["knowledge_profile"]) != canonical(normalize_run_knowledge_profile(value["knowledge_profile"])):
+            raise ValueError("report session knowledge profile is not canonical")
     profile = value.get("context_profile", {})
-    if value["schema_version"] == 10:
+    if value["schema_version"] in (10, 11):
         policy = WorkingContextPolicy.model_validate(profile["host_working_context"])
         if canonical(profile) != canonical(context_profile(
             CompactionPolicy.model_validate(profile["host_compaction"]), policy,
@@ -178,7 +205,8 @@ def _candidate_facts(workspace: CandidateWorkspace, ledger: CheckLedger,
 
 
 def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_calls: ModelCallStore,
-                     actions: ToolActionStore, *, stopped_reason: str | None) -> dict[str, Any]:
+                     actions: ToolActionStore, *, stopped_reason: str | None,
+                     task_directory: Path | None = None) -> dict[str, Any]:
     """Summarize persisted host facts; no provider, tool or application is executed."""
     if ledger.workspace is not workspace or ledger.root != workspace.root / "checks":
         raise ValueError("report verification ledger belongs to another workspace")
@@ -195,12 +223,23 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
                      {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
     compactions = CompactionStore(workspace.root, workspace.task_id, workspace.run_id,
                                  compaction_policy, model_profile).audit(model_calls)
-    current_session = session is not None and session["schema_version"] == 10
+    current_session = session is not None and session["schema_version"] in (10, 11)
+    knowledge_session = session is not None and session["schema_version"] == 11
     working_plans = (WorkingContextStore(workspace, None, None,
         WorkingContextPolicy.model_validate(context["host_working_context"]), model_profile,
         format_version=context.get("working_context_format", 1)).audit(
             model_calls, actions, compactions) if current_session else None)
     action_records, receipts = _action_facts(workspace, actions, model_calls)
+    knowledge_facts = None
+    if knowledge_session and session is not None:
+        if task_directory is None:
+            raise ValueError("knowledge report requires an explicit task directory")
+        from .knowledge_handoff import audit_run_knowledge
+
+        knowledge_facts = audit_run_knowledge(workspace, task_directory, ledger,
+                                             session["knowledge_profile"], model_calls, actions)
+        if knowledge_facts is None:
+            raise ValueError("knowledge session has no auditable knowledge facts")
     decisions = [record.model_dump(mode="json") for record in DecisionStore(workspace).records().values()]
     conditions = ConditionStore(workspace)
     observations_sha256 = conditions.observations_sha256
@@ -266,6 +305,8 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
     provider_failure = provider_failure or any(item["outcome"] == "invalid" for item in compactions)
     if current_session and stopped_reason is not None and stopped_reason.startswith("working_context_"):
         provider_failure = True
+    if knowledge_session and stopped_reason is not None and stopped_reason.startswith("knowledge_"):
+        provider_failure = True
     suggested_status = ("unresolved" if unknown or provider_failure else "budget_exhausted" if budget_exhausted else
                         "offline_checked" if latest_status == "pass" else "unresolved")
     unsequenced = sorted(set(bundles) - set(diagnosis_order))
@@ -312,6 +353,9 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
              "session": session}
     if current_session:
         facts["working_context_plans"] = working_plans
+    if knowledge_session and session is not None:
+        facts["knowledge_profile"] = session["knowledge_profile"]
+        facts["knowledge_facts"] = knowledge_facts
     verified_fields = ["schema_version", "task_id", "run_id", "source_snapshot_sha256", "status",
                        "application_verification", "completion", "candidates", "checks", "model_calls",
                        "known_tokens", "missing_usage_calls", "uncertain_model_calls", "tool_calls",
@@ -324,7 +368,9 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
         verified_fields.append("execution_provenance")
     if current_session:
         verified_fields.append("working_context_plans")
-    value = {"schema_version": 4 if current_session else (2 if provenance is None else 3),
+    if knowledge_session:
+        verified_fields.extend(("knowledge_profile", "knowledge_facts"))
+    value = {"schema_version": 5 if knowledge_session else 4 if current_session else (2 if provenance is None else 3),
              "task_id": workspace.task_id, "run_id": workspace.run_id,
              "source_snapshot_sha256": workspace.source_snapshot_sha256,
              "authority": "host_summary", "suggested_status": suggested_status, "stopped_reason": stopped_reason,
@@ -363,22 +409,26 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
         value["execution_provenance"] = provenance
     if current_session:
         value["working_context_plans"] = working_plans
+    if knowledge_session and session is not None:
+        value["knowledge_profile"] = session["knowledge_profile"]
+        value["knowledge_facts"] = knowledge_facts
     return {**value, "summary_sha256": sha256(canonical(value))}
 
 
 def read_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_calls: ModelCallStore,
-                    actions: ToolActionStore) -> dict[str, Any]:
+                    actions: ToolActionStore, *, task_directory: Path | None = None) -> dict[str, Any]:
     """Recompute a report from saved facts; historical provenance never probes this host."""
     report = json.loads(_owned_file(workspace, workspace.root / "agent-report.json").read_text(encoding="utf-8"))
     if (not isinstance(report, dict) or type(report.get("schema_version")) is not int or
-            report["schema_version"] not in (5, 6, 7) or report.get("task_id") != workspace.task_id or
+            report["schema_version"] not in (5, 6, 7, 8) or report.get("task_id") != workspace.task_id or
             report.get("run_id") != workspace.run_id or
             report.get("source_snapshot_sha256") != workspace.source_snapshot_sha256):
         raise ValueError("completion report schema, task, run or snapshot differs")
     if report.get("application_verification") != "not_run" or "stopped_reason" not in report:
         raise ValueError("completion report application claim or stop identity differs")
-    value = build_completion(workspace, ledger, model_calls, actions, stopped_reason=report["stopped_reason"])
-    expected_schema = {2: 5, 3: 6, 4: 7}[value["schema_version"]]
+    value = build_completion(workspace, ledger, model_calls, actions, stopped_reason=report["stopped_reason"],
+                             task_directory=task_directory)
+    expected_schema = {2: 5, 3: 6, 4: 7, 5: 8}[value["schema_version"]]
     if report["schema_version"] != expected_schema:
         raise ValueError("completion report and session schema differ")
     if expected_schema == 5 and "execution_provenance" in report:
@@ -403,6 +453,11 @@ def read_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_ca
         expected["working_context_plans"] = value["working_context_plans"]
     elif "working_context_plans" in report:
         raise ValueError("historical report cannot acquire working context plans")
+    for name in ("knowledge_profile", "knowledge_facts"):
+        if name in value:
+            expected[name] = value[name]
+        elif name in report:
+            raise ValueError("historical or no-knowledge report cannot acquire knowledge facts")
     execution = value["execution_facts"]
     for key in ("actions", "decisions", "condition_results", "policy_features", "offered_tools"):
         if key in value["report_validation"]["verified_top_level_fields"]:
