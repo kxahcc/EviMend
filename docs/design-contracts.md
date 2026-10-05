@@ -69,7 +69,7 @@ SDK 的两种离线模型共用 `ToolAuthorizationMiddleware`：主机把工具�
 
 收到消息后保存规范化消息及哈希、提供方消息 ID、工具名称/ID/参数摘要与格式问题。wire 的非 null 原始 usage 完整保留为 response_metadata.dfx_provider_usage_raw；prompt_tokens/completion_tokens/total_tokens 须为非负整数、合计一致并与 usage_metadata 的 input/output/total 对应，才能标为 known。原值缺失/null 为 missing，存在但无效或映射不一致为 invalid；账本保存原值摘要，不以类型强制转换或文本长度补估。格式错误仍是完成的一次调用，不能丢掉其 usage。原始消息用于本机受管恢复，不进入 Git 或普通聚合报告；显式本机私有 Export 保留相关账本原字节并披露完整消息范围，不自动外发。text_only、模型自称成功和工具参数不产生执行事实。
 
-无知识的新运行使用 session schema 10；显式批准知识的新运行使用 schema 11，增加规范 knowledge_profile，并在首个模型调用前完成第 3.1.2 节的 run 内原件复制。三态入口另使用 session 12，增加规范 applicability_profile，普通经验运行仍保持 session 11；三代均冻结 model_profile、context_profile（含工作上下文/主机压缩策略及两类提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略、合成 registry 和下述执行来源；续跑须配置与执行兼容身份一致。知识运行的程序启动参数为 knowledge=HostKnowledgeInput，恢复仅接受原 TaskKnowledgeBinding 的显式 knowledge_approval，不能再次传入启动知识库；实际快照和索引从该 run 原件回读，外部库无需仍存在。无知识运行不能在恢复时取得知识批准；11 与 12 不能跨代续跑，三态恢复须再次显式提供与原 profile 一致的策略。旧 session 8/9 只能按原契约只读核验，不自动升级、续跑或补写版本；schema 1–7 不进入当前恢复入口，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
+无知识的新运行使用 session schema 10；显式批准知识的新运行使用 schema 11，增加规范 knowledge_profile，并在首个模型调用前完成第 3.1.2 节的 run 内原件复制。三态入口另使用 session 12，增加规范 applicability_profile；显式静态策略使用 session 13，另固定 static_skill_profile，要求批准知识及显式三态策略。未指定增强保持对应原代；各代均冻结 model_profile、context_profile（含工作上下文/主机压缩策略及两类提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略、合成 registry 和下述执行来源；续跑须配置与执行兼容身份一致。知识运行的程序启动参数为 knowledge=HostKnowledgeInput，恢复仅接受原 TaskKnowledgeBinding 的显式 knowledge_approval，不能再次传入启动知识库；实际快照和索引从该 run 原件回读，外部库无需仍存在。无知识运行不能在恢复时取得知识批准；11、12、13 不能跨代续跑，三态和静态恢复须再次显式提供与原 profile 一致的策略。旧 session 8/9 只能按原契约只读核验，不自动升级、续跑或补写版本；schema 1–7 不进入当前恢复入口，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束的 Graph 续跑只核对和汇总，不注入新对话；预算已耗尽仍明确报告。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。真实端点、密钥/数据外发边界、提供方兼容性、实际计费及应用接受门接入仍待完成。
 
 execution_provenance 是嵌入 session 的 schema 1 主机记录，不是模型可提交对象。source_inventory 记录 src/dfx_agent 下全部 Python 源码及 scripts/dfx.py、local_agent.ps1、local.ps1、local_job.cs 的规范相对路径、大小和原字节 SHA-256；文档、测试、历史 session、数据和缓存不属于这份运行源码清单。repository_inputs 固定 uv.lock、pyproject.toml、.python-version、configs/local-runtime.json 的原字节大小与哈希。runtime 保存实际 Python 实现、版本、cache_tag、平台、机器架构和 importlib.metadata 读到的已安装 distribution 名称/版本，不把锁中声明的版本冒充实际安装版本。Git 保存初始 HEAD、全仓 dirty、状态字节摘要及条目数；不可用时明确为未知，不猜测干净状态。
 
@@ -145,7 +145,7 @@ W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈
 
 ### 1.3.2 主机终止摘要与结果核验
 
-`agent-report.json` 的无知识新运行使用 report schema 7/completion schema 4，与 session 10 配对；批准知识运行使用 report 8/completion 5，与 session 11 配对，并保存 knowledge_profile 和 knowledge_facts；显式三态策略运行用 report 9/completion 6 与 session 12 配对，另保存 applicability_profile 和 applicability_facts，关闭对照也使用同一代。旧 session 8/report 5/completion 2 与 9/6/3 按原规则回读，禁止交叉配对或给旧记录补写来源/知识身份。`reporting.py` 的 build_completion 在运行结束后读取持久事实生成 host_summary，不采信模型结尾的“修好了”。它核对基准原字节、登记诊断/义务/决策/条件、候选源码/manifest/diff、检查意图与结果、模型账本和工具动作的归属/请求/回执，以及工作上下文冻结材料、可见动作、压缩原消息、摘要响应与实际 solver 视图的关联。知识报告还须显式取得实际 task_directory，从 session 冻结的 profile 核验 run 内批准原件，重算查询和完整指导，再核对成功工具回执与已记账 solver 响应、action_id、model_call_id、实际参数和回执全文；磁盘上存在查询不表示模型使用过它。knowledge_facts 分别保存查询及成功动作关联、回读关联、未关联查询/检索 ID，孤立产物保留为未使用。新 report/completion 的 execution_provenance 必须等于已验证的 session 来源；回读不捕获当前 Git、源码或安装环境来替换它。context_compactions 保留有效/无效、未请求/等待/未知、结果是否落盘及 solver 绑定状态，facts_sha256 固定包含保存来源和知识审查的输入，summary_sha256 固定派生摘要；哈希表示内容一致，不提升证据来源。
+`agent-report.json` 的无知识新运行使用 report schema 7/completion schema 4，与 session 10 配对；批准知识运行使用 report 8/completion 5，与 session 11 配对，并保存 knowledge_profile 和 knowledge_facts；显式三态策略运行用 report 9/completion 6 与 session 12 配对，另保存 applicability_profile 和 applicability_facts，关闭对照也使用同一代；显式静态启停使用 session/report/completion 13/10/7，另保存 static_skill_profile 和 static_skill_facts，完整读取与后续实际可见性分别认证。旧 session 8/report 5/completion 2 与 9/6/3 按原规则回读，禁止交叉配对或给旧记录补写来源/知识身份。`reporting.py` 的 build_completion 在运行结束后读取持久事实生成 host_summary，不采信模型结尾的“修好了”。它核对基准原字节、登记诊断/义务/决策/条件、候选源码/manifest/diff、检查意图与结果、模型账本和工具动作的归属/请求/回执，以及工作上下文冻结材料、可见动作、压缩原消息、摘要响应与实际 solver 视图的关联。知识报告还须显式取得实际 task_directory，从 session 冻结的 profile 核验 run 内批准原件，重算查询和完整指导，再核对成功工具回执与已记账 solver 响应、action_id、model_call_id、实际参数和回执全文；磁盘上存在查询不表示模型使用过它。knowledge_facts 分别保存查询及成功动作关联、回读关联、未关联查询/检索 ID，孤立产物保留为未使用。新 report/completion 的 execution_provenance 必须等于已验证的 session 来源；回读不捕获当前 Git、源码或安装环境来替换它。context_compactions 保留有效/无效、未请求/等待/未知、结果是否落盘及 solver 绑定状态，facts_sha256 固定包含保存来源和知识审查的输入，summary_sha256 固定派生摘要；哈希表示内容一致，不提升证据来源。
 
 定位按工具动作账本排序：initial 是首次允许 edit_source 之前、已有完成回执的首个登记诊断；首次允许编辑即形成 cutoff，即使该编辑后来失败，也不能用后续诊断补成初次预测。latest 是最后一个有完成回执的登记诊断，candidate_linked 是最新候选实际关联的诊断；三者可以不同。已登记但没有可核对动作顺序的诊断列为 unsequenced，不猜测其先后。各定位保持 model_inference/root_cause_confirmation=unknown，包含候选根因位置及原证据；没有 ground truth 判断就不生成定位准确率。
 
@@ -159,9 +159,9 @@ cost 从模型和动作账本汇总所有登记调用、已知 Token、missing/i
 
 ### 1.3.3 停止记录的只读离线聚合
 
-EvaluationManifest schema 1/2/3/4 固定 offline_synthetic 范围、唯一 evaluation_id、共同 RunConfiguration、任务、策略组、repeat 和完整格子。v1 保留原序列化形状；v2 共享 working_context 三个限制参数，组内必须显式声明 working_context_enabled，只有 enabled 可作为该代新增比较因素。v3 在 v2 上增加所有组共享的 knowledge_profile：明确 snapshot_sha256、完整 scope、retriever、index_sha256 及仅 knowledge/ 原件的 files 清单；task/run 和各运行的 approved binding 不进入共同身份。各 session 11 的投影必须与这份共同身份全文一致，普通检索和增强组共享完整指导及两个知识工具，不借知识机制放宽模型、工具、通用压缩、其余上下文参数、检索、能力或总预算。v4 继承 v3 的共同配置，variants 必须另声明 applicability_enabled，使用 session 12 及相同 19 项工具进行三态启停比较；仅该开关作为新增因素，学习尚不接入。v3 不接纳三态运行，无知识旧清单不接纳知识运行；即使缺 session/report 也拒绝不兼容领域目录。任务绑定 task.json 原字节哈希、源码/日志、协议与主机输入摘要；task schema 2 必须提供哈希一致的 CaseSelection，task schema 1 的案例和谱系仅为声明。格子绑定 task/variant/repeat、唯一 run_id 与可空的工作目录。全部矩阵恰有一格，拒绝重复 run、任务/日志身份及祖先/后代目录重叠；格式容量在矩阵展开前检查，不选择性发现成功目录或根据结果删格子。
+EvaluationManifest schema 1/2/3/4 固定 offline_synthetic 范围、唯一 evaluation_id、共同 RunConfiguration、任务、策略组、repeat 和完整格子。v1 保留原序列化形状；v2 共享 working_context 三个限制参数，组内必须显式声明 working_context_enabled，只有 enabled 可作为该代新增比较因素。v3 在 v2 上增加所有组共享的 knowledge_profile：明确 snapshot_sha256、完整 scope、retriever、index_sha256 及仅 knowledge/ 原件的 files 清单；task/run 和各运行的 approved binding 不进入共同身份。各 session 11 的投影必须与这份共同身份全文一致，普通检索和增强组共享完整指导及两个知识工具，不借知识机制放宽模型、工具、通用压缩、其余上下文参数、检索、能力或总预算。v4 继承 v3 的共同配置，variants 必须另声明 applicability_enabled，使用 session 12 及相同 19 项工具进行三态启停比较；仅该开关作为新增因素。v5 继承 v4，configuration 另固定 shared_static_skill_profile，variants 另声明 static_skills_enabled，session 13 两组均提供相同 20 项工具和完整正文，static 共同身份仅去 enabled，正文、元数据、资源、工具及预算不能随组变化；学习因素尚不接入。v4 不接纳静态运行或残留，v3 不接纳三态运行，无知识旧清单不接纳知识运行；即使缺 session/report 也拒绝不兼容领域目录。任务绑定 task.json 原字节哈希、源码/日志、协议与主机输入摘要；task schema 2 必须提供哈希一致的 CaseSelection，task schema 1 的案例和谱系仅为声明。格子绑定 task/variant/repeat、唯一 run_id 与可空的工作目录。全部矩阵恰有一格，拒绝重复 run、任务/日志身份及祖先/后代目录重叠；格式容量在矩阵展开前检查，不选择性发现成功目录或根据结果删格子。
 
-既有工作必须有匹配的 schema 1 offline 终态 finished/failed/canceled。目录缺失或终态无报告列 missing，work_path=null 列 not_run，费用未知且保留分母；现有损坏记录拒绝整批。核验 session 8、9、10、11 或 12 的任务、协议、主机输入、共同预算/能力/模型/上下文/工具/检索配置、策略开关和重新生成的提示；只构造主机工具描述，不执行工具，核对 session 与实际 solver 的两种工具格式。随后使用 read_completion 核对对应的 report/completion。session 9/10/11/12 的来源按保存结构及摘要核验并传入行记录，不要求等于回读主机。终态缺报告仍须核验已有 session 的配置和来源；session 11/12 还须从实际 task/work 原件回建批准知识并审读全部查询。模型/动作账本完整时核验调用关联，账本缺失时仍审读原件而不认证工具使用，费用与修复结果继续未知。旧 solver 原始请求体未保存，不能声称重建全部历史请求参数；session 10/11/12 开启工作上下文时，其各位点计划和发送回执单独核验；session 8 未记录的执行版本继续 null。
+既有工作必须有匹配的 schema 1 offline 终态 finished/failed/canceled。目录缺失或终态无报告列 missing，work_path=null 列 not_run，费用未知且保留分母；现有损坏记录拒绝整批。核验 session 8、9、10、11、12 或 13 的任务、协议、主机输入、共同预算/能力/模型/上下文/工具/检索配置、策略开关和重新生成的提示；只构造主机工具描述，不执行工具，核对 session 与实际 solver 的两种工具格式。随后使用 read_completion 核对对应的 report/completion。session 9/10/11/12/13 的来源按保存结构及摘要核验并传入行记录，不要求等于回读主机。终态缺报告仍须核验已有 session 的配置和来源；session 11/12/13 还须从实际 task/work 原件回建批准知识并审读全部查询。模型/动作账本完整时核验调用关联，账本缺失时仍审读原件而不认证工具使用，费用与修复结果继续未知。旧 solver 原始请求体未保存，不能声称重建全部历史请求参数；session 10/11/12/13 开启工作上下文时，其各位点计划和发送回执单独核验；session 8 未记录的执行版本继续 null。
 
 只有旧来源的矩阵保持原 schema 1 汇总结构与内容，不改变既有导出包的 aggregate 摘要。存在新来源时，按保存的兼容身份及完整来源摘要列出 captured_records、关联 run_ids、captured_runs 和 unknown_runs/unknown_run_ids；旧记录、未运行和缺来源格子继续未知，不将它们删除或补零。所有已捕获来源的 compatibility_sha256 必须一致，不同初始 Git 观察可分别保留；已知执行源码、锁或实际环境漂移拒绝整批比较。来源覆盖并不产生应用成功资格。
 
@@ -219,7 +219,7 @@ privacy 明确 local_only=true、redacted=false、share_ready=false，并披露�
 
 W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，通过 `consult_rule` 访问；未知类别或关闭规则开关时返回通用路径。修复方向、义务、区分问题与实际失败的绑定统一见第 1.2.3 节；Agent 当前没有诊断执行探针。R1/R2 的部分有限条件已有第 3.0 节的合成计算工具，R3/R4 和业务语义仍是规则知识；提示命中不能解释为条件已满足或根因正确。
 
-工作上下文、跨任务经验与 Skill 演进流程见 [设计第 7 节](development/system-design-draft.md#7-skills-的具体位置)，对象和行为契约在第 3.1 节定义。主机批准经验、冻结快照、确定性检索及独立三态接口已有实现；普通检索及显式三态 SDK 切片覆盖 run 内原件、工具、会话、报告、聚合与私有导出，受管验收结果见 STATUS。静态过程资源与 SDK middleware 已有独立实现，其 Agent 会话交接及自动学习仍待完成；规则卡不能等同于这些能力。独立契约、实际发送和后续学习分别验收，只有明确的新 schema 接纳对应因素，具体依赖与反例见 W07 实施顺序。
+工作上下文、跨任务经验与 Skill 演进流程见 [设计第 7 节](development/system-design-draft.md#7-skills-的具体位置)，对象和行为契约在第 3.1 节定义。主机批准经验、冻结快照、确定性检索及独立三态接口已有实现；普通检索及显式三态 SDK 切片覆盖 run 内原件、工具、会话、报告、聚合与私有导出，受管验收结果见 STATUS。静态过程资源、SDK middleware 与实际 Agent 会话交接已有实现，受管配置及自动学习仍待完成；规则卡不能等同于这些能力。独立契约、实际发送和后续学习分别验收，只有明确的新 schema 接纳对应因素，具体依赖与反例见 W07 实施顺序。
 
 义务记录由模型工具创建时固定为 `model_inference`，须引用已登记诊断证据；候选的 restores/preserves 只能引用本次运行、本源码版本已登记的义务。合成检查实际失败后，模型可把失败与候选义务关联为 `scope=synthetic`、`link_authority=model_inference` 的反例；观察文本来自执行器，违反哪项义务仍是模型解释，不构成硬拒绝或应用行为证据。反例只关联原候选哈希及源码版本。可信需求、独立业务判据和应用反馈接入后，才能提高证据层级。
 
@@ -352,7 +352,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 ### 3.1 工作上下文、经验与 Skill 的实施契约
 
-本节定义 W07 新机制的输入、行为与拒绝边界，分步实施。工作上下文已有模型发送路径；经验准入、知识快照、确定性检索，以及绑定当前任务的冻结上下文和三态适用性交接已有主机接口。普通检索和显式三态 SDK 切片均已编码：主机批准固定知识、run 内复制原件、授权查询/回读，三态入口另核验实际发送的焦点与材料；对应会话、报告、聚合和私有导出保留完整记录。受管验收结论由 STATUS 维护，静态过程资源已有独立入口，其 Agent 会话交接和学习尚待接入。通用修复路径继续可用；来源/引用核验、确定性记录和合成分支不能证明模型推理正确、经验可迁移或修复效果。模型提出语义判断，主机核验已登记事实及权限，不把结构完整性当语义确认。
+本节定义 W07 新机制的输入、行为与拒绝边界，分步实施。工作上下文已有模型发送路径；经验准入、知识快照、确定性检索，以及绑定当前任务的冻结上下文和三态适用性交接已有主机接口。普通检索和显式三态 SDK 切片均已编码：主机批准固定知识、run 内复制原件、授权查询/回读，三态入口另核验实际发送的焦点与材料；对应会话、报告、聚合和私有导出保留完整记录。受管验收结论由 STATUS 维护，静态过程资源及 Agent 会话交接已有程序入口，受管配置和学习尚待接入。通用修复路径继续可用；来源/引用核验、确定性记录和合成分支不能证明模型推理正确、经验可迁移或修复效果。模型提出语义判断，主机核验已登记事实及权限，不把结构完整性当语义确认。
 
 #### 3.1.1 工作上下文和当前焦点
 
@@ -378,7 +378,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 同 solver 位点只保存一个不可改写计划；已 reserve/dispatched/unknown 的调用不能借新焦点重发。计划及发送回执保存于受管工作区 working-context，物化当时来源、focus、记录、profile、原消息和组织/最终视图。固定入口保存实际消息、工具描述和 stop/generate/bind 参数，模拟 wire 入口保存 PreparedRequest，重算消息/工具/参数摘要并与 ModelCallIntent 账本核对；组合压缩还核对组织视图是其原输入。历史恢复核验这些已保存材料与原模型/动作回执，不从最新检查重建旧 packet；正常后续检查不改变过去输入，缺失或改写历史材料拒绝。保留选择耗时、已省略组及未派发计划，不伪报零成本或收益。
 
-无知识新写 session/report/completion 为 10/7/4，批准知识普通运行为 11/8/5，显式三态策略启停两组为 12/9/6；知识身份和共同评测门见第 3.1.2 节及第 1.3 节。context_profile 明确冻结 working_context_format=2。历史 session 10 缺该标记时只读按 format 1 核验原 inline 计划及原序列化形状，不倒填；旧 8/5/2 与 9/6/3 也维持原形状只读。执行来源不兼容的旧运行不能续跑。旧固定/模拟脚本 1/2 不接纳新工作上下文字段，新 3/4 明确登记 working_context；聚合清单 v1 仍可核验关闭增强的新运行，v2/v3/v4 可显式比较 working_context_enabled，format 与其他共同配置门不放宽。报告审计和私有导出保留实际发送计划；这些能力不证明摘要忠实度、模型定位或修复收益。
+无知识新写 session/report/completion 为 10/7/4，批准知识普通运行为 11/8/5，显式三态策略启停两组为 12/9/6，显式静态启停为 13/10/7；知识身份和共同评测门见第 3.1.2 节及第 1.3 节。context_profile 明确冻结 working_context_format=2。历史 session 10 缺该标记时只读按 format 1 核验原 inline 计划及原序列化形状，不倒填；旧 8/5/2 与 9/6/3 也维持原形状只读。执行来源不兼容的旧运行不能续跑。旧固定/模拟脚本 1/2 不接纳新工作上下文字段，新 3/4 明确登记 working_context；聚合清单 v1 仍可核验关闭增强的新运行，v2/v3/v4/v5 可显式比较 working_context_enabled，format 与其他共同配置门不放宽。报告审计和私有导出保留实际发送计划；这些能力不证明摘要忠实度、模型定位或修复收益。
 
 format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materials/<sha256>.blob，每个不可改写计划固定引用路径、大小与摘要。同字节材料在该 run 内复用；不跨 run 链接、不改写原文件。单次入库批次先核验全部逻辑引用、容量和同摘要原字节一致性，再按唯一原字节发布，所有逻辑引用保持；下一次独立操作仍重新读取已有 blob。批次不是整体写入事务，发布失败留下的孤立材料按下文处理。原材料、完整审计 packet、引用清单及计划各自沿用 `context_compaction.MAX_ARTIFACT_BYTES` 单产物上限；整体仍受既有受管磁盘及导出预算约束。WorkingContextPolicy.max_packet_bytes 在 format 2 专指模型投影预算，format 1 保持原 packet 预算解释，两代通过冻结标记明确区分。限额失败在 solver reserve 前停止，不提高配置自动重试。
 
@@ -390,7 +390,7 @@ format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materia
 
 #### 3.1.2 经验、检索和适用性交接
 
-经验机制让 Agent 在新任务中获得可查证的历史指导：保留适用前提、未知查证问题、过程、保留行为和反例，再用当前证据判断能否借用。历史经验不作为当前根因或补丁已通过的依据。`knowledge_contracts.py`、`knowledge.py`、`retrieval_contracts.py` 和 `knowledge_retrieval.py` 提供材料准入、不可变经验、知识快照及确定性检索；`applicability_contracts.py` 和 `applicability.py` 提供当前任务绑定、冻结上下文和独立三态交接。`knowledge_run.py` 把主机批准知识复制成 run 内自包含原件，`knowledge_handoff.py` 提供普通检索 SDK 工具及只读查询/动作审查；`solver_visibility.py` 保存和审读实际发送输入，`applicability_handoff.py` 将三态准备、提交与回读接入 SDK。受管验收结果见 STATUS；静态过程资源已有独立入口，实际会话交接和自动学习仍待接入。
+经验机制让 Agent 在新任务中获得可查证的历史指导：保留适用前提、未知查证问题、过程、保留行为和反例，再用当前证据判断能否借用。历史经验不作为当前根因或补丁已通过的依据。`knowledge_contracts.py`、`knowledge.py`、`retrieval_contracts.py` 和 `knowledge_retrieval.py` 提供材料准入、不可变经验、知识快照及确定性检索；`applicability_contracts.py` 和 `applicability.py` 提供当前任务绑定、冻结上下文和独立三态交接。`knowledge_run.py` 把主机批准知识复制成 run 内自包含原件，`knowledge_handoff.py` 提供普通检索 SDK 工具及只读查询/动作审查；`solver_visibility.py` 保存和审读实际发送输入，`applicability_handoff.py` 将三态准备、提交与回读接入 SDK。受管验收结果见 STATUS；静态过程资源及实际会话交接已有程序入口，受管配置和自动学习仍待接入。
 
 知识基础路径是**主机审核完整可见投影 → 捕获获准材料原字节 → 按来源权限准入 → 物化经验条目 → 固定条目与检索配置快照 → 显式建立派生索引**。普通检索接入继而批准实际 task/run、复制完整原件到 run、授权有界查询并回读完整返回页；独立三态接口在绑定查询之后另冻结显式焦点及当前原件，再逐前提核验引用并保存建议。主机须先审核整个 SolverProjection 文档，为其原字节设定 MaterialGrant；ExperienceDraft 只引用已批准的材料 ID，不能提交任意新指导文本或自填权限、验证资格与成本。结构校验与主机角色声明不能识别自由文本中暗含的答案，审核完整投影仍是主机责任，不宣称已有语义防泄漏能力。
 
@@ -462,7 +462,7 @@ review 保留每项前提及理由，整体状态按 contradicted 优先、unkno
 
 SDK 外层报告以 `focus_authority=actual_solver_input` 保存这项额外认证；独立 ApplicabilityStore 的原始对象仍保留其显式主机输入边界，不覆写旧对象的 focus_recency。两层均保持 semantic_authority=model_inference，支持判断不变成确认根因或应用通过。完整 context/review 与实际请求、动作、回执关联，未关联产物保留为孤立原件；新增调用没有独立免费预算。
 
-发布前按双份 ASCII 报告表示预检三态完整记录、材料列表及共同调用/动作额度的来源链接余量。报告来源链接保存完整焦点和有序可见动作集合的摘要及数量，实际请求、完整指导和动作原件继续保存并从原件重验；不在每次回读关联里重复整段历史。预算耗尽后的拒绝行可能超过 max_tool_calls：逐行绑定实际父调用及请求，完成行还核验拒绝回执，再按父调用汇总数量、已保存/未知数量和有序关联哈希，不把它们标成经验使用。完整动作账本仍决定调用和拒绝成本，未知执行不删掉。报告生成另检查两处完整三态片段的实际 ASCII 缩进大小，超限拒绝。此门和普通查询门分别覆盖新增领域片段，不保证全领域或完整矩阵报告的整体容量；全链路容量仍须后续收口。
+发布前按双份 ASCII 报告表示预检三态完整记录、材料列表及共同调用/动作额度的来源链接余量。报告来源链接保存完整焦点和有序可见动作集合的摘要及数量，实际请求、完整指导和动作原件继续保存并从原件重验；不在每次回读关联里重复整段历史。预算耗尽后的拒绝行可能超过 max_tool_calls：逐行绑定实际父调用及请求，完成行还核验拒绝回执，再按父调用汇总数量、已保存/未知数量和有序关联哈希，不把它们标成经验使用。完整动作账本仍决定调用和拒绝成本，未知执行不删掉。报告生成另检查两处完整三态片段的实际 ASCII 缩进大小，超限拒绝。此门和普通查询门分别覆盖新增领域片段，不保证全领域报告的整体容量；矩阵另有公共输出门，按实际 canonical UTF-8 表示在每个 row、variant 和配对追加前计量来源字段、完整摘要及换行，最后再核完整结果。该门保留合法旧代内容及哈希，不覆盖输入树快照、总 I/O、运行内存或单项构造峰值；全链路容量仍须后续收口。
 
 SDK 搜索发布前还须通过 knowledge_handoff.MAX_KNOWLEDGE_REPORT_BYTES：按实际写入器的 ASCII 转义表示、保守缩进和报告顶层/completion 两份，合算未来全部完整查询页、绑定及知识配置，预留所有孤立记录 ID、共享 max_tool_calls 对应的动作关联和固定事实键。UTF-8 原件容量通过不代表该报告预算通过；即便本轮之后因 context_limit 停止，也必须保留可回读的失败证据。超门返回明确拒绝，不发布该查询、不截断指导、不放宽模型上下文或聚合单文件上限。此门限制新增知识片段，不声称已经覆盖其他领域产物或全矩阵汇总的所有容量。
 
@@ -470,19 +470,19 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 
 #### 3.1.3 Skill 版本、验证与演进
 
-**静态过程先提供完整可读的诊断步骤，后续演进再决定是否应更新这些步骤。** `static_skills.py` 是独立的主机资源入口：从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。它尚未加入 `agent.py`、受管脚本/CLI、报告、评测或导出；不得把这层合成加载验收表述为 Agent 已使用 Skill、学会经验或提高修复率。
+**静态过程先提供完整可读的诊断步骤，后续演进再决定是否应更新这些步骤。** `static_skills.py` 从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。`static_skill_handoff.py` 将完整读取、实际模型输入、动作账本与报告接起来；程序入口、启停对照和私有导出使用同一冻结身份。受管脚本/CLI 配置和反馈演进仍待实现；合成调用及可见性不证明学会经验或提高修复率。
 
 | 静态入口/对象 | 当前约束 |
 |---|---|
 | StaticSkillPolicy | 完整 schema 1、显式 enabled 和升序唯一 entry_ids；只接受批准快照成员且 derivation_authority=host_curated。未指定不是开启空库，未知成员、模型推断投影及他 run 批准均拒绝 |
-| prepare_run_static_skills | 使用同 run 已物化的知识和外部 TaskKnowledgeBinding，主机应通过 knowledge_run 准入后调用。编译核对 owner、绑定批准及快照完整来源/权限/范围，不消费或认证检索索引。发布前核验全部输出容量、关闭读取和实际 SDK 元数据，随后发布 static-skills-profile.json 及 static-skills/<内容身份>/SKILL.md。失败可能留下局部资源；不自动续写、覆盖或将残留当完整发布 |
+| prepare_run_static_skills | 使用同 run 已物化的知识和外部 TaskKnowledgeBinding，主机应通过 knowledge_run 准入后调用。编译核对 owner、绑定批准及快照完整来源/权限/范围，不消费或认证检索索引。Agent 传入完整共同 max_calls/max_tool_calls，发布前核验资源、关闭读取、原生元数据及双份 ASCII 报告表示余量，随后发布 static-skills-profile.json 及 static-skills/<内容身份>/SKILL.md。失败可能留下局部资源；不自动续写、覆盖或将残留当完整发布 |
 | 冻结 profile 与正文 | profile 完整保存开关、选择、快照、renderer、提示摘要、文件摘要/大小及原 SDK 元数据。正文保留前提和未知问题、步骤及观察分支、保留行为、反例、退出条件和完整 canonical SolverProjection。描述不得被 SDK 截短；内容身份绑定投影摘要。原 KnowledgeSnapshot 的 skill_files 仍为空，静态资源另有 profile，不改旧代含义 |
-| 同资源启停 | 两组生成完全相同正文和元数据，shared_static_skill_profile 仅去掉 enabled。开启注入含 read_skill 调用说明的目录；关闭仍加载、核验相同元数据并允许读取完整正文，只取消这段目录注入。实际工具注册、预算和运行比较须下一步 SDK 外层实现，middleware 自身不提供免费工具或调用 |
+| 同资源启停 | 两组生成完全相同正文和元数据，shared_static_skill_profile 仅去掉 enabled。开启注入含 read_skill 调用说明的目录；关闭仍加载、核验相同元数据并允许读取完整正文，只取消目录注入。工具定义和完整读取结果均相同，普通检索结果中的投影摘要可按共同工具说明推导同一 Skill ID；没有额外调用、工具或 Token 预算 |
 | StaticSkillService / read_run_static_skills | 构造不创建资源；回读以调用者冻结 profile、外部批准及 run 内来源重编译核对全部原字节。外部库可不存在，不能依赖本地 profile 自报权限、最新快照或检查点缓存；未知 ID 不拼接路径，缺失/改写/额外成员、链接与共享文件拒绝 |
-| FrozenSkillsMiddleware | 用 SDK 原生发现、YAML 元数据解析和 system message 注入，薄层约束负责完整批准清单、资源回读和缓存一致性。before_agent 与 modify_request 均核原件；已有缓存须与原元数据完全一致且加载错误为空，不能静默跳过失败资源。异步加载采用相同验证入口；Graph 可写前的缓存准入及实际最终发送核验尚待外层集成 |
-| Backend / 容量 | 后端仅枚举批准的虚拟根和下载精确清单内 SKILL.md；拒绝目录扩展、源码读取、支持文件、写入及执行。单文件、条目数和资源/profile 总量分别受 static_skills 的 MAX_SKILL_FILE_BYTES、MAX_STATIC_SKILL_ENTRIES、MAX_STATIC_SKILL_BYTES 约束，来源/owner/资源关闭读取分别核预算；不是整轮全局 I/O 或最终报告容量保证 |
+| FrozenSkillsMiddleware | 用 SDK 原生发现、YAML 元数据解析和 system message 注入，薄层约束负责完整批准清单、资源回读和缓存一致性。before_agent 与 modify_request 均核原件；已有缓存须与原元数据完全一致且加载错误为空，不能静默跳过失败资源。恢复在可写账本前只读检查锁定 SQLite saver 最新检查点及未合并的 Skill channel writes；准入与实际静态运行均显式使用 SDK 严格 serializer。最终 solver 输入在派发前验证唯一、完整、末尾原生目录块，关闭组不得含该目录；异步加载采用相同验证入口 |
+| Backend / 容量 | 后端仅枚举批准的虚拟根和下载精确清单内 SKILL.md；拒绝目录扩展、源码读取、支持文件、写入及执行。单文件、条目数和资源/profile 总量受 static_skills 常量约束；静态报告双份片段受 static_skill_handoff.MAX_STATIC_SKILL_REPORT_BYTES 约束，启停都预留完整目录余量，最终再次按实际 ASCII 缩进检查。实际 solver 原件审计沿用其共同单件/总量门并计入关闭重读；不将知识的独立闭包门误当 solver 总量门。这些分阶段门不是整轮全局 I/O 或全领域报告容量保证 |
 
-目录提示说明人工静态指导没有当前事实、应用资格或新的文件/执行权限；完整正文只能提供待核对的步骤，不能直接满足修复义务或接受门。SDK 外层集成须注册受已有动作预算管理的 read_skill、保存完整实际结果及发送关联，冻结恢复身份、报告/对照/导出原件，并在首次发布前验证相应报告容量。本包不升级此前会话；残留 namespace 等代际准入检查须随 SDK 外层接入，不能隐式赋予旧运行静态 Skill 能力。实际能力与完成证据以 STATUS 为准。
+目录提示说明人工静态指导没有当前事实、应用资格或新的文件/执行权限；完整正文只能提供待核对的步骤，不能直接满足修复义务或接受门。显式 StaticSkillPolicy 要求批准知识及显式 ApplicabilityPolicy，开启和关闭均使用 session/report/completion 13/10/7 与相同 20 项工具；未指定静态策略保持原代，拒绝静态字段、工具和资源残留。read_skill 只读选中的完整正文、元数据及内容身份，经既有 read_source 能力、父模型响应和动作预算授权，结果未知不重派。报告分别记录成功完整读取及其后真正可见的 solver 数量/有序身份摘要；没有后续模型输入时不宣称已使用。未知/拒绝/孤立记录和全部实际成本保留，原件、完整回执及实际输入随私有包导出；缺账本只能核原件，使用和成本保持未知。恢复须提供原外部批准与完全相同策略，不要求外部库存在。清单 5 固定共同知识与 shared_static_skill_profile，变体显式登记 static_skills_enabled；底座模型、工具、预算和接受门保持相同。实际能力与完成证据以 STATUS 为准。
 
 SkillVersion 保存 skill_id、内容/父版本、来源经验、适用前提、必需输入、查证及观察分支、修改建议、保留义务、退出/反例和实际验证范围。SDK 的 SKILL.md 与支持文件是受控投影，全部实际可读文件进入快照；首版投影限说明性内容，不附自动执行脚本、不越库读文件，加载也不替代既有工具授权。四类 RuleCard 可成为人工种子静态 Skill，不能算学习后晋升成果。
 

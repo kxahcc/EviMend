@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -48,6 +48,9 @@ from .working_context_plan import (
 )
 from .working_context_projection import SolverContextProjection
 from .workspace import CandidateWorkspace
+
+if TYPE_CHECKING:
+    from .static_skills import StaticSkillService
 
 MAX_SOLVER_INPUT_BYTES = MAX_ARTIFACT_BYTES
 MAX_SOLVER_INPUT_TOTAL_BYTES = 8 * MAX_ARTIFACT_BYTES
@@ -101,9 +104,11 @@ class _LiveReadActions(ToolActionStore):
 class SolverVisibilityStore:
     def __init__(self, workspace: CandidateWorkspace, task_directory: Path | None,
                  ledger: CheckLedger | None, model_profile: dict[str, Any],
-                 working_context_store: WorkingContextStore | None = None):
+                 working_context_store: WorkingContextStore | None = None,
+                 static_skill_service: StaticSkillService | None = None):
         self.workspace, self.task_directory, self.ledger = workspace, task_directory, ledger
         self.working_context_store = working_context_store
+        self.static_skill_service = static_skill_service
         try:
             self.io = CompactionStore(workspace.root, workspace.task_id, workspace.run_id,
                                       CompactionPolicy(), model_profile)
@@ -164,6 +169,14 @@ class SolverVisibilityStore:
             raise ValueError("solver input intent owner differs")
         view_json = _serialized(view)
         _groups(view)
+        if self.static_skill_service is not None:
+            from .static_skill_handoff import validate_static_skill_messages
+            from .static_skills import StaticSkillError
+
+            try:
+                validate_static_skill_messages(self.static_skill_service, view)
+            except StaticSkillError as exc:
+                raise SolverVisibilityError(exc.reason) from exc
         profile = _load(self.profile_json)
         if profile.get("transport") == "fixed_response":
             if (request is not None or not isinstance(fixed_request, dict) or

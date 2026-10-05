@@ -31,6 +31,7 @@ TOOL_ACTIONS: dict[str, tuple[str, str]] = {
     "read_log": ("inspect_existing", "read_log"),
     "search_experience": ("inspect_existing", "read_source"),
     "read_experience": ("inspect_existing", "read_source"),
+    "read_skill": ("inspect_existing", "read_source"),
     "prepare_experience_context": ("inspect_existing", "read_source"),
     "review_experience": ("record_analysis", "record_analysis"),
     "read_experience_review": ("inspect_existing", "read_source"),

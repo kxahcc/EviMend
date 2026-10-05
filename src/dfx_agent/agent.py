@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import stat
 import time
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,7 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import tool
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 
@@ -53,6 +56,7 @@ from .contracts import (
 )
 from .decisions import DecisionRequest, DecisionStore, feedback_key
 from .diagnostics import AnalysisStore, DiagnosisSubmission
+from .evidence_io import open_readonly_database
 from .knowledge_handoff import (
     audit_run_knowledge,
     audit_stored_queries,
@@ -86,6 +90,18 @@ from .provenance import (
 from .reporting import _owned_file, build_completion
 from .solver_visibility import SolverVisibilityStore
 from .source_search import SourceSearch, search_limits
+from .static_skill_handoff import (
+    audit_run_static_skills,
+    audit_stored_static_skills,
+    static_skill_tools,
+)
+from .static_skills import (
+    StaticSkillPolicy,
+    StaticSkillService,
+    normalize_static_skill_profile,
+    prepare_run_static_skills,
+    read_run_static_skills,
+)
 from .task import digest, verify_task
 from .task_strategy import build_system_prompt, build_task_message
 from .verification import CheckLedger, OfflineExecutor, _atomic_json
@@ -126,7 +142,8 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
            applicability_policy: ApplicabilityPolicy | None = None,
            solver_visibility: SolverVisibilityStore | None = None,
            model_calls: ModelCallStore | None = None,
-           actions: ToolActionStore | None = None) -> list[Any]:
+           actions: ToolActionStore | None = None,
+           static_skill_service: StaticSkillService | None = None) -> list[Any]:
     analysis = AnalysisStore(workspace)
     decisions = DecisionStore(workspace)
     conditions = condition_store or (ConditionStore(workspace) if (workspace.root / "condition-inputs.json").exists()
@@ -422,11 +439,73 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
         if knowledge_store is None or solver_visibility is None:
             raise ValueError("applicability requires approved knowledge and frozen solver inputs")
         tools.extend(applicability_tools(knowledge_store, solver_visibility, model_calls, actions, applicability_policy))
+    if static_skill_service is not None:
+        if knowledge_store is None or applicability_policy is None or solver_visibility is None:
+            raise ValueError("static skills require approved knowledge and explicit applicability configuration")
+        tools.extend(static_skill_tools(static_skill_service))
     return tools
 
 
 class ResumeAdmissionRejected(ValueError):
     """The saved work has not been admitted for any new execution."""
+
+
+def _static_checkpoint_admission(workspace: CandidateWorkspace, service: StaticSkillService) -> None:
+    """Inspect the native cache without SqliteSaver setup, DDL or WAL changes.
+
+    This is scoped to the locked SQLite saver layout and selected Skill channels.
+    The graph and solver/action ledger checks still own other checkpoint facts.
+    """
+    path = workspace.root / "checkpoints.sqlite"
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return
+    _owned_file(workspace, path)
+    limit = 8_388_608
+    expected = {"skills_metadata": service.expected_metadata(), "skills_load_errors": []}
+
+    def check(channel: str, value: Any) -> None:
+        if canonical(value) != canonical(expected[channel]):
+            raise ValueError("resume static skill graph cache differs")
+
+    try:
+        with closing(open_readonly_database(path)) as connection:
+            # Instantiate only to use the SDK's serializer. get_tuple/setup
+            # would create tables or change journal mode, so neither is called.
+            saver = SqliteSaver(connection, serde=JsonPlusSerializer(allowed_msgpack_modules=None))
+            row = connection.execute(
+                "SELECT checkpoint_id,type,length(checkpoint) FROM checkpoints "
+                "WHERE thread_id=? AND checkpoint_ns='' ORDER BY checkpoint_id DESC LIMIT 1",
+                (workspace.run_id,)).fetchone()
+            if row is None:
+                return
+            identifier, kind, size = row
+            if kind not in ("msgpack", "json") or type(size) is not int or not 0 < size <= limit:
+                raise ValueError("resume static skill checkpoint exceeds cache admission limit")
+            raw = connection.execute("SELECT checkpoint FROM checkpoints WHERE thread_id=? "
+                "AND checkpoint_ns='' AND checkpoint_id=?", (workspace.run_id, identifier)).fetchone()[0]
+            checkpoint = saver.serde.loads_typed((kind, raw))
+            values = checkpoint["channel_values"]
+            for channel in expected:
+                if channel in values:
+                    check(channel, values[channel])
+            rows = connection.execute("SELECT task_id,idx,channel,type,length(value) FROM writes "
+                "WHERE thread_id=? AND checkpoint_ns='' AND checkpoint_id=? "
+                "AND channel IN ('skills_metadata','skills_load_errors') ORDER BY task_id,idx",
+                (workspace.run_id, identifier))
+            total = size
+            for number, (task_id, index, channel, value_kind, value_size) in enumerate(rows, start=1):
+                if (value_kind not in ("msgpack", "json") or number > 128 or type(value_size) is not int or
+                        value_size <= 0 or total + value_size > limit):
+                    raise ValueError("resume static skill pending cache exceeds admission limit")
+                total += value_size
+                value = connection.execute("SELECT value FROM writes WHERE thread_id=? AND checkpoint_ns='' "
+                    "AND checkpoint_id=? AND task_id=? AND idx=?",
+                    (workspace.run_id, identifier, task_id, index)).fetchone()[0]
+                check(channel, saver.serde.loads_typed((value_kind, value)))
+    except (sqlite3.Error, KeyError, TypeError) as exc:
+        raise ValueError("resume static skill checkpoint is invalid") from exc
 
 
 def _resume_session(task: Path, work: Path, run_id: str,
@@ -444,18 +523,22 @@ def _resume_session(task: Path, work: Path, run_id: str,
     session = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(session, dict) or session.get("run_id") != run_id:
         raise ValueError("resume session identity differs")
-    if session.get("schema_version") not in (10, 11, 12):
+    if session.get("schema_version") not in (10, 11, 12, 13):
         raise ValueError("historical sessions are read-only")
-    if session["schema_version"] in (11, 12):
+    if session["schema_version"] in (11, 12, 13):
         profile = normalize_run_knowledge_profile(session["knowledge_profile"])
         if knowledge_approval is None or knowledge_approval.model_dump(mode="json") != profile["approval"]:
             raise ValueError("knowledge resume requires the original external host approval")
     elif "knowledge_profile" in session or knowledge_approval is not None:
         raise ValueError("a session without knowledge cannot acquire approval")
-    if session["schema_version"] == 12:
+    if session["schema_version"] in (12, 13):
         normalize_applicability_profile(session["applicability_profile"])
     elif "applicability_profile" in session:
         raise ValueError("historical session cannot acquire applicability configuration")
+    if session["schema_version"] == 13:
+        normalize_static_skill_profile(session["static_skill_profile"])
+    elif "static_skill_profile" in session or "static_skill_facts" in session:
+        raise ValueError("historical session cannot acquire static skill configuration")
     saved = validate_session_provenance(session)
     if saved is None:
         raise ValueError("legacy execution provenance is unknown; session is read-only")
@@ -486,6 +569,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     knowledge: HostKnowledgeInput | None = None,
                     knowledge_approval: TaskKnowledgeBinding | None = None,
                     applicability_policy: ApplicabilityPolicy | None = None,
+                    static_skill_policy: StaticSkillPolicy | None = None,
                     compaction_responses: list[AIMessage] | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
@@ -500,6 +584,10 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         normalize_applicability_profile(applicability_policy.model_dump(mode="json")))
     if applicability_profile is not None:
         applicability_policy = ApplicabilityPolicy.model_validate_json(canonical(applicability_profile))
+    if static_skill_policy is not None:
+        static_skill_policy = StaticSkillPolicy.model_validate_json(static_skill_policy.model_dump_json())
+        if applicability_policy is None:
+            raise ValueError("static skills require explicit applicability configuration")
     if (resume and knowledge is not None) or (not resume and knowledge_approval is not None):
         raise ValueError("knowledge input is startup-only; resume accepts the original approval")
     session = preflight_resume(task, work, run_id, knowledge_approval=knowledge_approval) if resume else {}
@@ -527,6 +615,20 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
             raise ValueError("applicability requires explicit approved knowledge")
         if resume and session.get("applicability_profile") != applicability_profile:
             raise ValueError("resume applicability configuration differs")
+        static_owner = knowledge_store if knowledge_store is not None else workspace
+        static_profile = (session.get("static_skill_profile") if resume else
+            prepare_run_static_skills(static_owner, static_skill_policy,
+                                      max_calls=max_calls, max_tool_calls=max_tool_calls))
+        if resume:
+            if (static_profile is None) != (static_skill_policy is None):
+                raise ValueError("resume static skill configuration differs")
+            if static_skill_policy is not None and static_profile is not None and (
+                    static_profile["enabled"] != static_skill_policy.enabled or
+                    static_profile["entry_ids"] != list(static_skill_policy.entry_ids)):
+                raise ValueError("resume static skill selection differs")
+        static_service = read_run_static_skills(static_owner, static_profile)
+        if resume and static_service is not None:
+            _static_checkpoint_admission(workspace, static_service)
         if resume and knowledge_profile is not None:
             model_path, action_path = workspace.root / "model-calls.sqlite", workspace.root / "tool-actions.sqlite"
             if model_path.exists() and action_path.exists():
@@ -545,21 +647,27 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                          {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
         working_context_store = WorkingContextStore(workspace, task, ledger, working_context_policy, model_profile)
         solver_visibility = (None if applicability_profile is None else
-            SolverVisibilityStore(workspace, task, ledger, model_profile, working_context_store=working_context_store))
+            SolverVisibilityStore(workspace, task, ledger, model_profile, working_context_store=working_context_store,
+                                  static_skill_service=static_service))
         audit_stored_applicability(workspace, task, ledger, knowledge_profile, applicability_profile)
+        if resume:
+            audit_stored_static_skills(workspace, task, ledger, knowledge_profile, static_profile)
         if resume and applicability_profile is not None:
             model_path, action_path = workspace.root / "model-calls.sqlite", workspace.root / "tool-actions.sqlite"
             if model_path.exists() and action_path.exists():
                 audit_run_applicability(workspace, task, ledger, knowledge_profile, applicability_profile,
+                    ModelCallStore(model_path, read_only=True), ToolActionStore(action_path, read_only=True))
+                audit_run_static_skills(workspace, task, ledger, knowledge_profile, static_profile,
                     ModelCallStore(model_path, read_only=True), ToolActionStore(action_path, read_only=True))
             elif (workspace.root / "solver-inputs").exists() and any((workspace.root / "solver-inputs").iterdir()):
                 raise ValueError("applicability restoration lacks accounted ledgers")
         tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
                        task_info["crash_sha256"], policy_features, capabilities, conditions,
                        knowledge_store=knowledge_store, applicability_policy=applicability_policy,
-                       solver_visibility=solver_visibility)
+                       solver_visibility=solver_visibility, static_skill_service=static_service)
         system_prompt = build_system_prompt(policy_features)
-        session_identity = {"schema_version": 12 if applicability_profile is not None else (10 if knowledge_profile is None else 11),
+        session_identity = {"schema_version": (13 if static_profile is not None else
+                            12 if applicability_profile is not None else (10 if knowledge_profile is None else 11)),
                             "run_id": run_id, "started_at": started_at.isoformat(),
                             "execution_provenance": execution_provenance,
                             "max_calls": max_calls, "max_known_tokens": max_known_tokens,
@@ -582,6 +690,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
             session_identity["knowledge_profile"] = knowledge_profile
         if applicability_profile is not None:
             session_identity["applicability_profile"] = applicability_profile
+        if static_profile is not None:
+            session_identity["static_skill_profile"] = static_profile
     except (OSError, ValueError, KeyError, TypeError) as exc:
         if resume:
             raise ResumeAdmissionRejected("resume saved facts or configuration differ") from exc
@@ -599,7 +709,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
             task_info["crash_sha256"], policy_features, capabilities, conditions,
             knowledge_store=knowledge_store, applicability_policy=applicability_policy,
-            solver_visibility=solver_visibility, model_calls=model_calls, actions=actions)
+            solver_visibility=solver_visibility, model_calls=model_calls, actions=actions,
+            static_skill_service=static_service)
     model_type = AccountedProviderModel if provider_adapter is not None else FixedResponseModel
     provider_arguments: dict[str, Any] = {"adapter": provider_adapter} if provider_adapter is not None else {}
     model = model_type(responses=responses, max_calls=max_calls,
@@ -624,6 +735,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     error: str | None = None
     status = "unresolved"
     with SqliteSaver.from_conn_string(str(workspace.root / "checkpoints.sqlite")) as saver:
+        if static_service is not None:
+            saver.serde = JsonPlusSerializer(allowed_msgpack_modules=None)
         filesystem_backend = FilesystemBackend(root_dir=workspace.base, virtual_mode=True)
         middleware: list[AgentMiddleware[Any, Any, Any]] = [
             FilesystemMiddleware(backend=filesystem_backend, tool_token_limit_before_evict=None,
@@ -633,6 +746,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                 max_candidates=max_candidates, max_tool_calls=max_tool_calls, deadline=model.deadline,
                 applicability_enabled=applicability_policy is not None and applicability_policy.enabled),
         ]
+        if static_service is not None:
+            middleware.append(static_service.middleware())
         graph = create_deep_agent(
             model=model, tools=tools, system_prompt=system_prompt,
             backend=filesystem_backend,
@@ -712,7 +827,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                   task_directory=task)
     status = completion["suggested_status"]
     report: dict[str, Any] = {
-        "schema_version": 9 if applicability_profile is not None else (7 if knowledge_profile is None else 8), "task_id": workspace.task_id, "run_id": run_id,
+        "schema_version": (10 if static_profile is not None else
+                           9 if applicability_profile is not None else (7 if knowledge_profile is None else 8)),
+        "task_id": workspace.task_id, "run_id": run_id,
         "execution_provenance": execution_provenance,
         "source_snapshot_sha256": workspace.source_snapshot_sha256,
         "status": status, "application_verification": "not_run",
@@ -742,6 +859,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     if applicability_profile is not None:
         report["applicability_profile"] = applicability_profile
         report["applicability_facts"] = completion["applicability_facts"]
+    if static_profile is not None:
+        report["static_skill_profile"] = static_profile
+        report["static_skill_facts"] = completion["static_skill_facts"]
     _atomic_json(workspace.root / "agent-report.json", report)
     return report
 

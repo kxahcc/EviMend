@@ -41,6 +41,7 @@ _WORK_ENTRIES = frozenset({
     "conditions", "compactions", "value-sources", "working-context",
     "knowledge-profile.json", "knowledge", "experience-bindings", "experience-queries",
     "applicability-contexts", "applicability-reviews", "applicability-materials", "solver-inputs",
+    "static-skills-profile.json", "static-skills",
 }) | _DATABASES | frozenset(name + suffix for name in _DATABASES for suffix in ("-wal", "-shm", "-journal"))
 _PRIVACY = {
     "local_only": True, "redacted": False, "share_ready": False,

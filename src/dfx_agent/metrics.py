@@ -30,8 +30,10 @@ from .provenance import validate_session_provenance
 from .reporting import (
     _APPLICABILITY_ENTRIES,
     _KNOWLEDGE_ENTRIES,
+    _STATIC_SKILL_ENTRIES,
     _applicability_presence,
     _knowledge_presence,
+    _static_skill_presence,
     read_completion,
 )
 from .source_search import search_limits
@@ -288,9 +290,53 @@ class EvaluationManifestV4(_Frozen):
         return self
 
 
-AnyEvaluationManifest = EvaluationManifest | EvaluationManifestV2 | EvaluationManifestV3 | EvaluationManifestV4
-AnyEvaluationVariant = EvaluationVariant | EvaluationVariantV2 | EvaluationVariantV4
-AnyRunConfiguration = RunConfiguration | RunConfigurationV2 | RunConfigurationV3
+class RunConfigurationV5(RunConfigurationV3):
+    """The identical selected procedures remain fixed across catalog switches."""
+
+    shared_static_skill_profile: dict[str, Any]
+
+    @model_validator(mode="after")
+    def valid_static_skills(self) -> RunConfigurationV5:
+        from .static_skills import normalize_shared_static_skill_profile
+
+        if canonical(self.shared_static_skill_profile) != canonical(normalize_shared_static_skill_profile(
+            self.shared_static_skill_profile
+        )):
+            raise ValueError("evaluation static Skill profile is not canonical")
+        if self.shared_static_skill_profile["snapshot_sha256"] != self.knowledge_profile["snapshot_sha256"]:
+            raise ValueError("evaluation static Skills and knowledge use different snapshots")
+        return self
+
+
+class EvaluationVariantV5(EvaluationVariantV4):
+    static_skills_enabled: bool
+
+
+class EvaluationManifestV5(_Frozen):
+    schema_version: Literal[5]
+    evaluation_id: str
+    scope: Literal["offline_synthetic"]
+    configuration: RunConfigurationV5
+    tasks: tuple[EvaluationTask, ...] = Field(min_length=1)
+    variants: tuple[EvaluationVariantV5, ...] = Field(min_length=1)
+    repeat_ids: tuple[str, ...] = Field(min_length=1)
+    runs: tuple[EvaluationCell, ...] = Field(min_length=1, max_length=MAX_CELLS)
+
+    @model_validator(mode="after")
+    def valid(self) -> EvaluationManifestV5:
+        EvaluationManifestV4.model_validate_json(canonical({
+            "schema_version": 4, "evaluation_id": self.evaluation_id, "scope": self.scope,
+            "configuration": self.configuration.model_dump(mode="json", exclude={"shared_static_skill_profile"}),
+            "tasks": [item.model_dump(mode="json") for item in self.tasks],
+            "variants": [item.model_dump(mode="json", exclude={"static_skills_enabled"}) for item in self.variants],
+            "repeat_ids": list(self.repeat_ids), "runs": [item.model_dump(mode="json") for item in self.runs],
+        }))
+        return self
+
+
+AnyEvaluationManifest = EvaluationManifest | EvaluationManifestV2 | EvaluationManifestV3 | EvaluationManifestV4 | EvaluationManifestV5
+AnyEvaluationVariant = EvaluationVariant | EvaluationVariantV2 | EvaluationVariantV4 | EvaluationVariantV5
+AnyRunConfiguration = RunConfiguration | RunConfigurationV2 | RunConfigurationV3 | RunConfigurationV5
 
 
 def parse_evaluation_manifest(value: object) -> AnyEvaluationManifest:
@@ -305,6 +351,8 @@ def parse_evaluation_manifest(value: object) -> AnyEvaluationManifest:
         return EvaluationManifestV3.model_validate_json(canonical(value))
     if value["schema_version"] == 4:
         return EvaluationManifestV4.model_validate_json(canonical(value))
+    if value["schema_version"] == 5:
+        return EvaluationManifestV5.model_validate_json(canonical(value))
     raise ValueError("unsupported evaluation manifest schema")
 
 
@@ -443,22 +491,30 @@ def _session(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationV
         required.add("execution_provenance")
     knowledge_evaluation = isinstance(configuration, RunConfigurationV3)
     applicability_evaluation = isinstance(variant, EvaluationVariantV4)
+    static_skill_evaluation = isinstance(configuration, RunConfigurationV5)
     if knowledge_evaluation:
         required.add("knowledge_profile")
     if applicability_evaluation:
         required.add("applicability_profile")
+    if static_skill_evaluation:
+        required.add("static_skill_profile")
     if set(value) != required or value["run_id"] != cell.run_id:
         raise ValueError("session schema or identity differs")
-    if knowledge_evaluation != (value["schema_version"] in (11, 12)):
+    if knowledge_evaluation != (value["schema_version"] in (11, 12, 13)):
         raise ValueError("session and evaluation knowledge generations differ")
-    if applicability_evaluation != (value["schema_version"] == 12):
+    if applicability_evaluation != (value["schema_version"] in (12, 13)):
         raise ValueError("session and evaluation applicability generations differ")
+    if static_skill_evaluation != (value["schema_version"] == 13):
+        raise ValueError("session and evaluation static Skill generations differ")
     _knowledge_presence(workspace, value)
     _applicability_presence(workspace, value)
+    _static_skill_presence(workspace, value)
     current_evaluation = isinstance(configuration, RunConfigurationV2)
     if current_evaluation != isinstance(variant, EvaluationVariantV2):
         raise ValueError("evaluation configuration and variant schemas differ")
-    if current_evaluation and value["schema_version"] != (12 if applicability_evaluation else 11 if knowledge_evaluation else 10):
+    if current_evaluation and value["schema_version"] != (
+        13 if static_skill_evaluation else 12 if applicability_evaluation else 11 if knowledge_evaluation else 10
+    ):
         raise ValueError("session and evaluation generations differ")
     if not isinstance(value["started_at"], str) or datetime.fromisoformat(value["started_at"]).tzinfo is None:
         raise ValueError("session time must have a timezone")
@@ -519,6 +575,19 @@ def _session(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationV
                 value["applicability_profile"])) or
                 canonical(value["applicability_profile"]) != canonical(expected_applicability)):
             raise ValueError("session applicability differs from its declared evaluation switch")
+    if static_skill_evaluation:
+        from .static_skills import (
+            normalize_static_skill_profile,
+            shared_static_skill_profile,
+        )
+
+        if not isinstance(variant, EvaluationVariantV5):
+            raise ValueError("evaluation static Skill configuration and variant schemas differ")
+        profile = value["static_skill_profile"]
+        if (canonical(profile) != canonical(normalize_static_skill_profile(profile)) or
+                canonical(shared_static_skill_profile(profile)) != canonical(configuration.shared_static_skill_profile) or
+                profile["enabled"] != variant.static_skills_enabled):
+            raise ValueError("session static Skills differ from the shared evaluation resources or declared evaluation switch")
     return value
 
 
@@ -527,14 +596,14 @@ def _model_identity(session: dict[str, Any], store: ModelCallStore, workspace: C
     # Recreate the installed tool definitions without invoking any closure. An
     # explicit readback ConditionStore avoids _tools' registry-creation fallback.
     knowledge = None
-    if session["schema_version"] in (11, 12):
+    if session["schema_version"] in (11, 12, 13):
         from .knowledge_run import read_run_knowledge
 
         knowledge = read_run_knowledge(workspace, task_directory, session["knowledge_profile"], ledger=ledger)
         if knowledge is None:
             raise ValueError("knowledge session has no readable knowledge store")
     applicability_options: dict[str, Any] = {}
-    if session["schema_version"] == 12:
+    if session["schema_version"] in (12, 13):
         from .applicability_handoff import ApplicabilityPolicy
         from .solver_visibility import SolverVisibilityStore
         from .working_context_plan import WorkingContextStore
@@ -548,6 +617,15 @@ def _model_identity(session: dict[str, Any], store: ModelCallStore, workspace: C
         applicability_options = {"applicability_policy": ApplicabilityPolicy.model_validate(session["applicability_profile"]),
             "solver_visibility": visibility, "model_calls": store,
             "actions": ToolActionStore(workspace.root / "tool-actions.sqlite", read_only=True)}
+    if session["schema_version"] == 13:
+        from .static_skills import read_run_static_skills
+
+        if knowledge is None:
+            raise ValueError("static Skill session has no readable knowledge store")
+        service = read_run_static_skills(knowledge, session["static_skill_profile"])
+        if service is None:
+            raise ValueError("static Skill session has no readable resources")
+        applicability_options["static_skill_service"] = service
     tools = _tools(workspace, ledger, session["max_candidates"], task_directory,
                    "crash.log", crash_sha256, PolicyFeatures.model_validate(session["policy_features"]),
                    frozenset(session["capabilities"]), ConditionStore(workspace), knowledge_store=knowledge,
@@ -587,8 +665,8 @@ def _model_identity(session: dict[str, Any], store: ModelCallStore, workspace: C
 def _outcome(completion: dict[str, Any]) -> str:
     if completion["suggested_status"] == "offline_checked" and completion["latest_candidate_check_status"] == "pass":
         return "pass"
-    if completion["schema_version"] in (4, 5, 6) and any(
-        reason.startswith(("working_context_", "knowledge_", "applicability_", "solver_visibility_"))
+    if completion["schema_version"] in (4, 5, 6, 7) and any(
+        reason.startswith(("working_context_", "knowledge_", "applicability_", "solver_visibility_", "static_skill_"))
         for reason in completion["unresolved_reasons"]
     ):
         return "unknown"
@@ -626,6 +704,10 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVaria
         value["applicability_enabled"] = variant.applicability_enabled
         value["applicability_profile"] = None
         value["applicability_facts"] = None
+    if isinstance(variant, EvaluationVariantV5):
+        value["static_skills_enabled"] = variant.static_skills_enabled
+        value["static_skill_profile"] = None
+        value["static_skill_facts"] = None
     if cell.work_path is None:
         return value
     work = root / cell.work_path
@@ -646,6 +728,13 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVaria
             except FileNotFoundError:
                 continue
             raise ValueError("historical or unapproved evaluation cannot acquire applicability evidence")
+    if not isinstance(configuration, RunConfigurationV5) or not (work / "session.json").exists():
+        for name in _STATIC_SKILL_ENTRIES:
+            try:
+                (work / name).lstat()
+            except FileNotFoundError:
+                continue
+            raise ValueError("historical or unapproved evaluation cannot acquire static Skill evidence")
     state = _load(work / "run-state.json", MAX_MANIFEST_BYTES)
     if (not isinstance(state, dict) or type(state.get("schema_version")) is not int or state["schema_version"] != 1 or
             state.get("task") != "offline" or state.get("run_id") != cell.run_id or
@@ -657,22 +746,31 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVaria
         session_path = work / "session.json"
         if session_path.exists():
             saved = _load(session_path)
-            if isinstance(saved, dict) and saved.get("schema_version") != 12 and any(
+            if isinstance(saved, dict) and saved.get("schema_version") not in (12, 13) and any(
                 field in saved for field in ("applicability_profile", "applicability_facts")
             ):
                 raise ValueError("historical session cannot acquire applicability facts")
-            if isinstance(saved, dict) and saved.get("schema_version") != 12:
+            if isinstance(saved, dict) and saved.get("schema_version") not in (12, 13):
                 for name in _APPLICABILITY_ENTRIES:
                     try:
                         (work / name).lstat()
                     except FileNotFoundError:
                         continue
                     raise ValueError("historical session cannot acquire applicability evidence")
+            if isinstance(saved, dict) and saved.get("schema_version") != 13:
+                if any(field in saved for field in ("static_skill_profile", "static_skill_facts")):
+                    raise ValueError("historical session cannot acquire static Skill facts")
+                for name in _STATIC_SKILL_ENTRIES:
+                    try:
+                        (work / name).lstat()
+                    except FileNotFoundError:
+                        continue
+                    raise ValueError("historical session cannot acquire static Skill evidence")
             if validate_session_provenance(saved) is not None:
                 workspace = CandidateWorkspace.reopen(root / task.task_path, work, cell.run_id)
                 session = _session(task, cell, variant, configuration, workspace)
                 value["execution_provenance"] = validate_session_provenance(session)
-                if session["schema_version"] in (11, 12):
+                if session["schema_version"] in (11, 12, 13):
                     from .knowledge_run import read_run_knowledge
 
                     knowledge = read_run_knowledge(workspace, root / task.task_path, session["knowledge_profile"],
@@ -700,7 +798,7 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVaria
 
                     applicability_profile = session.get("applicability_profile")
                     if (work / "model-calls.sqlite").exists() and (work / "tool-actions.sqlite").exists():
-                        if session["schema_version"] == 12:
+                        if session["schema_version"] in (12, 13):
                             _model_identity(session, ModelCallStore(work / "model-calls.sqlite", read_only=True),
                                 workspace, CheckLedger(workspace, ReplayOnlyExecutor(task.protocol_sha256), read_only=True),
                                 root / task.task_path, task.crash_sha256)
@@ -713,8 +811,26 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVaria
                         audit_stored_applicability(workspace, root / task.task_path,
                             CheckLedger(workspace, ReplayOnlyExecutor(task.protocol_sha256), read_only=True),
                             session["knowledge_profile"], applicability_profile)
-                    if session["schema_version"] == 12:
+                    if session["schema_version"] in (12, 13):
                         value["applicability_profile"] = applicability_profile
+                    from .static_skill_handoff import (
+                        audit_run_static_skills,
+                        audit_stored_static_skills,
+                    )
+
+                    static_profile = session.get("static_skill_profile")
+                    if (work / "model-calls.sqlite").exists() and (work / "tool-actions.sqlite").exists():
+                        audit_run_static_skills(workspace, root / task.task_path,
+                            CheckLedger(workspace, ReplayOnlyExecutor(task.protocol_sha256), read_only=True),
+                            session["knowledge_profile"], static_profile,
+                            ModelCallStore(work / "model-calls.sqlite", read_only=True),
+                            ToolActionStore(work / "tool-actions.sqlite", read_only=True))
+                    else:
+                        audit_stored_static_skills(workspace, root / task.task_path,
+                            CheckLedger(workspace, ReplayOnlyExecutor(task.protocol_sha256), read_only=True),
+                            session["knowledge_profile"], static_profile)
+                    if session["schema_version"] == 13:
+                        value["static_skill_profile"] = static_profile
         return value
     workspace = CandidateWorkspace.reopen(root / task.task_path, work, cell.run_id)
     session = _session(task, cell, variant, configuration, workspace)
@@ -743,6 +859,9 @@ def _row(task: EvaluationTask, cell: EvaluationCell, variant: AnyEvaluationVaria
     if isinstance(variant, EvaluationVariantV4):
         value["applicability_profile"] = completion["applicability_profile"]
         value["applicability_facts"] = completion["applicability_facts"]
+    if isinstance(variant, EvaluationVariantV5):
+        value["static_skill_profile"] = completion["static_skill_profile"]
+        value["static_skill_facts"] = completion["static_skill_facts"]
     return value
 
 
@@ -800,10 +919,44 @@ def _variant_summary(variant: AnyEvaluationVariant, rows: list[dict[str, Any]]) 
         value["working_context_enabled"] = variant.working_context_enabled
     if isinstance(variant, EvaluationVariantV4):
         value["applicability_enabled"] = variant.applicability_enabled
+    if isinstance(variant, EvaluationVariantV5):
+        value["static_skills_enabled"] = variant.static_skills_enabled
     return value
 
 
-def _paired(manifest: AnyEvaluationManifest, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _aggregate_bytes(value: Any) -> bytes:
+    # Preserve the established hash/writer representation, including Unicode.
+    return canonical(value).encode("utf-8")
+
+
+class _AggregateCapacity:
+    """Account the canonical UTF-8 output as bounded collections are built.
+
+    This constrains the report representation, not aggregate tree snapshots,
+    source reads, runtime memory, or the total I/O of an evaluation matrix.
+    """
+
+    def __init__(self, value: dict[str, Any]) -> None:
+        # Reserve the fixed-length digest and the writer's final newline.
+        self.bytes = len(_aggregate_bytes({**value, "report_sha256": "0" * 64})) + 1
+        self._check()
+
+    def _check(self) -> None:
+        if self.bytes > MAX_JSON_BYTES:
+            raise ValueError("evaluation aggregate report exceeds format limit")
+
+    def append(self, collection: list[dict[str, Any]], item: dict[str, Any]) -> None:
+        self.bytes += len(_aggregate_bytes(item)) + int(bool(collection))
+        self._check()
+        collection.append(item)
+
+    def replace(self, old: Any, new: Any) -> None:
+        self.bytes += len(_aggregate_bytes(new)) - len(_aggregate_bytes(old))
+        self._check()
+
+
+def _paired(manifest: AnyEvaluationManifest, rows: list[dict[str, Any]], *,
+            capacity: _AggregateCapacity | None = None) -> list[dict[str, Any]]:
     indexed = {(row["task_id"], row["variant_id"], row["repeat_id"]): row for row in rows}
     found = []
     for base, compared in itertools.combinations(manifest.variants, 2):
@@ -825,10 +978,14 @@ def _paired(manifest: AnyEvaluationManifest, rows: list[dict[str, Any]]) -> list
         count_keys = ("expected_pairs", "unknown_pairs", "synthetic_gain_count", "synthetic_loss_count",
                       "same_pass_count", "same_fail_count")
         total = {key: sum(item[key] for item in per_task) for key in count_keys}
-        found.append({"base_variant_id": base.variant_id, "compared_variant_id": compared.variant_id,
+        item = {"base_variant_id": base.variant_id, "compared_variant_id": compared.variant_id,
                       **total, "eligible_pairs": total["expected_pairs"] - total["unknown_pairs"],
                       "task_count": len(manifest.tasks),
-                      "lineage_group_count": len({task.lineage_group_id for task in manifest.tasks}), "by_task": per_task})
+                      "lineage_group_count": len({task.lineage_group_id for task in manifest.tasks}), "by_task": per_task}
+        if capacity is None:
+            found.append(item)
+        else:
+            capacity.append(found, item)
     return found
 
 
@@ -859,26 +1016,38 @@ def aggregate_evaluation(manifest: AnyEvaluationManifest, root: Path) -> dict[st
             raise ValueError("schema-1 synthetic task cannot claim a catalog selection")
     tasks = {task.task_id: task for task in manifest.tasks}
     variants = {variant.variant_id: variant for variant in manifest.variants}
-    rows = [_row(tasks[cell.task_id], cell, variants[cell.variant_id], manifest.configuration, root)
-            for cell in sorted(manifest.runs, key=lambda cell: (cell.task_id, cell.variant_id, cell.repeat_id))]
+    rows: list[dict[str, Any]] = []
+    variant_summaries: list[dict[str, Any]] = []
+    value = {"schema_version": manifest.schema_version, "scope": "offline_synthetic", "evaluation_id": manifest.evaluation_id,
+             "manifest_sha256": sha256(canonical(manifest.model_dump(mode="json"))),
+             "configuration": manifest.configuration.model_dump(mode="json"),
+             "task_count": len(manifest.tasks), "expected_runs": len(manifest.runs),
+             "lineage_group_count": len({task.lineage_group_id for task in manifest.tasks}), "rows": rows,
+             "variants": variant_summaries, "paired_comparisons": [], "execution_provenance": None,
+             "application_metrics": {name: None for name in ("root_cause_hit_at_1", "root_cause_hit_at_3",
+                 "line_label_coverage", "repair_success_rate", "functional_correctness", "regression_rate",
+                 "first_candidate_pass_rate", "monetary_cost", "localization_ms", "repair_ms")}}
+    capacity = _AggregateCapacity(value)
+    for cell in sorted(manifest.runs, key=lambda cell: (cell.task_id, cell.variant_id, cell.repeat_id)):
+        item = _row(tasks[cell.task_id], cell, variants[cell.variant_id], manifest.configuration, root)
+        capacity.append(rows, item)
     schemas = {schema for row in rows for schema in row["solver_tool_schema_sha256"]}
     if len(schemas) > 1:
         raise ValueError("solver wire tool schemas differ between evaluation cells")
     if any(path.exists() != (path in snapshots) or (path in snapshots and _tree_snapshot(path) != snapshots[path])
            for path in paths):
         raise ValueError("evaluation evidence changed during aggregation")
-    value = {"schema_version": manifest.schema_version, "scope": "offline_synthetic", "evaluation_id": manifest.evaluation_id,
-             "manifest_sha256": sha256(canonical(manifest.model_dump(mode="json"))),
-             "configuration": manifest.configuration.model_dump(mode="json"),
-             "task_count": len(manifest.tasks), "expected_runs": len(manifest.runs),
-             "lineage_group_count": len({task.lineage_group_id for task in manifest.tasks}), "rows": rows,
-             "variants": [_variant_summary(variant, [row for row in rows if row["variant_id"] == variant.variant_id])
-                          for variant in manifest.variants], "paired_comparisons": _paired(manifest, rows),
-             "execution_provenance": _provenance_summary(rows),
-             "application_metrics": {name: None for name in ("root_cause_hit_at_1", "root_cause_hit_at_3",
-                 "line_label_coverage", "repair_success_rate", "functional_correctness", "regression_rate",
-                 "first_candidate_pass_rate", "monetary_cost", "localization_ms", "repair_ms")}}
-    return {**value, "report_sha256": sha256(canonical(value))}
+    provenance = _provenance_summary(rows)
+    capacity.replace(value["execution_provenance"], provenance)
+    value["execution_provenance"] = provenance
+    for variant in manifest.variants:
+        summary = _variant_summary(variant, [row for row in rows if row["variant_id"] == variant.variant_id])
+        capacity.append(variant_summaries, summary)
+    value["paired_comparisons"] = _paired(manifest, rows, capacity=capacity)
+    result = {**value, "report_sha256": sha256(canonical(value))}
+    if len((canonical(result) + "\n").encode("utf-8")) > MAX_JSON_BYTES:
+        raise ValueError("evaluation aggregate report exceeds format limit")
+    return result
 
 
 def write_evaluation_report(manifest_path: Path, root: Path, output: Path) -> dict[str, Any]:

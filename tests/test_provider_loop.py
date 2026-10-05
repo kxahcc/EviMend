@@ -23,6 +23,7 @@ from dfx_agent.model_provider import (
     ProviderSettings,
 )
 from dfx_agent.policies import PolicyFeatures
+from dfx_agent.static_skill_handoff import STATIC_SKILL_TOOLS
 from dfx_agent.task import verify_task
 from dfx_agent.task_strategy import build_system_prompt
 from dfx_agent.verification import FixedTextExecutor
@@ -79,7 +80,7 @@ def test_wire_task_strategy_tools_and_accounted_intent_are_identical(tmp_path: P
     assert report["completion"]["latest_candidate_id"] is None
     assert report["completion"]["cost"]["total_tokens"] == 15
     assert report["completion"]["suggested_status"] == report["status"]
-    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
+    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS - STATIC_SKILL_TOOLS)
     body = requests[0]
     assert body["messages"][0]["role"] == "system"
     assert build_system_prompt(PolicyFeatures()) in body["messages"][0]["content"]
@@ -87,7 +88,7 @@ def test_wire_task_strategy_tools_and_accounted_intent_are_identical(tmp_path: P
     assert task_message["source_snapshot_sha256"] == verify_task(task)["source_snapshot_sha256"]
     assert task_message["capabilities"] == sorted(OFFLINE_CAPABILITIES)
     assert task_message["task_id"] == "task1" and task_message["run_id"] == "run1"
-    assert {item["function"]["name"] for item in body["tools"]} == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
+    assert {item["function"]["name"] for item in body["tools"]} == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS - STATIC_SKILL_TOOLS)
     assert not {"execute", "task", "write_file", "grep"} & set(report["offered_tools"])
     record = ModelCallStore(work / "model-calls.sqlite").get("model-1")
     assert record is not None and record.state == "completed"
@@ -155,7 +156,7 @@ def test_provider_baseline_and_enhanced_share_tools_and_budgets(tmp_path: Path) 
                                     max_known_tokens=30, max_candidates=2, max_tool_calls=3,
                                     policy_features=PolicyFeatures(rule_guidance=enhanced,
                                         obligation_tracking=enhanced, decision_checks=enhanced))
-        assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
+        assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS - STATIC_SKILL_TOOLS)
         assert report["model_calls"] == len(requests) == 1
         offered.append(requests[0]["tools"])
         sessions.append(json.loads((work / "session.json").read_text(encoding="utf-8")))

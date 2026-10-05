@@ -14,6 +14,7 @@ from typing import Any, Literal, cast
 
 from deepagents.backends.protocol import BackendProtocol, FileDownloadResponse, LsResult
 from deepagents.middleware.skills import SkillMetadata, SkillsMiddleware, SkillsState
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .applicability import ApplicabilityError, ApplicabilityStore
@@ -403,13 +404,25 @@ class StaticSkillService:
         return FrozenSkillsMiddleware(self)
 
     def expected_section(self) -> str | None:
-        middleware = self.middleware()
         self._validate()
-        if not self.profile["enabled"]:
-            return None
-        return STATIC_SKILL_PROMPT.format(skills_locations=middleware._format_skills_locations(),
-                    skills_load_warnings="", skills_list=middleware._format_skills_list(
-                        cast(list[SkillMetadata], self.expected_metadata())))
+        return static_skill_section(self.profile)
+
+
+def _skill_list(skills: list[SkillMetadata]) -> str:
+    return "\n".join(f"- **{skill['name']}**: {skill['description']}\n"
+                     f"  -> read_skill(skill_id={json.dumps(skill['name'])})" for skill in skills)
+
+
+def static_skill_section(profile: dict[str, Any]) -> str | None:
+    """Render the frozen native catalog before publication, without file access."""
+    profile = normalize_static_skill_profile(profile)
+    if not profile["enabled"]:
+        return None
+    native = SkillsMiddleware(backend=_ApprovedBackend(profile["files"], {}),
+                              sources=[(VIRTUAL_ROOT, "Approved static")], system_prompt=None)
+    return STATIC_SKILL_PROMPT.format(skills_locations=native._format_skills_locations(),
+        skills_load_warnings="", skills_list=_skill_list(
+            cast(list[SkillMetadata], [file["metadata"] for file in profile["files"]])))
 
 
 class FrozenSkillsMiddleware(SkillsMiddleware):
@@ -435,16 +448,15 @@ class FrozenSkillsMiddleware(SkillsMiddleware):
 
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
         # Native catalog formatting otherwise assumes an unregistered read_file.
-        return "\n".join(f"- **{skill['name']}**: {skill['description']}\n"
-                         f"  -> read_skill(skill_id={json.dumps(skill['name'])})" for skill in skills)
+        return _skill_list(skills)
 
-    def before_agent(self, state: Any, runtime: Any, config: Any) -> Any:
+    def before_agent(self, state: Any, runtime: Any, config: RunnableConfig) -> Any:
         self._service._validate()
         update = super().before_agent(state, runtime, config)
         self._check_state(state if update is None else update)
         return update
 
-    async def abefore_agent(self, state: Any, runtime: Any, config: Any) -> Any:
+    async def abefore_agent(self, state: Any, runtime: Any, config: RunnableConfig) -> Any:
         return self.before_agent(state, runtime, config)
 
     def modify_request(self, request: Any) -> Any:
@@ -454,11 +466,17 @@ class FrozenSkillsMiddleware(SkillsMiddleware):
 
 
 def prepare_run_static_skills(store: ApplicabilityStore | CandidateWorkspace,
-                              policy: StaticSkillPolicy | None) -> dict[str, Any] | None:
+                              policy: StaticSkillPolicy | None, *, max_calls: int | None = None,
+                              max_tool_calls: int | None = None) -> dict[str, Any] | None:
     """The only publication entry; validate everything before the first write."""
     try:
         workspace = _workspace(store)
         _absent(workspace)
+        if (max_calls is None) != (max_tool_calls is None):
+            raise StaticSkillError()
+        if max_calls is not None and (type(max_calls) is not int or type(max_tool_calls) is not int or
+                                      max_calls < 1 or max_tool_calls is None or max_tool_calls < 1):
+            raise StaticSkillError()
         if policy is None:
             return None
         if not isinstance(store, ApplicabilityStore) or not isinstance(policy, StaticSkillPolicy):
@@ -468,6 +486,10 @@ def prepare_run_static_skills(store: ApplicabilityStore | CandidateWorkspace,
         expected = [file["metadata"] for file in profile["files"]]
         if _native_catalog(_ApprovedBackend(profile["files"], bodies)) != expected:
             raise StaticSkillError()
+        if max_calls is not None and max_tool_calls is not None:
+            from .static_skill_handoff import preflight_static_skill_report
+
+            preflight_static_skill_report(profile, static_skill_section(profile), max_calls, max_tool_calls)
         _absent(workspace)
         (workspace.root / NAMESPACE).mkdir()
         for file in profile["files"]:

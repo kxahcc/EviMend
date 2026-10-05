@@ -1,0 +1,252 @@
+{
+  "session_id": "session-2026-10-05-W07-static-skills-handoff",
+  "date": "2026-10-05",
+  "record_type": "work_summary_not_raw_transcript",
+  "ai_tool": "Codex",
+  "source_start_commit": "db18b44",
+  "work_package": "W07 static Skill Agent/session/report/evaluation/export integration",
+  "user_request_summary": "继续推进到实测前完整审查节点，保持设计、实际实现、贡献与未验证边界一致。",
+  "goal": "原生目录和完整读取接入实际 SDK、共同预算、只读恢复、报告及公平对照，保全原件与未知状态。",
+  "changes": [
+    "Explicit approved static policy plus explicit applicability selects session/report/completion 13/10/7 and identical 20-tool on/off interfaces; older generations retain original tools/shapes.",
+    "Native middleware injects only the catalog factor; full read_skill results, metadata, bodies and permissions are identical across modes, ordinary retrieval can derive the same selected content identity.",
+    "Actual fixed and MockTransport solver requests validate the final native catalog before dispatch; provider transport concatenates only exact system text blocks without dropping characters.",
+    "Full reads bind actual accounted solver requests/responses and durable action receipts; compact facts separately count successful reads and later complete visible receipts, never grant current evidence or application authority.",
+    "Resume checks the original approval, run originals, policy, latest native cache and relevant pending writes before writable ledgers; strict SDK serializer is used for both admission and static graph execution.",
+    "Shared or unsafe checkpoint entries, unmerged journals, resource/profile/policy drift and unknown results reject/reconcile without reexecuting the read; external source library is unnecessary on resume.",
+    "Publication preflights the two ASCII static report fragments and link budgets; solver original closure retains its existing 8 MiB single/64 MiB total limits and counts initial plus closing rereads.",
+    "Manifest5 freezes shared knowledge and static resource identity, exports complete originals/receipts/actual inputs and rejects old-generation residuals; missing reports/ledgers leave use/cost unknown.",
+    "Matrix row, variant and paired result accumulation is bounded by actual canonical UTF-8 writer bytes including provenance, digest and newline, with an independent final limit check.",
+    "Updated the existing guide, architecture, contracts, plan, metrics, prototype instructions and STATUS; submission templates and archive dependencies are unchanged."
+  ],
+  "validation": {
+    "mode": "synthetic_software_only",
+    "selected_files": 15,
+    "passed": 595,
+    "skipped": 3,
+    "is_whole_repository_same_run": false,
+    "tests": [
+      {
+        "path": "tests/test_static_skill_resume_cache.py",
+        "passed": 10,
+        "skipped": 0,
+        "seconds": 34.33,
+        "run_id": "ad5ba81c-882f-428f-87b7-6280869bf021"
+      },
+      {
+        "path": "tests/test_static_skill_handoff.py",
+        "passed": 31,
+        "skipped": 0,
+        "seconds": 30.86,
+        "run_id": "7badb876-9cee-41b8-b8fe-5f27b80fcdb7"
+      },
+      {
+        "path": "tests/test_static_skills.py",
+        "passed": 58,
+        "skipped": 0,
+        "seconds": 29.16,
+        "run_id": "c782584c-0a3a-4f11-911a-37b093d0299f"
+      },
+      {
+        "path": "tests/test_model_provider.py",
+        "passed": 115,
+        "skipped": 0,
+        "seconds": 0.76,
+        "run_id": "6116e15c-c723-47ad-ab74-ce0fece1c669"
+      },
+      {
+        "path": "tests/test_provider_loop.py",
+        "passed": 17,
+        "skipped": 0,
+        "seconds": 20.57,
+        "run_id": "bccb5897-8e55-4fca-be98-4eee363cb0bb"
+      },
+      {
+        "path": "tests/test_context_boundary.py",
+        "passed": 24,
+        "skipped": 0,
+        "seconds": 20.37,
+        "run_id": "661aeacc-5cbe-4a5e-9153-944d8ae38f81"
+      },
+      {
+        "path": "tests/test_compaction_loop.py",
+        "passed": 13,
+        "skipped": 0,
+        "seconds": 24,
+        "run_id": "ea496d15-02ad-490a-9ffc-2cbbaf4124c5"
+      },
+      {
+        "path": "tests/test_task_handoff.py",
+        "passed": 9,
+        "skipped": 0,
+        "seconds": 16.69,
+        "run_id": "cde9d074-2cca-43af-b8fa-cbcd9deaa8df"
+      },
+      {
+        "path": "tests/test_static_skill_reporting.py",
+        "passed": 33,
+        "skipped": 0,
+        "seconds": 140.64,
+        "run_id": "81409bab-6f3b-4bb7-a5d6-8ea8dfdc52f9"
+      },
+      {
+        "path": "tests/test_applicability_reporting.py",
+        "passed": 35,
+        "skipped": 0,
+        "seconds": 154.2,
+        "run_id": "6b07c6ce-96ad-45f6-bd20-bfe8a5d5ccff"
+      },
+      {
+        "path": "tests/test_metrics.py",
+        "passed": 64,
+        "skipped": 1,
+        "seconds": 23.75,
+        "run_id": "3a982eb4-992d-4b93-b789-d90494bc2ff4"
+      },
+      {
+        "path": "tests/test_exporting.py",
+        "passed": 64,
+        "skipped": 1,
+        "seconds": 67.62,
+        "run_id": "9e3b24bb-f093-4031-b934-be4dafb75b89"
+      },
+      {
+        "path": "tests/test_knowledge_reporting.py",
+        "passed": 57,
+        "skipped": 0,
+        "seconds": 102.37,
+        "run_id": "418c662d-c485-4caf-b15b-acf82ea4560c"
+      },
+      {
+        "path": "tests/test_provenance.py",
+        "passed": 55,
+        "skipped": 1,
+        "seconds": 2.38,
+        "run_id": "497bda82-f649-4d56-a93c-42db7a59af99"
+      },
+      {
+        "path": "tests/test_static_skill_sdk.py",
+        "passed": 10,
+        "skipped": 0,
+        "seconds": 102.99,
+        "run_id": "4747ae0b-2553-4aef-9b69-1bde164c9dd6"
+      }
+    ],
+    "ruff": {
+      "status": "passed",
+      "run_id": "ccd8dbe8-9e4e-4cea-a1d4-502b1c10de8e"
+    },
+    "pyright": {
+      "status": "passed",
+      "errors": 0,
+      "warnings": 0,
+      "run_id": "9851b49c-4f8b-476b-9681-e8922e8bd79f"
+    },
+    "documentation": {
+      "status": "passed",
+      "registered_documents": 14,
+      "errors": 0,
+      "optional_notes": 0,
+      "run_id": "3c627eaa-b48e-4536-bd97-76dffccdc833"
+    },
+    "skip_reason": "Three actual symbolic-link cases lack Windows account privilege; actual hard-link rejection is separately verified.",
+    "counting_rule": "Latest passing result per selected file only; repeated intermediate successes are not counted twice. Final text typing/path admission edits prompted focused provider/SDK/cache rechecks.",
+    "managed_artifact_location": ".dfx-local/artifacts/<run_id>.log and .json"
+  },
+  "retained_failed_attempts": [
+    {
+      "run_id": "b9115887-f6a0-4617-8590-48bd8cfa8ffd",
+      "kind": "ruff",
+      "errors": 5,
+      "cause": "Import formatting, fixed."
+    },
+    {
+      "run_id": "d6e4816b-76e7-459d-970a-6ba1ec39d635",
+      "passed": 14,
+      "failed": 7,
+      "cause": "Native config parameter typed Any prevented SDK injection; typed RunnableConfig."
+    },
+    {
+      "run_id": "9e14823a-613c-4e82-9b72-39560b4f99a3",
+      "passed": 8,
+      "failed": 2,
+      "cause": "Provider finite profile rejected native SystemMessage text blocks; added exact text-only concatenation."
+    },
+    {
+      "run_id": "d244ae40-f5f0-4548-a92f-2b3b0fb6c575",
+      "passed": 32,
+      "failed": 1,
+      "cause": "UTF-8 boundary fixture was actually ASCII; explicit synthetic Unicode probe added."
+    },
+    {
+      "run_id": "ca3207ac-1b55-4881-a106-3a723efb5852",
+      "passed": 7,
+      "failed": 1,
+      "cause": "Late input probe changed returned messages but not actual frozen view; synchronized probe to test static gate rather than request mismatch."
+    },
+    {
+      "run_id": "93c0f310-3047-44d3-a556-0e93d0313b37",
+      "kind": "ruff",
+      "errors": 1,
+      "cause": "New closure-reader import formatting, fixed."
+    },
+    {
+      "run_id": "8d9dfb34-e4b5-4fa3-b361-fc46fc48da6b",
+      "kind": "pyright",
+      "errors": 1,
+      "cause": "Checked text-block dictionary needed explicit type narrowing; runtime semantics unchanged."
+    }
+  ],
+  "review_findings_resolved": [
+    "Default permissive checkpoint serializer could construct unregistered msgpack types before cache comparison; native strict mode is now explicit at both boundaries.",
+    "Closing solver-input reads were undercounted and inherited the unrelated knowledge closure; dedicated solver reader now honors its original budgets.",
+    "read_skill exposed an extra enabled flag to the model; removed it so full read results are identical and catalog is the isolated factor.",
+    "exists() alone can miss an unsafe dangling checkpoint entry; lstat and owned-file validation now precede admission."
+  ],
+  "limitations": [
+    "Managed fixed/mock scripts and CLI still cannot configure knowledge, applicability or static policies; program API integration is not CLI acceptance.",
+    "No feedback extraction, automatic Skill revision/activation, complete learned-source closure or learning gain is implemented.",
+    "Static host_curated guidance and model applicability judgments do not confer current causal truth, business correctness or application verification.",
+    "Fragment and matrix output limits are not full-domain run capacity, tree-snapshot/total-I/O/memory or single-row peak guarantees.",
+    "Locked SQLite cache inspection has a bounded serialized checkpoint/pending-cache admission path; general platform/long-path/full-run capacity still needs integration acceptance.",
+    "Actual symbolic-link privilege cases and Windows general long-path publication remain unresolved; short fixtures are not proof.",
+    "Synthetic scripted repair, reuse and export tests prove neither autonomous model reasoning nor competition/paper effect or novelty."
+  ],
+  "next_work": "W07 managed approved knowledge/applicability/static configuration and repair/resume/matrix/package acceptance, then feedback/evolution and complete offline review gates.",
+  "real_model_runs": 0,
+  "application_builds": 0,
+  "device_replays": 0,
+  "dependency_installations": 0,
+  "new_persistent_export_packages": 0,
+  "source_sha256_at_completion": {
+    "src/dfx_agent/agent.py": "e4398ad05b51beaaf050c61952969a1d3d7a413fbe2cef18059947e7f287174c",
+    "src/dfx_agent/static_skill_handoff.py": "529681c9698b755238b8aa9bd556608409f396357acb9586101beafc707682ee",
+    "src/dfx_agent/static_skills.py": "b1cee495139e30c55c9c75ceeb39c1da37c9da536e4fdd6eaa08dbfabeabc714",
+    "src/dfx_agent/model_provider.py": "042c712990cd93fbb1718606dd1e64207226c51ebe0aea154516d85c73fea99f",
+    "src/dfx_agent/metrics.py": "ad774bd6665a7c9fdfec347a39276ebe4b4b8becdff48177db17d47126455aa6"
+  },
+  "environment": {
+    "mode": "existing project-managed Python and locked dependencies",
+    "owner_valid": true,
+    "managed_bytes_by_category": {
+      "work": 1146230,
+      "cache": 107220044,
+      "tools": 41432064,
+      "python": 59906689,
+      "tmp": 27307,
+      "state": 55821,
+      "env": 107635855,
+      "artifacts": 3444489
+    },
+    "export_bytes": 912885,
+    "managed_and_exports_mib": 306.87464141845703,
+    "observation": "After final selected software and Ruff/Pyright checks; subsequent docs checks add retained artifacts only.",
+    "active_marker": false,
+    "active_state": "none",
+    "remote_jobs_unknown": false,
+    "cleanup_available": true,
+    "limits_changed": false,
+    "global_environment_changed": false,
+    "test_temporary_trees_removed": true
+  }
+}

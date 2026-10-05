@@ -10,7 +10,7 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from langchain_core.messages import (
@@ -208,8 +208,17 @@ def _message_payload(messages: list[BaseMessage]) -> list[dict[str, Any]]:
     for message in messages:
         if not isinstance(message, BaseMessage):
             raise AdapterRequestError("unsupported_message_role")
-        if not isinstance(message.content, str):
-            raise AdapterRequestError("unsupported_message_content")
+        content = message.content
+        if not isinstance(content, str):
+            # The native Skills middleware appends ordered text blocks to the
+            # SystemMessage. Preserve every character, including its own
+            # separators, when sending the same text through Chat Completions.
+            # Other roles, multimodal blocks and provider extras remain denied.
+            if (type(message) is not SystemMessage or not isinstance(content, list) or not content or
+                    any(type(block) is not dict or set(block) != {"type", "text"} or
+                        block["type"] != "text" or not isinstance(block["text"], str) for block in content)):
+                raise AdapterRequestError("unsupported_message_content")
+            content = "".join(cast(dict[str, Any], block)["text"] for block in content)
         if type(message) is ToolMessage:
             if message.additional_kwargs or message.artifact is not None:
                 raise AdapterRequestError("unsupported_tool_message_attachment")
@@ -224,7 +233,7 @@ def _message_payload(messages: list[BaseMessage]) -> list[dict[str, Any]]:
         if type(message) in (SystemMessage, HumanMessage):
             if message.additional_kwargs:
                 raise AdapterRequestError("unsupported_message_attachment")
-            item = {"role": "system" if isinstance(message, SystemMessage) else "user", "content": message.content}
+            item = {"role": "system" if isinstance(message, SystemMessage) else "user", "content": content}
         elif type(message) is AIMessage:
             if message.invalid_tool_calls or set(message.additional_kwargs) - {"reasoning_content"}:
                 raise AdapterRequestError("unsupported_assistant_message")

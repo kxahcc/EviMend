@@ -25,10 +25,11 @@ from .workspace import CandidateWorkspace, _manifest
 _KNOWLEDGE_ENTRIES = ("knowledge-profile.json", "knowledge", "experience-bindings", "experience-queries",
                       "applicability-contexts", "applicability-reviews", "applicability-materials", "solver-inputs")
 _APPLICABILITY_ENTRIES = ("applicability-contexts", "applicability-reviews", "applicability-materials", "solver-inputs")
+_STATIC_SKILL_ENTRIES = ("static-skills-profile.json", "static-skills")
 
 
 def _knowledge_presence(workspace: CandidateWorkspace, session: dict[str, Any] | None) -> bool:
-    current = session is not None and session["schema_version"] in (11, 12)
+    current = session is not None and session["schema_version"] in (11, 12, 13)
     present = session is not None and "knowledge_profile" in session
     if session is not None and "knowledge_facts" in session:
         raise ValueError("session cannot acquire report knowledge facts")
@@ -45,7 +46,7 @@ def _knowledge_presence(workspace: CandidateWorkspace, session: dict[str, Any] |
 
 
 def _applicability_presence(workspace: CandidateWorkspace, session: dict[str, Any] | None) -> bool:
-    current = session is not None and session["schema_version"] == 12
+    current = session is not None and session["schema_version"] in (12, 13)
     present = session is not None and "applicability_profile" in session
     if session is not None and "applicability_facts" in session:
         raise ValueError("session cannot acquire report applicability facts")
@@ -58,6 +59,23 @@ def _applicability_presence(workspace: CandidateWorkspace, session: dict[str, An
             except FileNotFoundError:
                 continue
             raise ValueError("historical or ordinary-knowledge session cannot acquire applicability evidence")
+    return current
+
+
+def _static_skill_presence(workspace: CandidateWorkspace, session: dict[str, Any] | None) -> bool:
+    current = session is not None and session["schema_version"] == 13
+    present = session is not None and "static_skill_profile" in session
+    if session is not None and "static_skill_facts" in session:
+        raise ValueError("session cannot acquire report static Skill facts")
+    if current != present:
+        raise ValueError("report static Skill profile and session generation differ")
+    if not current:
+        for name in _STATIC_SKILL_ENTRIES:
+            try:
+                (workspace.root / name).lstat()
+            except FileNotFoundError:
+                continue
+            raise ValueError("historical or no-static session cannot acquire static Skill evidence")
     return current
 
 
@@ -85,6 +103,7 @@ def _session(workspace: CandidateWorkspace, ledger: CheckLedger) -> dict[str, An
     if not path.exists():
         _knowledge_presence(workspace, None)
         _applicability_presence(workspace, None)
+        _static_skill_presence(workspace, None)
         return None
     value = json.loads(_owned_file(workspace, path).read_text(encoding="utf-8"))
     if (not isinstance(value, dict) or value.get("run_id") != workspace.run_id or
@@ -93,20 +112,28 @@ def _session(workspace: CandidateWorkspace, ledger: CheckLedger) -> dict[str, An
     validate_session_provenance(value)
     _knowledge_presence(workspace, value)
     _applicability_presence(workspace, value)
-    if value["schema_version"] in (11, 12):
+    _static_skill_presence(workspace, value)
+    if value["schema_version"] in (11, 12, 13):
         from .knowledge_run import normalize_run_knowledge_profile
 
         if canonical(value["knowledge_profile"]) != canonical(normalize_run_knowledge_profile(value["knowledge_profile"])):
             raise ValueError("report session knowledge profile is not canonical")
-    if value["schema_version"] == 12:
+    if value["schema_version"] in (12, 13):
         from .applicability_handoff import normalize_applicability_profile
 
         if canonical(value["applicability_profile"]) != canonical(normalize_applicability_profile(
             value["applicability_profile"]
         )):
             raise ValueError("report session applicability profile is not canonical")
+    if value["schema_version"] == 13:
+        from .static_skills import normalize_static_skill_profile
+
+        if canonical(value["static_skill_profile"]) != canonical(normalize_static_skill_profile(
+            value["static_skill_profile"]
+        )):
+            raise ValueError("report session static Skill profile is not canonical")
     profile = value.get("context_profile", {})
-    if value["schema_version"] in (10, 11, 12):
+    if value["schema_version"] in (10, 11, 12, 13):
         policy = WorkingContextPolicy.model_validate(profile["host_working_context"])
         if canonical(profile) != canonical(context_profile(
             CompactionPolicy.model_validate(profile["host_compaction"]), policy,
@@ -250,9 +277,10 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
                      {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
     compactions = CompactionStore(workspace.root, workspace.task_id, workspace.run_id,
                                  compaction_policy, model_profile).audit(model_calls)
-    current_session = session is not None and session["schema_version"] in (10, 11, 12)
-    knowledge_session = session is not None and session["schema_version"] in (11, 12)
-    applicability_session = session is not None and session["schema_version"] == 12
+    current_session = session is not None and session["schema_version"] in (10, 11, 12, 13)
+    knowledge_session = session is not None and session["schema_version"] in (11, 12, 13)
+    applicability_session = session is not None and session["schema_version"] in (12, 13)
+    static_skill_session = session is not None and session["schema_version"] == 13
     working_plans = (WorkingContextStore(workspace, None, None,
         WorkingContextPolicy.model_validate(context["host_working_context"]), model_profile,
         format_version=context.get("working_context_format", 1)).audit(
@@ -276,6 +304,22 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
         model_calls, actions)
     if applicability_session and applicability_facts is None:
         raise ValueError("applicability session has no auditable applicability facts")
+    from .static_skill_handoff import (
+        audit_run_static_skills,
+        validate_static_skill_report,
+    )
+
+    static_skill_facts = audit_run_static_skills(workspace, task_directory, ledger,
+        session["knowledge_profile"] if knowledge_session and session is not None else None,
+        session["static_skill_profile"] if static_skill_session and session is not None else None,
+        model_calls, actions)
+    if static_skill_session and session is not None:
+        if static_skill_facts is None:
+            raise ValueError("static Skill session has no auditable static Skill facts")
+        # The full fragment occurs in both the report and completion. Measure
+        # the actual serialized ASCII representation; UTF-8 resource size is not
+        # a report bound and hashes do not justify truncating original guidance.
+        validate_static_skill_report(session["static_skill_profile"], static_skill_facts)
     decisions = [record.model_dump(mode="json") for record in DecisionStore(workspace).records().values()]
     conditions = ConditionStore(workspace)
     observations_sha256 = conditions.observations_sha256
@@ -345,6 +389,8 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
         provider_failure = True
     if applicability_session and stopped_reason is not None and stopped_reason.startswith(("applicability_", "solver_visibility_")):
         provider_failure = True
+    if static_skill_session and stopped_reason is not None and stopped_reason.startswith("static_skill_"):
+        provider_failure = True
     suggested_status = ("unresolved" if unknown or provider_failure else "budget_exhausted" if budget_exhausted else
                         "offline_checked" if latest_status == "pass" else "unresolved")
     unsequenced = sorted(set(bundles) - set(diagnosis_order))
@@ -397,6 +443,9 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
     if applicability_session and session is not None:
         facts["applicability_profile"] = session["applicability_profile"]
         facts["applicability_facts"] = applicability_facts
+    if static_skill_session and session is not None:
+        facts["static_skill_profile"] = session["static_skill_profile"]
+        facts["static_skill_facts"] = static_skill_facts
     verified_fields = ["schema_version", "task_id", "run_id", "source_snapshot_sha256", "status",
                        "application_verification", "completion", "candidates", "checks", "model_calls",
                        "known_tokens", "missing_usage_calls", "uncertain_model_calls", "tool_calls",
@@ -413,7 +462,9 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
         verified_fields.extend(("knowledge_profile", "knowledge_facts"))
     if applicability_session:
         verified_fields.extend(("applicability_profile", "applicability_facts"))
-    value = {"schema_version": 6 if applicability_session else 5 if knowledge_session else 4 if current_session else
+    if static_skill_session:
+        verified_fields.extend(("static_skill_profile", "static_skill_facts"))
+    value = {"schema_version": 7 if static_skill_session else 6 if applicability_session else 5 if knowledge_session else 4 if current_session else
              (2 if provenance is None else 3),
              "task_id": workspace.task_id, "run_id": workspace.run_id,
              "source_snapshot_sha256": workspace.source_snapshot_sha256,
@@ -459,6 +510,9 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
     if applicability_session and session is not None:
         value["applicability_profile"] = session["applicability_profile"]
         value["applicability_facts"] = applicability_facts
+    if static_skill_session and session is not None:
+        value["static_skill_profile"] = session["static_skill_profile"]
+        value["static_skill_facts"] = static_skill_facts
     return {**value, "summary_sha256": sha256(canonical(value))}
 
 
@@ -467,7 +521,7 @@ def read_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_ca
     """Recompute a report from saved facts; historical provenance never probes this host."""
     report = json.loads(_owned_file(workspace, workspace.root / "agent-report.json").read_text(encoding="utf-8"))
     if (not isinstance(report, dict) or type(report.get("schema_version")) is not int or
-            report["schema_version"] not in (5, 6, 7, 8, 9) or report.get("task_id") != workspace.task_id or
+            report["schema_version"] not in (5, 6, 7, 8, 9, 10) or report.get("task_id") != workspace.task_id or
             report.get("run_id") != workspace.run_id or
             report.get("source_snapshot_sha256") != workspace.source_snapshot_sha256):
         raise ValueError("completion report schema, task, run or snapshot differs")
@@ -475,7 +529,7 @@ def read_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_ca
         raise ValueError("completion report application claim or stop identity differs")
     value = build_completion(workspace, ledger, model_calls, actions, stopped_reason=report["stopped_reason"],
                              task_directory=task_directory)
-    expected_schema = {2: 5, 3: 6, 4: 7, 5: 8, 6: 9}[value["schema_version"]]
+    expected_schema = {2: 5, 3: 6, 4: 7, 5: 8, 6: 9, 7: 10}[value["schema_version"]]
     if report["schema_version"] != expected_schema:
         raise ValueError("completion report and session schema differ")
     if expected_schema == 5 and "execution_provenance" in report:
@@ -510,6 +564,11 @@ def read_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_ca
             expected[name] = value[name]
         elif name in report:
             raise ValueError("historical or ordinary-knowledge report cannot acquire applicability facts")
+    for name in ("static_skill_profile", "static_skill_facts"):
+        if name in value:
+            expected[name] = value[name]
+        elif name in report:
+            raise ValueError("historical or no-static report cannot acquire static Skill facts")
     execution = value["execution_facts"]
     for key in ("actions", "decisions", "condition_results", "policy_features", "offered_tools"):
         if key in value["report_validation"]["verified_top_level_fields"]:

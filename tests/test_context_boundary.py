@@ -29,6 +29,7 @@ from dfx_agent.models import (
     context_profile,
 )
 from dfx_agent.policies import PolicyFeatures
+from dfx_agent.static_skill_handoff import STATIC_SKILL_TOOLS
 from dfx_agent.task import snapshot_digest
 from dfx_agent.verification import FixedTextExecutor
 from dfx_agent.workspace import _manifest
@@ -115,7 +116,7 @@ def test_sdk_context_and_large_results_never_summarize_or_write_backend(
     assert summaries == [] and writes == []
     assert report["model_calls"] == 2 and report["tool_calls"] == 1
     assert report["stopped_reason"] is None
-    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
+    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS - STATIC_SKILL_TOOLS)
     assert _manifest(work / "base") == before
     assert not (work / "base/conversation_history").exists()
     assert not (work / "base/large_tool_results").exists()

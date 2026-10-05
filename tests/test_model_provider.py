@@ -187,6 +187,26 @@ def test_unsupported_messages_reject_before_dispatch(messages: list[Any], reason
         adapter(forbidden).prepare(messages, descriptors())
 
 
+def test_native_system_text_blocks_preserve_complete_ordered_wire_text() -> None:
+    content = [{"type": "text", "text": "original system 中文"},
+               {"type": "text", "text": "\n\n完整 static procedure catalog\n"}]
+    model = adapter()
+    messages = [SystemMessage(content=content), HumanMessage(content="task")]
+    before = messages[0].model_dump_json()
+    blocks = model.prepare(messages, descriptors())
+    ordinary = model.prepare([SystemMessage(content="".join(block["text"] for block in content)),
+                              HumanMessage(content="task")], descriptors())
+    assert blocks == ordinary
+    assert messages[0].model_dump_json() == before
+
+
+@pytest.mark.parametrize("content", [[], ["text"], [{"type": "image_url", "image_url": {"url": "invalid"}}],
+    [{"type": "text", "text": "text", "cache_control": {"type": "ephemeral"}}]])
+def test_system_block_transport_does_not_accept_unsupported_block_shapes(content) -> None:
+    with pytest.raises(AdapterRequestError, match="unsupported_message_content"):
+        adapter().prepare([SystemMessage(content=content)], descriptors())
+
+
 def test_tool_history_must_resolve_unique_calls_before_next_turn() -> None:
     model = adapter()
     call = AIMessage(content="", tool_calls=[{"name": "read_source", "args": {}, "id": "tool1"}])

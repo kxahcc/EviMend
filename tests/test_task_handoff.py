@@ -20,6 +20,7 @@ from dfx_agent.model_calls import ModelCallStore, canonical, sha256
 from dfx_agent.models import FixedResponseModel
 from dfx_agent.policies import PolicyFeatures
 from dfx_agent.source_search import SourceSearch
+from dfx_agent.static_skill_handoff import STATIC_SKILL_TOOLS
 from dfx_agent.task import snapshot_digest, verify_task
 from dfx_agent.task_strategy import build_system_prompt
 from dfx_agent.verification import FixedTextExecutor
@@ -85,7 +86,7 @@ def test_sdk_uses_task_prompt_and_cross_file_search_before_failed_check_revision
     assert [check["status"] for check in report["checks"]] == ["fail", "pass"]
     assert report["candidates"] == [almost, good]
     assert report["model_calls"] == 12 and report["known_tokens"] == 180
-    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
+    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS - STATIC_SKILL_TOOLS)
     assert report["tool_calls"] == 11 and report["rejected_tool_calls"] == 0
     first = captured[0]
     assert isinstance(first[0], SystemMessage)

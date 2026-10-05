@@ -25,6 +25,7 @@ from dfx_agent.knowledge_handoff import KNOWLEDGE_TOOLS
 from dfx_agent.model_calls import ModelCallStore
 from dfx_agent.model_provider import ChatCompletionsAdapter
 from dfx_agent.reporting import read_completion
+from dfx_agent.static_skill_handoff import STATIC_SKILL_TOOLS
 from dfx_agent.task import snapshot_digest
 from dfx_agent.verification import CheckLedger, FixedTextExecutor
 from dfx_agent.workspace import CandidateWorkspace, _manifest
@@ -124,9 +125,9 @@ def test_mock_summary_has_no_tools_keeps_graph_and_counts_all_costs(
     assert report["model_calls"] == len(requests) == 4
     assert report["known_tokens"] == report["completion"]["cost"]["total_tokens"] == 60
     assert report["tool_calls"] == 2 and len(report["completion"]["context_compactions"]) == 1
-    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
+    assert set(report["offered_tools"]) == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS - STATIC_SKILL_TOOLS)
     for index in (0, 1, 3):
-        assert {item["function"]["name"] for item in requests[index]["tools"]} == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS)
+        assert {item["function"]["name"] for item in requests[index]["tools"]} == (set(TOOL_ACTIONS) - KNOWLEDGE_TOOLS - APPLICABILITY_TOOLS - STATIC_SKILL_TOOLS)
         assert_paired_wire_history(requests[index]["messages"])
     assert requests[2].get("tools", []) == []
     assert SUMMARY in json.dumps(requests[3]["messages"])
