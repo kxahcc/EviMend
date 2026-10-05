@@ -112,10 +112,11 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 | conditions.py | 对主机固定合成输入计算首批有限条件，核对绑定/单位/操作点/实际版本，保存不可改写结果并在回读时重算 | 已接入固定响应 SDK；不求值表达式、不自动提取运行值或修改诊断，fixture 不是执行证据 |
 | models.py | 固定响应和 mock wire 模型经统一账本接入 SDK；可选独立摘要调用与求解视图、总预算和分用途恢复 | 真实传输待接入；不借 SDK 隐式摘要或重试绕开费用与原版保护 |
 | context_compaction.py | 完整工具组切分、冻结来源、摘要身份、实际发送视图及只读核验 | 保留 Graph 历史；摘要是模型推断，有限输入超限停止，不保证归纳忠实度或修复效果 |
-| working_context.py / working_context_plan.py / working_context_materials.py / working_context_projection.py | 注册记录闭包；可见回执推导焦点、完整组组织；run 内原字节去重与有界求解投影，冻结历史材料并绑定实际发送 | 原 Graph 不变；投影保留领域原文，通用压缩另有开关。历史原字节与完整闭包由 Store 核验；静态 Skill 接入仍待实施，结构核验不证明语义或效果 |
+| working_context.py / working_context_plan.py / working_context_materials.py / working_context_projection.py | 注册记录闭包；可见回执推导焦点、完整组组织；run 内原字节去重与有界求解投影，冻结历史材料并绑定实际发送 | 原 Graph 不变；投影保留领域原文，通用压缩另有开关。历史原字节与完整闭包由 Store 核验；静态 Skill 的 Agent 会话接入仍待实施，结构核验不证明语义或效果 |
 | knowledge.py / knowledge_retrieval.py / applicability.py | 主机批准经验、不可变快照、完整原件检索、任务绑定及独立三态提案 | 相关性不确认适用性；历史材料和主机提炼成本声明不升级为当前任务或应用事实 |
-| knowledge_run.py / knowledge_handoff.py | 批准快照精确复制到 run、纯读回建、search_experience/read_experience 工具及查询/模型/动作审查 | 普通检索切片已编码，受管验收见 STATUS；工具共用原预算；三态 SDK 见下一行，Skill 和自动学习仍待接入 |
+| knowledge_run.py / knowledge_handoff.py | 批准快照精确复制到 run、纯读回建、search_experience/read_experience 工具及查询/模型/动作审查 | 普通检索切片已编码，受管验收见 STATUS；工具共用原预算；三态 SDK 见下一行，Skill 会话交接和自动学习仍待接入 |
 | solver_visibility.py / applicability_handoff.py | 每次求解实际发送请求、可见完整结果与焦点的冻结/审读；三态准备、提交与回读，统一账本及对照身份 | 缺焦点返回普通指导与未知；摘要或同响应兄弟结果不升格，前提仍为模型推断；启停保持同工具、知识和预算 |
+| static_skills.py | 从批准人工条目生成完整过程及资源清单，原生 SDK SkillsMiddleware 加载/注入，纯回读重核原字节和缓存 | 独立接口，启停保持相同正文；不读支持文件、不增加执行权限，尚未接 Agent 会话、报告/对照或学习 |
 | provenance.py | 运行源码/项目输入/实际 Python 与 distribution 元数据冻结、来源自洽核验和续跑兼容门 | Git 只保存初始观察；不升级旧会话、不复制主机环境或认证已加载二进制，真实工具链与设备版本仍待接入 |
 | metrics.py / evidence_io.py | 显式任务/组/repeat 矩阵、停止记录的只读重算、不可变账本及离线成本汇总 | 合成结果不代表应用成绩；缺证据保留未知，版本、工具和协议错配拒绝 |
 | exporting.py | 显式矩阵的本机私有证据包、预览/Apply 计划、全部源树字节清单和包内重聚合 | 不执行模型、工具或 Graph 反序列化，不删源；不证明公开脱敏、应用效果或整树清理覆盖，验收证据见 STATUS |
@@ -339,7 +340,7 @@ W06 已有的 HTTP 提交/查询/取消/产物哈希模拟测试仍用于检查�
 
 上下文、经验和 Skills 共同服务于一件事：依据当前根因假设和修复义务，选择有用证据及可迁移步骤，避免因异常相似而照搬错误修法。Deep Agents 继续承担通用工具循环及扩展接口，我们实现领域 harness，不另写 Agent runtime，不依赖模型微调。
 
-当前 `policies.py` 提供四类静态 RuleCard，由 `consult_rule` 工具读取；已有诊断、义务、候选和合成反例交接。`knowledge.py`、`knowledge_retrieval.py` 和 `applicability.py` 提供主机批准经验、冻结检索、当前依据绑定与独立三态接口；`knowledge_run.py` 和 `knowledge_handoff.py` 已编码普通检索 SDK 切片，覆盖 run 内批准原件、授权查询/回读及会话、报告、聚合和私有导出。受管验收结论见 STATUS，三态 SDK 工具已接入实际发送和统一账本；跨任务学习与 `create_deep_agent` 的 Skills 目录加载仍待接入，主机压缩仍按历史前缀处理。以下区分已实现基础与后续待检验机制，详细记录与不变量在 [模块规格第 3.1 节](../design-contracts.md#31-工作上下文经验与-skill-的实施契约) 定义；独立上下文包、实际发送和跨任务学习分别验收，不代表已有收益。
+当前 `policies.py` 提供四类静态 RuleCard，由 `consult_rule` 工具读取；已有诊断、义务、候选和合成反例交接。`knowledge.py`、`knowledge_retrieval.py` 和 `applicability.py` 提供主机批准经验、冻结检索、当前依据绑定与独立三态接口；`knowledge_run.py` 和 `knowledge_handoff.py` 已编码普通检索 SDK 切片，覆盖 run 内批准原件、授权查询/回读及会话、报告、聚合和私有导出。三态 SDK 工具已接入实际发送和统一账本。`static_skills.py` 从批准人工条目生成完整静态过程，复用 SDK 原生 SkillsMiddleware；目录及完整正文绑定同一冻结清单，薄层核验资源、权限和检查点元数据。开启注入目录，关闭保留相同正文和读取能力；它尚未接入 Agent 会话、read_skill 动作预算、受管配置和运行报告/对照。跨任务学习仍待实现，主机压缩仍按历史前缀处理。受管验收结论只见 STATUS，详细记录与不变量在 [模块规格第 3.1 节](../design-contracts.md#31-工作上下文经验与-skill-的实施契约) 定义；独立加载、实际发送和跨任务学习分别验收，不代表已有收益。
 
 ### 7.1 以当前修复决定组织工作上下文
 
