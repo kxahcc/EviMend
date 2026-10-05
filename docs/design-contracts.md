@@ -1,6 +1,6 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-05。
+状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-06。
 职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选交接、模型账本、逐工具授权、动作恢复和主机终止摘要已接入固定响应与可配置 mock wire 的共享离线循环；应用接受门、模拟 HTTP 协议及策略分支已有合成实现。可信采值、算子适用性和因果关系的实际检验、云端模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
@@ -452,7 +452,7 @@ review 保留每项前提及理由，整体状态按 contradicted 优先、unkno
 
 既有 build_working_context 前段的任务/来源扫描仍没有累计 I/O 门，受外层受管 Job、单来源和最终 packet 限额约束；不能声称 prepare_context 整个操作的全部扫描都已由新增累计读计数覆盖。_capture_material 新增可选 reader/max_references 供本入口捕获时计数，旧 SDK 默认调用方式保持原行为。普通检索工具的实际固定/模拟 solver 调用和动作关联已进入原账本；独立三态及历史提炼声明仍不因此取得真实调用成本。字节容量与读取次数不等于 Token、耗时、语义准确性或修复收益。SDK 三态提案引用实际 solver 和动作账本，共用原有成本，不因独立模块的声明而取得真实云端或应用效果证据。
 
-普通检索与三态 SDK 入口分别保存其运行身份、实际工具回执、报告、聚合及私有导出；受管验收结论见 STATUS。发布别名、静态 Skill 的 Agent 会话交接、自动提炼/学习调用仍待实现；静态资源独立入口见下节，普通检索不能充当适用性验证或演进收益。
+普通检索、三态及静态 Skill SDK 入口分别保存其运行身份、实际工具回执、报告、聚合及私有导出；受管验收结论见 STATUS。发布别名、自动提炼/学习调用仍待实现；静态资源和独立版本验证入口见下节，普通检索不能充当适用性验证或演进收益。
 
 三态 SDK 入口须显式提供 `ApplicabilityPolicy`，冻结完整 `applicability_profile={schema_version:1,enabled:bool}`；未提供时保持普通经验检索代。开启与关闭两组提供同名同定义的 `prepare_experience_context`、`review_experience`、`read_experience_review` 三项工具，以及原有完整指导和通用工具，均受原模型/动作预算约束。关闭组只返回完整普通指导，不发布三态上下文或审查，也不解析评语来施加三态引用约束；普通权限和参数形状检查继续执行。开启组准备响应直接返回 review_proposal_schema，模型按此提交格式及冻结 context 引用判断；缺少已见诊断或假设时返回 unknown 与普通检索，不从最新登记记录猜测焦点。
 
@@ -485,7 +485,7 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 
 #### 3.1.3 Skill 版本、验证与演进
 
-**静态过程先提供完整可读的诊断步骤，后续演进再决定是否应更新这些步骤。** `static_skills.py` 从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。`static_skill_handoff.py` 将完整读取、实际模型输入、动作账本与报告接起来；程序入口、启停对照和私有导出使用同一冻结身份。受管脚本/CLI 配置已接入，反馈演进仍待实现；合成调用及可见性不证明学会经验或提高修复率。
+**静态过程先提供完整可读的诊断步骤，再由独立版本验证为是否更新提供依据。** `static_skills.py` 从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。`static_skill_handoff.py` 将完整读取、实际模型输入、动作账本与报告接起来；程序入口、启停对照和私有导出使用同一冻结身份。受管脚本/CLI 配置已接入，独立版本、事前计划及完整合成回执的程序接口已实现，实际验收见 STATUS；演进判定/别名属于下一批，尚未提交。合成调用及可见性不证明学会经验或提高修复率。
 
 | 静态入口/对象 | 当前约束 |
 |---|---|
@@ -499,9 +499,21 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 
 目录提示说明人工静态指导没有当前事实、应用资格或新的文件/执行权限；完整正文只能提供待核对的步骤，不能直接满足修复义务或接受门。显式 StaticSkillPolicy 要求批准知识及显式 ApplicabilityPolicy，开启和关闭均使用 session/report/completion 13/10/7 与相同 20 项工具；未指定静态策略保持原代，拒绝静态字段、工具和资源残留。read_skill 只读选中的完整正文、元数据及内容身份，经既有 read_source 能力、父模型响应和动作预算授权，结果未知不重派。报告分别记录成功完整读取及其后真正可见的 solver 数量/有序身份摘要；没有后续模型输入时不宣称已使用。未知/拒绝/孤立记录和全部实际成本保留，原件、完整回执及实际输入随私有包导出；缺账本只能核原件，使用和成本保持未知。恢复须提供原外部批准与完全相同策略，不要求外部库存在。清单 5 固定共同知识与 shared_static_skill_profile，变体显式登记 static_skills_enabled；底座模型、工具、预算和接受门保持相同。实际能力与完成证据以 STATUS 为准。
 
-SkillVersion 保存 skill_id、内容/父版本、来源经验、适用前提、必需输入、查证及观察分支、修改建议、保留义务、退出/反例和实际验证范围。SDK 的 SKILL.md 与支持文件是受控投影，全部实际可读文件进入快照；首版投影限说明性内容，不附自动执行脚本、不越库读文件，加载也不替代既有工具授权。四类 RuleCard 可成为人工种子静态 Skill，不能算学习后晋升成果。
+独立版本和验证由 `skill_evolution_contracts.py` / `skill_validation.py` 定义，不改旧知识 schema、会话/报告或评测清单 5 的含义。主机预建 `SkillValidationStore(root)`，构造和 read_version/read_plan/read_receipt 均不写文件；显式发布形成不可改写内容身份。四类 RuleCard 可成为人工种子，不能算学习后晋升成果。
 
-演进使用追加 SkillTransition，内容版本与发布别名分开。接口为 propose_skill_revision、record_skill_validation、decide_skill_transition；transition 绑定父版本、候选内容、允许反馈、归因提议、冻结验证计划、实际回执、成本及发布决定。
+| 版本/验证对象与入口 | 当前约束和行为 |
+|---|---|
+| HostSkillVersionApproval / SkillVersion | 外部批准固定 logical skill_id、完整 SolverProjection 摘要、允许分区、排除及学习谱系、父版本与来源候选身份。种子不带修订来源；修订必须同时绑定父版本和候选。projection 仅 host_curated、validation_scopes 为空，qualification=unvalidated、application_qualification=none、学习调用 not_run、learning_tokens=null |
+| create_seed / create_revision / read_version | 种子消费完整外部人工批准；修订另消费原父批准及 FeedbackStore 候选/capsule 的两份原外部批准。完整候选和 capsule 私有原件复制到 source-feedback/，从父链与全部原知识历史重新计算学习谱系，权限只能继承或收窄；原库移走仍可递归回读。版本不自动加入 KnowledgeSnapshot、建立索引或进入 Agent，新 run 的知识仍须原主机批准入口 |
+| ValidationPair / PlanSpec | 每对精确固定 schema 2 CaseSelection 的旧/新单运行清单 5、相同任务/接受协议及共同配置，角色 run/work 分开、目标 entry/projection 分别绑定版本；所有对共用模型、工具、知识、静态资源及预算，至少有代表与边界两类不同任务/日志/声明谱系，排除父链及反馈原知识全部学习谱系。comparison=same_pool_targeted_procedure，不授予不同知识快照比较身份 |
+| HostValidationPlanApproval / freeze_plan | 外部批准绑定完整 spec 摘要及两版本原批准，origin_split=candidate_validation、allow_learning 严格为 false。所有预定 work 必须尚不存在，核精确任务原件与选择后固定源根身份、UTC frozen_at 和不存在观察；time_authority=host_observation，只是串行主机前置协议，不是独立可信时间证明或受管启动绑定。已存在 prepare-only 或 solver 运行拒绝事后计划 |
+| record_validation / SkillValidationReceipt | 只接冻结计划声明的 case/role 及计划原源根；实际 session 不早于计划且 scope 为 candidate_validation，停止运行由原单清单独立重聚合。保存所有候选、检查、模型/动作成本、资源、实际输入与失败/未知，Graph 不复制或执行。完整原件清单与聚合镜像到独立回执，原运行移走后可只依赖副本重核 |
+| use_status 与分区 | followed 只证明完整目标 read_skill 成功并在后续 solver 输入可见，不证明模型逐步正确执行自然语言过程。未读取、后续不可见或通过 read_skill/普通经验搜索/单条或整页回读接触另一角色过程，保留完整结果并标 not_followed；无法认证为 unknown。不得筛掉这些格子或从它们直接推断选错/步骤缺陷。验证来源固定不可学习，不能以开发批准回流 FeedbackStore；所有回执 application_qualification=none |
+| 容量与发布 | 使用 FeedbackLimits，单次 API 的元数据、原件关闭及各递归回读共享累计读取预算，正式发布前预留完整祖先与来源回读成本；单文件/原件闭包也有容量门。拒链接、共享文件、未合并 SQLite 日志、范围错配和读取时变化，不在失败后补写或放宽。内部聚合和知识审计读取仍有自己的门，不能声称全流程 I/O、时间或峰值内存统一闭合 |
+
+当前两角色共享同时含旧/新完整过程的批准池，计划声明各自目标 read_skill；既有清单 5 仍只支持共同资源及启停因子。这套同池定向验证不构成不同知识快照效果比较，目录/选中身份不构成使用，自包含原件/哈希也不认证指导语义。policy_json 可固定 offline_synthetic 策略原对象；空策略或尚未定义的规则不能据此自报通过。受管反例范围在 test_skill_validation.py / test_skill_validation_integration.py，具体结果只记 STATUS。
+
+后续演进拟使用追加 SkillTransition，将内容版本与发布别名分开；尚未提交的判定/缩界/退回/别名批次须绑定父版本、候选内容、允许反馈、归因提议、冻结计划、完整回执集合、成本及发布决定，不能把本批回执直接当启用资格。以下是后续状态义务，不代表当前 Agent 已消费演进别名。
 
 | 状态/动作 | 接受条件及下一步 |
 |---|---|
