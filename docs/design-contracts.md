@@ -470,6 +470,19 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 
 受管固定/模拟脚本 schema 5/6 必填 working_context 和 knowledge，旧 1–4 不接纳知识字段。knowledge 含仓库内规范 library_path、完整外部 TaskKnowledgeBinding，可选完整 ApplicabilityPolicy 和 StaticSkillPolicy；静态选择必须同时显式提供三态策略。启动只读核批准与任务身份、原件、冻结索引和权限，不扫描目录生成知识或建立空库。恢复从脚本取得原外部批准，以 run 原件核验知识和策略；library_path 是启动定位符，允许迁移或不存在，仍核词法范围，不能作为当前批准来源。批准/策略/选择/模型/预算漂移及准入阶段坏账本统一为只读拒绝，CLI 返回 3，worker 不覆盖旧 run-state。开始执行之后的失败仍保留正常失败语义。知识、脚本、会话和清单的分代独立，不将脚本 5/6 当成自动学习资格。
 
+反馈来源另由 `feedback_contracts.py` / `feedback.py` 定义，不改变旧 ExperienceDraft/ExperiencePayload 的 schema 1。`FeedbackStore` 面向已停止的开发运行，先核验事实来源，再接纳待审核经验；其程序接口不等于已接云端自动学习。
+
+| 反馈对象/入口 | 约束与行为 |
+|---|---|
+| HostFeedbackApproval | 外部主机批准完整单运行评测清单的内容身份、development 学习用途、允许部署分区和排除谱系。清单须含准确 CaseSelection，核 task schema 2 的选择哈希；该绑定不证明真实谱系独立性。确认/候选验证来源不能靠重标 development 回流 |
+| capture / FeedbackCapsule | 只读核终态、原任务、报告、完整候选与检查、模型/动作账本和全部知识祖先的学习权限；保存精确原字节与空目录清单，原端和副本重聚合结果须相同。Graph 不参与反馈核验且不复制或执行。失败及结果未知继续保留，终态不是修复成功 |
+| read_capsule | 需要重新提供原外部批准，从 capsule 原件核精确清单并重聚合；不要求原任务、run 或外部库存在，不创建目录、修复数据库或补齐记录。缺失/改写/链接/未知条目及未合并 SQLite 写入拒绝 |
+| HostCandidateApproval / propose_candidate | 外部主机将完整投影身份绑定原 capsule，人工明确提出适用前提、查证过程、保留行为、反例和退出条件。首版投影仅 host_curated，validation_scopes 为空；原合成范围保留在 capsule，不据此证明整套新过程通过验证 |
+| ExperienceCandidate / read_candidate | 不可改写的 pending_host_review，application_qualification=none；回读重新核外部批准、原 capsule 和完整投影。没有原运行或成本依据不补零，不自动入旧经验库、生成发布别名或激活 Skill |
+| 成本与容量 | 原修复成本取独立重建的完整账本，失败/未知仍在分母；首版候选为主机提议，新增学习模型调用 not_run，模型成本保持 null，不冒充自动提炼。单次 API 的复制/关闭重读共用 FeedbackLimits 累计读取预算，元数据、原件与各回读阶段不能重新领取额度；完整文件和总容量有门。该计量不包含聚合内部 I/O，不声称全流程耗时/内存已闭合 |
+
+反馈摘要中的定位、归因和义务解释仍是推断，程序认证的是原记录、版本和权限关系；应用验证继续 not_run。后续模型提炼须先显式接新调用用途及其恢复/成本账本，主机批准桥接须保留完整 capsule 来源，不能给旧 schema 补字段冒充新资格。该机制给 Skill 演进提供可复核输入，候选内容的迁移质量及论文收益仍须独立实测。
+
 #### 3.1.3 Skill 版本、验证与演进
 
 **静态过程先提供完整可读的诊断步骤，后续演进再决定是否应更新这些步骤。** `static_skills.py` 从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。`static_skill_handoff.py` 将完整读取、实际模型输入、动作账本与报告接起来；程序入口、启停对照和私有导出使用同一冻结身份。受管脚本/CLI 配置已接入，反馈演进仍待实现；合成调用及可见性不证明学会经验或提高修复率。

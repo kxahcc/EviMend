@@ -124,6 +124,17 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 
 `run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile，以及 session 10–13 的兼容来源身份。旧 schema 1–9 不续跑，不自动升级，须保留证据并另建工作 ID。来源准入拒绝时 CLI 返回 3，工作进程保留原终态；已准入后运行失败仍记录 failed。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
 
+### 开发反馈与待审核经验：程序接口
+
+`feedback.py` 的 FeedbackStore 消费主机明确批准的单开发运行清单，捕获并独立重核反馈；当前只提供程序接口，须在受管工作流或软件自检内调用，尚无用户学习 CLI。预创建的 Store 位于项目受管目录，不从数据包扫描经验或自动启动模型。
+
+1. 用 HostFeedbackApproval 批准完整 manifest 身份、development 学习用途、允许部署分区及排除谱系。清单只能包含一任务、一变体、一 repeat 和一 run，必须有与 task schema 2 一致的完整 CaseSelection。
+2. `capture(manifest, evidence_root, approval=...)` 保存 FeedbackCapsule。原终态、候选、检查、报告、模型/动作账本和知识来源权限都要可核验，原端和副本重聚合结果相同。完整私有原件和空目录清单保留；Graph 不参与也不执行。
+3. `read_capsule(capsule_id, approval=...)` 从原件重建，无需原任务、run 或知识库；损坏、缺失和不合格来源拒绝，读取不创建资源或修复数据库。
+4. 主机提供完整 SolverProjection（host_curated、validation_scopes 为空），用 HostCandidateApproval 绑定 capsule 与投影身份，再调用 `propose_candidate(..., feedback_approval=...)`。`read_candidate` 需要重传这两份外部批准并核原 capsule。
+
+候选始终 pending_host_review、application_qualification=none；前提、未知问题、步骤、保留行为、反例和退出条件完整保存。原修复成本与新候选提议分开，失败和未知不剔除、不补零；首版未调用学习模型，not_run/null 不能写成自动总结或零成本学习。FeedbackLimits 约束单次 API 的原件复制/关闭核验累计读量、文件数和容量；元数据、原件及各回读阶段共用预算，不覆盖聚合内部全部 I/O。旧 KnowledgeStore 条目不变，此接口不自动入库、晋升或修改在跑任务。正式自动模型提炼、批准桥接和 Skill 演进仍待接入；边界见 [模块规格第 3.1.2 节](../../docs/design-contracts.md#312-经验检索和适用性交接)。
+
 ### 运行来源与恢复兼容
 
 `provenance.py` 在新运行创建工作目录前读取受限主机源码清单、uv.lock、pyproject.toml、.python-version 与本机配置，记录文件大小/原字节哈希、实际 Python 标识和安装依赖的 distribution metadata 版本。标准入口在导入 CLI 前冻结主机源码基线，导入后及运行前后复核。Git commit、dirty 和状态摘要只保存初始观察；续跑比较源码、仓库输入和实际环境组成的 compatibility_sha256，不因只改文档/测试或纯文档提交拒绝，也不覆盖原 Git 事实。

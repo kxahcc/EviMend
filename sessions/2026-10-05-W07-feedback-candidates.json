@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "scope": "offline_synthetic",
+  "batch": "W07-feedback-candidates",
+  "date": "2026-10-05",
+  "objective": "Authenticate stopped development-run feedback and preserve host-curated pending experience candidates independently of source directories.",
+  "result": "passed",
+  "implementation": {
+    "files": [
+      "src/dfx_agent/feedback_contracts.py",
+      "src/dfx_agent/feedback.py"
+    ],
+    "apis": [
+      "capture",
+      "read_capsule",
+      "propose_candidate",
+      "read_candidate"
+    ],
+    "external_approvals": [
+      "HostFeedbackApproval: exact one-run manifest and deployment scope",
+      "HostCandidateApproval: original capsule and complete projection"
+    ],
+    "source": "exact schema-2 CaseSelection, terminal run, raw task/work inventory, all knowledge ancestors, original session/profiles/bindings/snapshot and read-only ledgers",
+    "portable": true,
+    "graph_copied": false,
+    "graph_executed": false,
+    "legacy_knowledge_schema_changed": false,
+    "candidate": {
+      "status": "pending_host_review",
+      "derivation_authority": "host_curated",
+      "validation_scopes": [],
+      "application_qualification": "none",
+      "learning_model_call_status": "not_run",
+      "learning_tokens": null,
+      "learning_monetary_cost": null
+    },
+    "limits": "One public API shares cumulative copy/closure byte budget across originals, metadata, staging, final and referenced capsules; unchanged defaults. Internal aggregation/authentication I/O and whole-operation memory/time are not all counted."
+  },
+  "tests": {
+    "unique_selected_files": 4,
+    "passed": 172,
+    "skipped": 4,
+    "not_full_repository_round": true,
+    "results": {
+      "core": {
+        "receipt": "aead6669-1c5d-48ba-bfe2-9b93feea1e14",
+        "passed": 48,
+        "skipped": 0,
+        "seconds": 10.28
+      },
+      "integration": {
+        "receipt": "a4a0424c-372f-44e0-ac90-cdea9bdc2ec5",
+        "passed": 33,
+        "skipped": 0,
+        "seconds": 98.53
+      },
+      "metrics": {
+        "receipt": "20e441b0-74d7-4295-961d-2677781a614b",
+        "passed": 64,
+        "skipped": 1,
+        "seconds": 23.43
+      },
+      "readonly": {
+        "receipt": "08c6ed6c-0913-4556-9c5f-fe65ddfd655e",
+        "passed": 27,
+        "skipped": 3,
+        "seconds": 6.75
+      },
+      "quality": {
+        "ruff": "0f46d808-4453-48c0-9db3-096f5df8023e",
+        "pyright": "a8915a73-00ff-4fea-a532-7f784d83832b"
+      },
+      "failures": [
+        "f4158287-3fd5-4c5a-866a-5f99bbc2a844",
+        "5afc83d0-2c57-4f74-bb81-c3b83f137454"
+      ],
+      "bytes": 324417568
+    },
+    "skip_reason": "Current Windows account cannot create symbolic links; no privilege or criteria change.",
+    "quality": {
+      "ruff": {
+        "receipt": "0f46d808-4453-48c0-9db3-096f5df8023e",
+        "result": "passed"
+      },
+      "pyright": {
+        "receipt": "a8915a73-00ff-4fea-a532-7f784d83832b",
+        "result": "0 errors/0 warnings/0 informations"
+      },
+      "docs": {
+        "receipt": "6c4d0501-5965-4930-a54c-91a2d6203ff3",
+        "result": "14 registered documents, 0 errors, 0 notes"
+      }
+    }
+  },
+  "integration": {
+    "actual_sdk_fixture_paths": [
+      "fixed responses",
+      "HTTPX MockTransport provider"
+    ],
+    "complete_repair_per_path": {
+      "calls": 9,
+      "first_candidate": "fail",
+      "latest_candidate": "pass",
+      "known_synthetic_token_lower_bound": 105,
+      "missing_usage_calls": 2,
+      "total_tokens": null,
+      "application_accepted": false,
+      "application_verification": "not_run"
+    },
+    "portable_read": "Original task/run/library root relocated; capsule and candidate re-read independently without write or source restoration.",
+    "ordinary_knowledge": "Session 11 missing-report normal control remains unknown; historical generation, missing session/profile/provenance and non-development original scope rejected.",
+    "tamper": "Report, both closed SQLite ledgers, failed/final candidates, Skill bytes, run/lineage and approvals reject without promotion.",
+    "provider_timeout": "Actual MockTransport timeout leaves result unknown, preserved in capsule, never auto promoted."
+  },
+  "review_fixes": [
+    "Compare store with only declared task/work input trees; permit same repository anchor.",
+    "Knowledge residuals or manifest knowledge require original authenticated source session/profile.",
+    "Reject historical knowledge generation or missing execution provenance; independently authenticate session plus original approved bindings and snapshot.",
+    "Share API-level read budget and reserve all publication rereads; do not reset it per reader or phase.",
+    "Reuse bounded metrics JSON loader for source session."
+  ],
+  "failures_preserved": [
+    {
+      "receipt": "f4158287-3fd5-4c5a-866a-5f99bbc2a844",
+      "reason": "Ruff import organization and unused constant",
+      "fix": "Imports organized and unused constant removed; no acceptance weakening."
+    },
+    {
+      "receipt": "5afc83d0-2c57-4f74-bb81-c3b83f137454",
+      "reason": "Ruff separate aliases/import order after source changes",
+      "fix": "Exact import formatting corrected; no behaviour change."
+    }
+  ],
+  "environment": {
+    "new_dependencies": 0,
+    "real_model_calls": 0,
+    "application_builds": 0,
+    "device_replays": 0,
+    "managed_and_export_bytes_observed": 324417568,
+    "managed_and_export_mib_observed": 309.4,
+    "active_task": "none",
+    "resource_limits_changed": false,
+    "global_environment_changed": false,
+    "test_temporary_trees": "removed by managed test runner"
+  },
+  "remaining": [
+    "Candidate Skill validation/version transitions, narrowing and rollback",
+    "Automatic learning purpose, ledger recovery and cost attribution",
+    "Original feedback approval bridge without upgrading old schema meanings",
+    "ResearchProfile and frozen learning-factor comparison",
+    "Real cloud/application validation and full-domain capacity/long paths"
+  ],
+  "templates_modified": []
+}

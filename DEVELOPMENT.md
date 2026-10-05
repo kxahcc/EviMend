@@ -65,7 +65,7 @@ flowchart LR
 
 **我们的重点是成熟 runtime 上的领域 harness。** Skills 属于方法设计和交付的一部分：把经验变成有适用前提、查证分支、保留行为及退出条件的过程，例如“容量与元素数怎么检查”。贡献通过可迁移程序、选择/更新机制和效果证明，文件数量不作为成绩。基础模型继续规划通过云端 API 接入通用大模型，不规划参数微调。
 
-设计把 context、memory 和 Skills 连接起来：每一步先突出当前假设、业务义务与有效反例；检索到旧经验后，用当前证据判断其前提。适用时提供步骤，矛盾时指出不适用，未知时提供区分问题。任务内反馈继续修代码；跨任务反馈先形成候选经验，经独立开发案例和边界反例验证后才更新冻结 Skill。工作上下文与普通经验检索已接入实际 SDK：主机固定批准知识，Agent 获取完整指导，查询和实际工具结果随调用账本、报告及私有导出保存。普通检索是共同基线，相关性排序不判断能否照搬修法。三态工具以每次实际请求为依据核对当前焦点（实际请求中的诊断、所选假设和当前候选）及逐前提引用，支持时提供完整过程，矛盾时提示暂停照搬，未知时保留查证问题；判断仍为模型推断。启停两组共用相同工具、知识和预算，完整指导及调用来源随报告和私有导出保存。知识、三态和静态 Skill 已有完整 SDK 会话、报告、对照及私有导出入口，固定/模拟脚本通过显式主机批准接入同一受管 CLI。启动消费已经批准的冻结库，恢复使用 run 原件和原批准，不要求原库存在；反馈提炼与候选演进继续按既定顺序实现。详细流程见 [设计第 7 节](docs/development/system-design-draft.md#7-skills-的具体位置)，字段和失败行为见 [规格第 3.1 节](docs/design-contracts.md#31-工作上下文经验与-skill-的实施契约)，实际完成与下一包见 STATUS。
+设计把 context、memory 和 Skills 连接起来：每一步先突出当前假设、业务义务与有效反例；检索到旧经验后，用当前证据判断其前提。适用时提供步骤，矛盾时指出不适用，未知时提供区分问题。任务内反馈继续修代码；跨任务反馈先形成候选经验，经独立开发案例和边界反例验证后才更新冻结 Skill。工作上下文与普通经验检索已接入实际 SDK：主机固定批准知识，Agent 获取完整指导，查询和实际工具结果随调用账本、报告及私有导出保存。普通检索是共同基线，相关性排序不判断能否照搬修法。三态工具以每次实际请求为依据核对当前焦点（实际请求中的诊断、所选假设和当前候选）及逐前提引用，支持时提供完整过程，矛盾时提示暂停照搬，未知时保留查证问题；判断仍为模型推断。启停两组共用相同工具、知识和预算，完整指导及调用来源随报告和私有导出保存。知识、三态和静态 Skill 已有完整 SDK 会话、报告、对照及私有导出入口，固定/模拟脚本通过显式主机批准接入同一受管 CLI。启动消费已经批准的冻结库，恢复使用 run 原件和原批准，不要求原库存在；跨任务反馈使用独立 FeedbackStore 固定完整来源，人工提议形成待审核经验候选；自动模型提炼、批准桥接及 Skill 验证/启用继续按既定顺序实现。详细流程见 [设计第 7 节](docs/development/system-design-draft.md#7-skills-的具体位置)，字段和失败行为见 [规格第 3.1 节](docs/design-contracts.md#31-工作上下文经验与-skill-的实施契约)，实际完成与下一包见 STATUS。
 
 论文希望回答的具体问题是：**相同模型、知识、工具和预算下，围绕当前修复义务组织证据并迁移经验，是否能减少错误尝试，交出更多保留功能的补丁？** 以静态 Skill、普通案例检索和可关闭的机制比较解释收益；目前没有效果证据。
 
@@ -171,6 +171,7 @@ Export 从显式评测清单保留任务源码、全部候选、账本和失败�
 | `src/dfx_agent/working_context_projection.py`、`tests/test_working_context_projection.py` | 从完整审计 packet 生成有界模型视图；仅替换来源清单，保留全部领域内容及未知/权限范围 |
 | `tests/test_working_context_reporting.py`、`tests/test_working_context_metrics.py` | 新代发送计划回读、旧代不回填、显式上下文因素、公平门及私有导出合成验收 |
 | `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`、`tests/test_decisions.py` | 固定响应闭环、模拟 HTTP、领域策略、动作/应用接受、模型与工具恢复、因果诊断及修复决策交接的合成验收 |
+| `tests/test_feedback.py`、`tests/test_feedback_integration.py` | 开发反馈来源、权限、移植回读、候选与成本的合成反例；不证明自动学习质量或真实修复 |
 | `tests/test_managed_knowledge_workflow.py` | 固定/模拟 CLI 全流程及真实 Windows Job 验收的合成 fixture，核完整 Skill 可见性与同资源启停矩阵 |
 | `tests/test_model_provider.py`、`tests/test_provider_loop.py`、`tests/test_reporting.py`、`tests/test_offline_script.py`、`tests/test_offline_cli.py` | 模拟模型请求/响应、SDK 交接、最终摘要核验和受管脚本/命令入口；不调用真实模型 |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
@@ -218,6 +219,7 @@ Export 从显式评测清单保留任务源码、全部候选、账本和失败�
 | `solver_visibility.py` | 在实际模型请求发出前固定最终输入；从完整已发送结果与工作上下文取得可见依据，摘要不授予事实引用权限 |
 | `applicability_handoff.py` | 三态准备、审查和回读 SDK 工具；绑定实际输入焦点，保留完整指导、未知问题和调用来源，支持同工具关闭对照 |
 | `static_skills.py` | 从 run 批准人工知识生成冻结过程正文/清单，复用原生 SkillsMiddleware 并核验资源和缓存；开启注入目录，关闭保留相同正文和读取能力 |
+| `feedback_contracts.py`、`feedback.py` | 核验已停止开发运行，保存可独立回读的反馈原件及完整待审核经验过程；人工提议，尚不自动模型提炼、入库或晋升 Skill |
 | `static_skill_handoff.py` | 将完整 read_skill 结果与父模型/动作账本、实际后续输入和报告关联；分开记录读取与可见性，提供启停共同容量门；受管配置由 offline_script/CLI 消费，反馈演进另待接入 |
 | `actions.py` | SDK 工具中间件、主机能力/引用/预算检查及 SQLite 动作结果账本；不提供真实应用执行 |
 | `workspace.py` | 从已校验分析快照建立独立草稿、原子文本编辑、冻结完整 diff 与候选哈希，并校验恢复归属；不执行应用检查 |
