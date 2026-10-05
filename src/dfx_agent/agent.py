@@ -69,7 +69,12 @@ from .knowledge_run import (
     read_run_knowledge,
 )
 from .logs import MAX_LOG_BYTES
-from .model_calls import ModelCallStore, ModelCallUncertain, canonical
+from .model_calls import (
+    ModelCallConflict,
+    ModelCallStore,
+    ModelCallUncertain,
+    canonical,
+)
 from .model_provider import ChatCompletionsAdapter
 from .models import (
     AccountedProviderModel,
@@ -692,7 +697,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
             session_identity["applicability_profile"] = applicability_profile
         if static_profile is not None:
             session_identity["static_skill_profile"] = static_profile
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, ModelCallConflict) as exc:
         if resume:
             raise ResumeAdmissionRejected("resume saved facts or configuration differ") from exc
         raise

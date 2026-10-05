@@ -54,7 +54,7 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 `<...>` 是要替换的参数示意，不是可直接运行的真实任务。输入路径须在仓库内且不在 `data_B/` 或 `archive/`；工作目录固定为 `.dfx-local/work/offline-<ID>/`。schema 1 脚本格式是 `{"schema_version":1,"responses":[{"tool":"edit_source","args":{"path":"src/main.ets","old":"bad","new":"good"},"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}],"expected":{"path":"src/main.ets","text":"value=good\n"}}`。`tool:null` 表示结束消息，此时 args 必须为空；`usage:null` 表示用量未知，存在的用量须为非负整数且总数一致。
 
-脚本 schema 1/2 分别用于固定响应与模拟 wire；保持工作上下文关闭。新 schema 3/4 保持各自响应结构，必须另提供 `working_context`，例如 `{"enabled":true}`；其全部策略参数会展开冻结在 session，不能靠旧脚本的额外字段悄悄启用。schema 2/4 用于检查实际模型协议交接，仍是进程内模拟，不连接云端：
+脚本 schema 1/2 分别用于固定响应与模拟 wire；保持工作上下文关闭。schema 3/4 保持各自响应结构，必须另提供 `working_context`，例如 `{"enabled":true}`；其全部策略参数会展开冻结在 session，不能靠旧脚本的额外字段悄悄启用。schema 5/6 分别在固定/模拟结构上必填 `working_context` 和主机 `knowledge` 配置。schema 2/4/6 用于检查实际模型协议交接，仍是进程内模拟，不连接云端：
 
 ```json
 {
@@ -72,6 +72,17 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 ```
 
 两种格式均可选 `policy_features`（rule_guidance、obligation_tracking、decision_checks 三个布尔开关，缺省全关）和 `limits`（max_calls、max_known_tokens、max_seconds、max_candidates、max_tool_calls，正数，未指定时沿用循环默认值）。文件最多 1 MiB，拒绝链接、额外字段、重复 JSON 键和非有限数值。配置不接受密钥、端点或真实网络模式；responses 与 expected 都不进入模型任务上下文，expected 只供合成执行器。模拟恢复按已完成调用数对齐响应流；完成请求回放不消费新响应，已发出但未知的请求不重发。已正常结束的 Graph 再 resume 只核对/汇总，不开启新模型对话；已用尽预算仍明确报告耗尽。修改模型配置或循环限额不能继续原会话。
+
+schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
+
+| 字段 | 内容 |
+|---|---|
+| `library_path` | 仓库根下已经批准、物化快照并建好索引的 KnowledgeStore 相对路径；与任务和输出目录分离，不能指向 data_B、archive 或内部工具目录 |
+| `approval` | 完整 TaskKnowledgeBinding：schema_version、task_id、run_id、source_snapshot_sha256、crash_sha256、snapshot_sha256 和 scope；由主机独立批准，不从 run 配置自动生成 |
+| `applicability_policy`（可选） | 完整 schema_version=1 和 enabled 布尔值；显式提供时两组使用相同三态工具 |
+| `static_skill_policy`（可选） | 完整 schema_version=1、enabled 和升序唯一 entry_ids；必须同时显式提供三态策略，关闭组仍能完整 read_skill |
+
+受管 worker 自动传仓库根，启动先只读核知识原件、索引、权限及任务批准，缺库不会创建空库或重建索引。恢复读取 run 内冻结原件，并要求脚本提供原批准和原策略；库可以已经迁移或不存在，`library_path` 仅是启动定位符，不参与恢复身份，但仍须满足词法范围约束。批准、知识、策略、选择、模型和预算的漂移在可写运行前拒绝，CLI 返回 3，worker 保留原终态。库制作与人工批准继续使用 knowledge.py/knowledge_retrieval.py 的主机接口，本入口只消费已有库。完整受管验收 fixture 见 tests/test_managed_knowledge_workflow.py。
 
 每次 SDK 工具调用先经 `actions.py` 的主机授权：检查工具对应动作、参数、任务/版本、引用、候选及能力；全部动作串行，并受独立工具预算约束。工具参数可带 `proposal_json`（序列化的 `ActionProposal`），用于显式提交理由和引用；它不能改变工具所需能力或候选，也不能隐藏工具实际引用。模型返回的工具调用并不自动获准；最后一个已记账模型响应仍可完成合法动作，但不能绕过工具、候选和时间预算。
 
@@ -103,7 +114,7 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 清单 schema 1 的 configuration 中 model_profile_sha256、context_profile_sha256 和 search_limits_sha256 分别取 `sha256(canonical(session[字段]))`，tool_schema_sha256 取 session 同名值，再列出共同 capabilities/max_calls/max_known_tokens/max_seconds/max_candidates/max_tool_calls。canonical/sha256 由 model_calls.py 提供；不要对随意缩进或不同排序的 JSON 直接取这些配置哈希。聚合会重算任务提示及实际主机/solver 工具定义，核对所有 session 与同组预算；旧普通 solver 原始请求体未保存，不声称完整历史请求重建；新运行启用工作上下文时另外核验保存的完整发送回执。
 
-清单 schema 2 用于显式上下文对照：configuration 另给 `working_context={max_packet_bytes,max_view_bytes,retain_groups}`，variants 每项必有 `working_context_enabled`；这些限制仍共享。此时上下文配置哈希取 `sha256(canonical(metrics.shared_context_profile(session["context_profile"])))`，只将 enabled 归一为 false，保留压缩及其他参数。清单 schema 3 继承该结构，configuration 另给 `knowledge_profile=knowledge_run.shared_knowledge_profile(session["knowledge_profile"])`，固定全部组共用的快照、scope、retriever、索引哈希及知识原件清单；排除 task/run 特有批准，但不放宽知识或工具。该代支持普通检索；schema 4 继承同一共享配置，variants 另必填 applicability_enabled，用 session 12 的同工具启停比较，不接纳学习因素。`parse_evaluation_manifest` 显式区分四代，不给旧清单倒填默认值；1/2 拒绝知识运行，1 还拒绝开启工作上下文的运行。
+清单 schema 2 用于显式上下文对照：configuration 另给 `working_context={max_packet_bytes,max_view_bytes,retain_groups}`，variants 每项必有 `working_context_enabled`；这些限制仍共享。此时上下文配置哈希取 `sha256(canonical(metrics.shared_context_profile(session["context_profile"])))`，只将 enabled 归一为 false，保留压缩及其他参数。清单 schema 3 继承该结构，configuration 另给 `knowledge_profile=knowledge_run.shared_knowledge_profile(session["knowledge_profile"])`，固定全部组共用的快照、scope、retriever、索引哈希及知识原件清单；排除 task/run 特有批准，但不放宽知识或工具。该代支持普通检索；schema 4 继承同一共享配置，variants 另必填 applicability_enabled，用 session 12 的同工具启停比较，不接纳学习因素；schema 5 另冻结 shared_static_skill_profile 和 static_skills_enabled，以 session 13 比较相同静态资源的目录启停。`parse_evaluation_manifest` 显式区分五代，不给旧清单倒填默认值；1/2 拒绝知识运行，1 还拒绝开启工作上下文的运行。脚本、会话和评测清单的 schema 各自独立，脚本 5/6 按实际选择生成会话 11、12 或 13。
 
 新运行的 context_profile 冻结 working_context_format=2：plan schema 2 以路径、摘要和大小引用同 run 的 working-context/materials 原字节，重复材料只保存一次；完整审计 packet 仍保留逐文件来源。模型投影只将 sources 清单替换为有摘要的统计，保留其他领域内容全文，覆盖判断使用实际投影。材料/审计产物沿用 MAX_ARTIFACT_BYTES 单产物限额，WorkingContextPolicy.max_packet_bytes 限制求解投影；超限明确停止，不放大配置。旧 session 10 缺标记时按 format 1 只读核验原 inline 计划和原预算解释；旧报告/包摘要不倒填，来源不兼容不能续跑。
 
@@ -111,7 +122,7 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 
 缺目录、缺报告、失败和未知成本均保留在分母；损坏证据拒绝整批，不跳过。首次与最新定位/候选分开，repeat 与任务/谱系分开，不宣称独立样本。所有应用指标为 null、accepted=false。全旧 session 8 数据维持原汇总形状及历史版本 null；存在新来源时，逐行保留原记录，按 compatibility_sha256 列出来源与未知项，已知兼容身份不一致拒绝合并。缺报告的新来源仍须绑定匹配工作区和会话，不能据此补零费用或成功。从现有记录生成清单不能证明当时预登记，正式实验须先冻结清单与完整应用执行来源。程序 API 为 load_evaluation_manifest / aggregate_evaluation / write_evaluation_report；写入只允许新报告且不能与输入重叠。
 
-`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile，以及 session 10–12 的兼容来源身份。旧 schema 1–9 不续跑，不自动升级，须保留证据并另建工作 ID。来源准入拒绝时 CLI 返回 3，工作进程保留原终态；已准入后运行失败仍记录 failed。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
+`run-state.json` 记录受管工作进程终态。`model-calls.sqlite` 保存请求/响应账本，`tool-actions.sqlite` 保存授权与完整工具结果，Graph 检查点和检查意图共同支持恢复。已完成工具在检查点落盘前中断时只回放结果；工具执行过但回执未保存时停止为 `action_result_unknown`，不盲目重做。恢复沿用原 ID、预算、主机能力、策略开关、条件输入指纹、项目任务提示、初始上下文、工具定义、检索限额、model_profile 和 context_profile，以及 session 10–13 的兼容来源身份。旧 schema 1–9 不续跑，不自动升级，须保留证据并另建工作 ID。来源准入拒绝时 CLI 返回 3，工作进程保留原终态；已准入后运行失败仍记录 failed。Graph 只保存连续 solver model-N，摘要使用独立身份，不能用总调用数恢复 solver 序号。被中断且尚无终态的工作目录会阻止清理，须先核对再恢复或处置。
 
 ### 运行来源与恢复兼容
 

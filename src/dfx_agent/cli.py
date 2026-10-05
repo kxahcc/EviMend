@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import sqlite3
 import zipfile
 from pathlib import Path
 
@@ -58,6 +59,7 @@ def main() -> None:
         offline.add_argument("--work", required=True, type=Path)
         offline.add_argument("--run-id", required=True)
         offline.add_argument("--fixed-script", "--script", dest="fixed_script", required=True, type=Path)
+        offline.add_argument("--project-root", type=Path, help="Explicit managed project authority for knowledge scripts")
     args = None
     resume_rejection_type = None
     try:
@@ -116,30 +118,53 @@ def main() -> None:
                 run_fixed_agent,
                 run_provider_agent,
             )
-            from .model_calls import ModelCallStore
+            from .model_calls import ModelCallConflict, ModelCallStore
             from .offline_script import load_offline_script
             from .workspace import CandidateWorkspace
 
             if os.environ.get("DFX_MANAGED_AGENT") != "offline-v1":
                 raise ValueError("repair/resume require the managed offline entry point")
             resume_rejection_type = ResumeAdmissionRejected
-            if args.command == "resume":
-                preflight_resume(args.task, args.work, args.run_id)
-            script = load_offline_script(args.fixed_script)
+            try:
+                script = load_offline_script(args.fixed_script)
+                script.validate_knowledge_paths(args.project_root, args.task, args.work)
+                approval = script.knowledge_approval()
+                if args.command == "resume":
+                    session = (preflight_resume(args.task, args.work, args.run_id) if approval is None else
+                        preflight_resume(args.task, args.work, args.run_id, knowledge_approval=approval))
+                    # Legacy no-knowledge scripts keep their original execution path.
+                    # New knowledge declarations are checked before any writable Agent store.
+                    if script.schema_version in (5, 6):
+                        script.check_resume_knowledge(session)
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                if args.command == "resume":
+                    raise ResumeAdmissionRejected("resume offline script or host knowledge configuration rejected") from exc
+                raise
             options = {**script.options(), "resume": args.command == "resume", "policy_features": script.features(),
                        "compaction_policy": script.compaction_policy(),
                        "working_context_policy": script.working_context_policy()}
+            if script.schema_version in (5, 6):
+                options.update({"applicability_policy": script.applicability_policy(),
+                                "static_skill_policy": script.static_skill_policy()})
+                if args.command == "resume":
+                    options["knowledge_approval"] = approval
+                else:
+                    options["knowledge"] = script.knowledge_input(args.project_root, args.task, args.work, args.run_id)
             if script.mode == "fixed_response":
                 result = run_fixed_agent(args.task, args.work, args.run_id, script.fixed_responses(),
                                          script.executor(), compaction_responses=script.compaction_responses(), **options)
             else:
                 offset = 0
                 if args.command == "resume":
-                    workspace = CandidateWorkspace.reopen(args.task, args.work, args.run_id)
-                    store_path = workspace.root / "model-calls.sqlite"
-                    if not store_path.is_file() or store_path.is_symlink():
-                        raise ValueError("resume model ledger is missing or linked")
-                    offset = ModelCallStore(store_path, read_only=True).usage_summary(workspace.task_id, args.run_id)["completed_calls"]
+                    try:
+                        workspace = CandidateWorkspace.reopen(args.task, args.work, args.run_id)
+                        store_path = workspace.root / "model-calls.sqlite"
+                        if not store_path.is_file() or store_path.is_symlink():
+                            raise ValueError("resume model ledger is missing or linked")
+                        offset = ModelCallStore(store_path, read_only=True).usage_summary(
+                            workspace.task_id, args.run_id)["completed_calls"]
+                    except (OSError, ValueError, TypeError, KeyError, sqlite3.Error, ModelCallConflict) as exc:
+                        raise ResumeAdmissionRejected("resume original model ledger rejected before execution") from exc
                 result = run_provider_agent(args.task, args.work, args.run_id, script.adapter(response_offset=offset),
                                             script.executor(), **options)
         if args.command in ("doctor", "analyze") and args.output:

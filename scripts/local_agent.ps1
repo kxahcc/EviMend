@@ -28,7 +28,7 @@ $exitCode = 1
 Push-Location $repo
 try {
     & $python (Join-Path $repo 'scripts/dfx.py') $command --task $env:DFX_OFFLINE_TASK `
-        --work $work --run-id $runId --fixed-script $env:DFX_OFFLINE_SCRIPT
+        --work $work --run-id $runId --fixed-script $env:DFX_OFFLINE_SCRIPT --project-root $repo
     $exitCode = $LASTEXITCODE
 } finally {
     Pop-Location
