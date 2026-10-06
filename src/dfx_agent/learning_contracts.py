@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .contracts import require_hash, require_identifiers, require_unique
 from .feedback_contracts import (
     FeedbackCapsule,
+    FeedbackFile,
     HostFeedbackApproval,
     Identifier,
     _Frozen,
@@ -169,6 +170,66 @@ class LearningDraft(_Frozen):
         if (encode(payload) != self.payload_json or content_hash(payload) != self.content_sha256 or
                 self.draft_id != "learning-draft-" + self.content_sha256):
             raise ValueError("learning draft identity differs")
+        return self
+
+    def contents(self) -> dict[str, Any]:
+        return _object(self.payload_json)
+
+
+class _PortableFrozen(BaseModel):
+    """New read-only source records; the execution owner's schema stays unchanged."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, revalidate_instances="always")
+    schema_version: Literal[2] = 2
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def exact_schema(cls, value: object) -> object:
+        if type(value) is not int or value != 2:
+            raise ValueError("portable learning schema must be integer 2")
+        return value
+
+
+class LearningSourcePayload(_PortableFrozen):
+    approval: HostLearningApproval
+    owner: LearningOwner
+    draft: LearningDraft
+    operation_cost: LearningCost
+    operation_calls_json: str
+    directories: tuple[str, ...]
+    files: tuple[FeedbackFile, ...]
+    source_authority: Literal["authenticated_original_operation"] = "authenticated_original_operation"
+    recovery: Literal["read_only_portable_closure"] = "read_only_portable_closure"
+    application_qualification: Literal["none"] = "none"
+
+    @model_validator(mode="after")
+    def valid(self) -> LearningSourcePayload:
+        if self.owner.approval != self.approval:
+            raise ValueError("portable learning owner differs from original approval")
+        draft = LearningDraftPayload.model_validate_json(self.draft.payload_json)
+        if draft.owner != self.owner:
+            raise ValueError("portable learning draft has another original owner")
+        _object(self.operation_calls_json)
+        paths = [file.path for file in self.files]
+        for path in self.directories:
+            _reference(path)
+        if (paths != sorted(paths) or list(self.directories) != sorted(self.directories) or
+                len({path.casefold() for path in (*paths, *self.directories)}) != len(paths) + len(self.directories)):
+            raise ValueError("portable learning inventory is unordered or duplicated")
+        return self
+
+
+class LearningSource(_PortableFrozen):
+    source_id: str
+    content_sha256: str
+    payload_json: str
+
+    @model_validator(mode="after")
+    def valid(self) -> LearningSource:
+        payload = LearningSourcePayload.model_validate_json(encode(_object(self.payload_json)))
+        if (encode(payload) != self.payload_json or content_hash(payload) != self.content_sha256 or
+                self.source_id != "learning-source-" + self.content_sha256):
+            raise ValueError("portable learning source identity differs")
         return self
 
     def contents(self) -> dict[str, Any]:

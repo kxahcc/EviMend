@@ -308,6 +308,12 @@ class LearningStore:
             rebuilt = self._request(owner, call_id, parent_id, responses.get(parent_id) if parent_id is not None else None, _mock_adapter(owner))
             if rebuilt != request:
                 raise ValueError("learning request differs from source reconstruction")
+        prepared_requests: set[str] = set()
+        for request in requests.values():
+            identity = canonical(request.prepared.model_dump(mode="json"))
+            if identity in prepared_requests:
+                raise ValueError("learning originals duplicate a complete prepared request")
+            prepared_requests.add(identity)
         if set(requests) != {record.intent.call_id for record in records}:
             raise ValueError("learning requests and original ledger rows have an incomplete correspondence")
         for relative, raw in tree.raw.items():

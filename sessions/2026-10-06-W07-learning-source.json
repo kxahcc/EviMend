@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "scope": "offline_synthetic",
+  "batch": "W07-learning-source",
+  "date": "2026-10-06",
+  "objective": "Keep complete original learning requests, responses, ledger, owner and development feedback portable and read-only without reauthorizing execution.",
+  "result": "passed",
+  "implementation": {
+    "files": ["src/dfx_agent/learning_contracts.py", "src/dfx_agent/learning_source.py", "src/dfx_agent/learning.py"],
+    "originals": "Original HostLearningApproval and physical owner, all complete prepared requests and records, raw responses, stable operation and complete capsule closure. Draft prefix and full operation costs remain distinct; invalid format and repair costs remain included.",
+    "readback": "Reconstruct owner inputs, provider profile, request/record correspondence and costs. Original operation and feedback may be moved. Copies have no invoke/reserve API and do not renew an execution budget.",
+    "publication": "Bounded pre-read and staged/fsync/final readback; unknown records retained, reserved/dispatched operations rejected. Missing original records are not recreated.",
+    "history": "Original audit now rejects duplicate canonical PreparedRequests even when separate call IDs have completed ledger records.",
+    "authority_boundary": "A content-hashed package is not an independent signature of original responses or an undeletable audit service; a complete mutually consistent response/history replacement cannot be disproved solely by self-contained hashes. Version review must fix its exact source ID.",
+    "application_qualification": "none"
+  },
+  "tests": {
+    "initial": {"receipt": "d2ac6470-d00d-4aa5-b3d9-a262d3611b29", "failed": 10, "warnings": 1, "seconds": 26.83, "cause": "Before source capture, ordinary long Windows copytree paths failed with WinError206/3. Fixture now uses existing local_evidence_path, preserving full path lengths and limits."},
+    "final": {"path": "tests/test_learning_source.py", "receipt": "3701fc05-359b-4264-9818-c5299e6e1c12", "passed": 10, "warnings": 1, "seconds": 987.67},
+    "coverage": ["Known and missing usage: full costs, no new dispatch and origin removal", "Missing original database/request/owner", "Capacity and changed approval reject before writes", "Copied request drift and boolean/unknown schema", "Rehashed owner-input and provider-profile drift", "Duplicate completed original prepared requests"],
+    "warning": "learning_workflow_support was imported before plugin assertion rewriting; warning retained and collected test assertions active.",
+    "not_full_repository_round": true
+  },
+  "quality": {
+    "pyright": {"receipt": "73010884-048c-44c7-9bec-0995aa7ec812", "errors": 0, "warnings": 0},
+    "ruff": {"receipt": "bde07976-ea04-4d51-bd36-9324301c9bca", "result": "passed", "earlier_failed_receipts": ["76ead564-46f6-4e49-b1ad-669bed18f723", "f0445acb-2c93-40d6-882d-ccfd028a0a56", "e1cf874a-7a04-4502-b88a-dedd6099bb28"]},
+    "docs": {"receipt": "0618d592-d60e-475b-8195-eba37189cc89", "result": "passed", "registered_documents": 14}
+  },
+  "environment": {"new_dependencies": 0, "model_weights": 0, "harmonyos_installs": 0, "real_model_runs": 0, "application_runs": 0, "resource_limits_changed": false, "global_environment_changed": false, "templates_changed": false, "cleanup": "Successful test temporary files reclaimed by manager; failed/interrupted records retained; no broad cleanup."},
+  "remaining": ["Model-derived version, validation, publication and actual Agent startup/read/restore integration acceptance", "SDK runtime repeated source audit cost", "ResearchProfile and complete learning/validation/deployment budget", "Real cloud/HarmonyOS/business validation and measured transfer benefit"]
+}

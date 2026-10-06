@@ -145,7 +145,9 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 2. 输出格式错误仍占用次数并保存 usage；只在主机显式提供 `repair_of_call_id` 时另发格式修复，引用原完成响应。合法输出不能伪装格式修复，新 ID 不能重复相同完整请求。发送前 preflight 失败保留 reserved，可核原批准后续发同 ID；发送后 unknown 不重发，完成同 ID 只回放。
 3. `propose_draft(call_id, approval=...)` 将合法 ExperienceContent 保存为完整 LearningDraft：model_inference、无验证范围、pending_host_review。它保留来源权限、全部声明学习谱系、完整调用/响应和冻结成本前缀，不成为人工 ExperienceCandidate、SkillVersion 或已启用知识。`read_draft(draft_id, approval=...)` 只读重核原件；没有批准/版本兼容桥接，不能直接传给旧 host_curated 版本接口。
 
-提炼和格式修复共享本操作调用/已知 Token 预算；未知发送、缺失或无效 usage 使总 Token 保持 null，已知和只是下界，实际费用始终未知。summary 也核验已有草案，缺原 capsule、缺账本、删行、改请求或换物理根均拒绝。初始化的跨文件中断失配不自动修复，尚无主机对账入口或独立不可删除日志；恢复并非可移植学习包。容量门预留有限模拟响应及 SQLite 开销，不能据此声称全内部 I/O、峰值内存或跨操作总预算已经闭合。契约见模块规格第 3.1 节，实际验收见 STATUS。
+提炼和格式修复共享本操作调用/已知 Token 预算；未知发送、缺失或无效 usage 使总 Token 保持 null，已知和只是下界，实际费用始终未知。summary 也核验已有草案，缺原 capsule、缺账本、删行、改请求或换物理根均拒绝。初始化的跨文件中断失配不自动修复，尚无主机对账入口或独立不可删除日志。容量门预留有限模拟响应及 SQLite 开销，不能据此声称全内部 I/O、峰值内存或跨操作总预算已经闭合。契约见模块规格第 3.1 节，实际验收见 STATUS。
+
+需要保留可移植来源时，主机在另一个预建受管目录构造 `LearningSourceStore(root)`，调用 `capture(learning_store, draft_id, approval=original_learning_approval)`。它复制完整学习操作和反馈闭包，冻结草案原成本前缀以及复制时的全操作成本；未发预约或仍在派发的操作不能复制。随后 `read_source(source_id, approval=original_learning_approval)` / `read_draft(...)` 只读从副本重新核验全部原件，原学习库/反馈库不再可用时仍能回读。包无 invoke 或新预算，不能从复制目录续发原调用；原 `LearningStore` 的执行恢复仍要求原物理根及 capsule。来源移植不表示内容验证有效或已部署，测试和实际完成见 STATUS。
 
 ### 运行来源与恢复兼容
 
