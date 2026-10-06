@@ -404,7 +404,7 @@ def audit_stored_applicability(workspace: CandidateWorkspace, task_directory: Pa
     solver_inputs = []
     if _exists(workspace.root / "session.json"):
         session = _object(reads.read(workspace.root / "session.json"))
-        if session.get("schema_version") not in (12, 13) or session.get("applicability_profile") != profile:
+        if session.get("schema_version") not in (12, 13, 14) or session.get("applicability_profile") != profile:
             raise ValueError("applicability profile differs from its actual session")
         solver_inputs = _visibility(workspace, task_directory, ledger, session).audit_stored()
     elif _exists(workspace.root / "solver-inputs"):
@@ -446,7 +446,7 @@ def audit_run_applicability(workspace: CandidateWorkspace, task_directory: Path 
     reads = _reads(workspace)
     session = _object(reads.read(workspace.root / "session.json"))
     profile = normalize_applicability_profile(applicability_profile)
-    if session.get("schema_version") not in (12, 13) or session.get("applicability_profile") != profile:
+    if session.get("schema_version") not in (12, 13, 14) or session.get("applicability_profile") != profile:
         raise ValueError("applicability profile differs from its actual session")
     policy = ApplicabilityPolicy.model_validate(profile)
     visibility = _visibility(workspace, task_directory, ledger, session)

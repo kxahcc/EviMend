@@ -43,6 +43,7 @@ $script:ExportPath = Join-Path $script:Repo 'runs/exports'
 $script:ActivePath = Join-Path $script:StatePath 'active.json'
 $script:StopPath = Join-Path $script:StatePath 'stop-request.json'
 $script:Comparison = [StringComparison]::OrdinalIgnoreCase
+$script:InaccessibleManagedPaths = [Collections.Generic.List[string]]::new()
 
 function Test-Within([string]$Path, [string]$Parent) {
     $full = [IO.Path]::GetFullPath($Path)
@@ -175,6 +176,10 @@ function Get-ManagedBytes([string[]]$Targets = @(), [bool]$VerifyLinks = $false)
         $folder = $pending.Pop()
         try { $entries = @([IO.DirectoryInfo]::new($folder).EnumerateFileSystemInfos()) }
         catch [IO.DirectoryNotFoundException] { continue }
+        catch [UnauthorizedAccessException] {
+            $script:InaccessibleManagedPaths.Add($folder)
+            continue
+        }
         foreach ($entry in $entries) {
             try {
                 $entry.Refresh()
@@ -187,6 +192,10 @@ function Get-ManagedBytes([string[]]$Targets = @(), [bool]$VerifyLinks = $false)
                 else { $bytes += [long]([IO.FileInfo]$entry).Length }
             } catch [IO.FileNotFoundException] { continue }
             catch [IO.DirectoryNotFoundException] { continue }
+            catch [UnauthorizedAccessException] {
+                $script:InaccessibleManagedPaths.Add($entry.FullName)
+                continue
+            }
         }
     }
     return $bytes
@@ -359,6 +368,9 @@ function Get-RunLimits() {
         [Math]::Ceiling([double]$drive.TotalSize * [double]$limits.min_free_disk_fraction))
     if ($drive.AvailableFreeSpace -lt $diskReserve) { throw 'Insufficient free disk for reserve' }
     [long]$managedBytes = Get-ManagedBytes -VerifyLinks $true
+    if ($script:InaccessibleManagedPaths.Count -gt 0) {
+        throw 'Managed resource accounting is incomplete because a managed path is not readable'
+    }
     [long]$exportBytes = Get-ExportBytes
     if (($managedBytes + $exportBytes) -gt [long]$limits.managed_disk_budget_bytes) { throw 'Managed and export disk budget exceeded' }
     return [pscustomobject]@{
@@ -439,11 +451,15 @@ if ($Action -eq 'Status') {
     [pscustomobject]@{
         managed_root = $script:Root; owner_valid = $ownerValid
         managed_bytes_by_category = $sizes; export_bytes = $exportBytes
+        resource_accounting = if ($script:InaccessibleManagedPaths.Count -eq 0) { 'complete' } else { 'incomplete' }
+        inaccessible_paths = @($script:InaccessibleManagedPaths | Sort-Object -Unique)
         active_marker = [IO.File]::Exists((Join-Path $script:StatePath 'active.json'))
         active_state = $activeState
         remote_jobs_unknown = [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
         resource_enforcement = 'job_guarded_setup_quality_offline_agent_metrics_and_export'
-        cleanup_available = $activeState -eq 'none' -and -not [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
+        cleanup_available = $activeState -eq 'none' -and
+            $script:InaccessibleManagedPaths.Count -eq 0 -and
+            -not [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json'))
     } | ConvertTo-Json -Depth 5
     exit 0
 }

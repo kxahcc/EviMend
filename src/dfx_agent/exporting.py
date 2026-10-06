@@ -42,6 +42,7 @@ _WORK_ENTRIES = frozenset({
     "knowledge-profile.json", "knowledge", "experience-bindings", "experience-queries",
     "applicability-contexts", "applicability-reviews", "applicability-materials", "solver-inputs",
     "static-skills-profile.json", "static-skills",
+    "version-skills-profile.json", "version-skills", "version-skill-sources",
 }) | _DATABASES | frozenset(name + suffix for name in _DATABASES for suffix in ("-wal", "-shm", "-journal"))
 _PRIVACY = {
     "local_only": True, "redacted": False, "share_ready": False,
@@ -231,7 +232,10 @@ def _validate_tree(path: Path, allowed: frozenset[str], maximum: int) -> None:
                         raise ValueError("database sidecar is orphaned or unmerged")
             nested_index = (current.relative_to(path).parts[:2] == ("knowledge", "indexes") and
                             current.suffix == ".sqlite")
-            if allowed == _WORK_ENTRIES and ((current.parent == path and current.name in _DATABASES) or nested_index):
+            nested_version = (current.relative_to(path).parts[0] == "version-skill-sources" and
+                              current.suffix == ".sqlite")
+            if allowed == _WORK_ENTRIES and ((current.parent == path and current.name in _DATABASES) or
+                                            nested_index or nested_version):
                 with closing(open_readonly_database(current)) as connection:
                     if [row[0] for row in connection.execute("PRAGMA quick_check")] != ["ok"]:
                         raise ValueError("database evidence failed read-only integrity checking")

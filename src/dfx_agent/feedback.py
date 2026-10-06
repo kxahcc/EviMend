@@ -146,6 +146,32 @@ class _ClosedTree:
             if previous != anchor:
                 raise ValueError("feedback ancestor identity changed")
 
+    def capture_file(self, relative: str) -> bytes:
+        """Capture one exact record without admitting its unrelated siblings.
+
+        The caller must finish this reader after its semantic authentication.
+        This shares the same byte budget and descriptor closure as tree scans.
+        """
+        _reference(relative)
+        if relative in self.raw:
+            raise ValueError("feedback input trees overlap")
+        path = self.root / relative
+        self._parents(path.parent)
+        if self.entry_count + 1 > self.limits.max_entries:
+            raise ValueError("feedback tree entry capacity exceeded")
+        raw, descriptor = self._read(path)
+        if self.byte_count + len(raw) > self.limits.max_total_bytes:
+            raise ValueError("feedback raw closure capacity exceeded")
+        self.entry_count += 1
+        self.byte_count += len(raw)
+        self.raw[relative] = raw
+        self.files[relative] = FeedbackFile(path=relative, sha256=digest(raw), bytes=len(raw))
+        self.receipts[path] = _file_identity(path.lstat()), descriptor
+        self.directories.update(parent.as_posix() for parent in Path(relative).parents if parent.as_posix() != ".")
+        if len(self.directories) + len(self.files) + 1 > self.limits.max_entries:
+            raise ValueError("feedback complete inventory capacity exceeded")
+        return raw
+
     def scan(self, roots: tuple[tuple[str, frozenset[str] | None], ...], *, exclude_graph: bool = False) -> None:
         for relative, allowed in roots:
             if relative != ".":
@@ -264,7 +290,7 @@ def _learning_ancestors(manifest: AnyEvaluationManifest, root: Path, approval: H
             raise ValueError("feedback knowledge ancestry has no authenticated source profile")
         return
     profile = normalize_run_knowledge_profile(session["knowledge_profile"])
-    if type(session.get("schema_version")) is not int or session["schema_version"] not in (11, 12, 13):
+    if type(session.get("schema_version")) is not int or session["schema_version"] not in (11, 12, 13, 14):
         raise ValueError("feedback knowledge ancestry requires its original knowledge generation")
     if validate_session_provenance(session) is None:
         raise ValueError("feedback knowledge ancestry has no recorded execution provenance")
@@ -284,6 +310,19 @@ def _learning_ancestors(manifest: AnyEvaluationManifest, root: Path, approval: H
     scope = profile["approval"]["scope"]
     if scope["split"] != "development":
         raise ValueError("feedback cannot learn from validation or confirmation runs")
+    if session["schema_version"] == 14:
+        from .version_skills import (
+            authenticated_learning_lineages,
+            read_run_version_skills,
+        )
+
+        service = read_run_version_skills(workspace, root / task.task_path, session["version_skill_profile"],
+            ledger=CheckLedger(workspace, ReplayOnlyExecutor(task.protocol_sha256), read_only=True))
+        if service is None:
+            raise ValueError("feedback version source has no authenticated original resources")
+        groups = authenticated_learning_lineages(work, session["version_skill_profile"], approval)
+        if groups.intersection(approval.excluded_lineage_groups):
+            raise ValueError("feedback version ancestor belongs to excluded learning lineage")
     library = KnowledgeStore(work / "knowledge")
     try:
         snapshot = library.read_snapshot(profile["approval"]["snapshot_sha256"])

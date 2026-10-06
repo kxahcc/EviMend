@@ -1,0 +1,108 @@
+{
+  "tests": {
+    "sdk": {
+      "receipt": "360958c5-88fc-4030-80a3-e953d1e822a3",
+      "warnings": 1,
+      "seconds": 357.2,
+      "passed": 3,
+      "path": "tests/test_model_skill_sdk.py"
+    },
+    "docs": {
+      "result": "blocked_before_child",
+      "receipt": "bfb9055f-8916-4705-8d82-a80ed32977db",
+      "reason": "same inaccessible retained pytest directory"
+    },
+    "model_version_independent": {
+      "receipt": "6202e944-d191-4e4e-a2f8-4f564d4821eb",
+      "warnings": 1,
+      "seconds": 222.02,
+      "passed": 10,
+      "path": "tests/test_model_skill_versions.py"
+    },
+    "deployment": {
+      "result": "incomplete_no_final_receipt",
+      "reason": "受管临时目录被 Job ACL 拒绝，local.ps1 manager could not finalize or recount it",
+      "receipt": "2c034195-904a-45ec-8040-0b8f481cc423",
+      "log": "one progress character only; process exited before pytest summary",
+      "expected": "four roles, V2 transition, publication, deployment, rollback, feedback, export",
+      "path": "tests/test_model_skill_deployment.py"
+    },
+    "ruff": {
+      "result": "blocked_before_child",
+      "receipt": "8f9b299f-c89d-4763-b5fe-a8de587c1460",
+      "reason": "same inaccessible retained pytest directory"
+    }
+  },
+  "date": "2026-10-06",
+  "result": "incomplete",
+  "scope": "offline_synthetic",
+  "batch": "W07-model-version-consumption",
+  "remaining": [
+    "restore/read-only access to retained .dfx-local/tmp/pytest-dc6796292b2a4fe1ae52c628444c4cc4 or otherwise make the manager account for inaccessible retained evidence",
+    "rerun local quality checks through local.ps1",
+    "rerun complete deployment test and record final pytest receipt",
+    "complete ResearchProfile and real cloud/HarmonyOS/application evaluation",
+    "run the pure ResearchProfile contract through local.ps1 after the retained temporary evidence path is accessible"
+  ],
+  "schema_version": 1,
+  "quality": {
+    "manual": "git diff --check passed with line-ending warnings",
+    "no_source_or_test_edits_during_active_run": true,
+    "local_manager": {
+      "status_receipt": "status_command_after_acl_guard",
+      "resource_accounting": "incomplete",
+      "inaccessible_paths": [
+        ".dfx-local/tmp/pytest-031b01d69cd34079887b400cb17f1b2c",
+        ".dfx-local/tmp/pytest-dc6796292b2a4fe1ae52c628444c4cc4"
+      ],
+      "new_run_guard_receipt": "492c5b08-7246-4d2f-8db0-3f3df64d7310",
+      "result": "new docs run rejected before child because resource accounting was incomplete"
+    }
+  },
+  "environment": {
+    "global_environment_changed": false,
+    "application_runs": 0,
+    "cleanup": "failed/incomplete temp evidence retained; Stop reported active_run=false; no broad cleanup",
+    "limits_changed": false,
+    "templates_changed": false,
+    "harmonyos_installs": 0,
+    "new_dependencies": 0,
+    "real_model_runs": 0,
+    "model_weights": 0,
+    "access_recovery": {
+      "attempted": true,
+      "result": "parent temp ownership restored where permitted; two pytest directories remain inaccessible because current account lacks administrative privileges",
+      "contents_deleted": false,
+      "resource_guard": "local.ps1 now reports incomplete accounting and rejects new Run"
+    }
+  },
+  "objective": "Connect reviewed model versions to candidate SDK consumption and then verify deployment, rollback, feedback and export without widening permissions.",
+  "implementation": {
+    "files": [
+      "src/dfx_agent/version_skill_contracts.py",
+      "src/dfx_agent/version_skills.py",
+      "src/dfx_agent/skill_validation.py",
+      "src/dfx_agent/skill_evolution.py",
+      "tests/test_model_skill_versions.py",
+      "tests/test_model_skill_sdk.py",
+      "tests/test_model_skill_deployment.py",
+      "src/dfx_agent/research_profile.py",
+      "tests/test_research_profile.py",
+      "scripts/local.ps1",
+      "scripts/local.ps1"
+    ],
+    "application_qualification": "none",
+    "decisions": [
+      "schema 2 model-derived versions preserve model_inference and complete learning costs",
+      "candidate validation and deployment use separate bindings",
+      "source authority follows all authenticated publication/transition/plan/version links",
+      "captured source trees close after final semantic authentication under one budget",
+      "warm SDK services reject self-consistent task source drift"
+    ]
+  },
+  "git": {
+    "commit": "e47eacb",
+    "message": "feat: add reviewed model Skill consumption and research profiles",
+    "working_tree": "clean"
+  }
+}

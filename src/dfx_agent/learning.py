@@ -177,6 +177,10 @@ class LearningStore:
             return reader.raw[relative]
 
         session = _strict_json(original(work + "/session.json").decode("utf-8"))
+        if session.get("schema_version") == 14:
+            from .version_skills import authenticated_learning_lineages
+
+            lineage.update(authenticated_learning_lineages(source / work, session["version_skill_profile"], approval.feedback_approval))
         profile = session.get("knowledge_profile")
         if profile is not None:
             snapshot_id = profile["approval"]["snapshot_sha256"]

@@ -62,6 +62,10 @@ def _owner(feedback: FeedbackStore, expected: LearningOwner, budget: _ReadBudget
         raise ValueError("portable learning feedback inventory differs")
     lineage = {manifest.tasks[0].lineage_group_id}
     session = _strict_json(reader.raw[work + "/session.json"].decode("utf-8"))
+    if session.get("schema_version") == 14:
+        from .version_skills import authenticated_learning_lineages
+
+        lineage.update(authenticated_learning_lineages(reader.root / work, session["version_skill_profile"], approval.feedback_approval))
     profile = session.get("knowledge_profile")
     if profile is not None:
         snapshot_id = profile["approval"]["snapshot_sha256"]

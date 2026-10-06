@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 from .evidence_io import local_evidence_path
@@ -28,25 +28,49 @@ from .feedback_contracts import (
 )
 from .knowledge import KnowledgeError, KnowledgeStore
 from .knowledge_contracts import ExperiencePayload, SnapshotPayload, SolverProjection
+from .learning import LearningStore, _cost
+from .learning_contracts import (
+    HostLearningApproval,
+    LearningDraftPayload,
+    LearningSourcePayload,
+)
+from .learning_source import LearningSourceStore
 from .metrics import (
-    EvaluationManifestV5,
     _guard,
     _load,
     _overlap,
     aggregate_evaluation,
     parse_evaluation_manifest,
 )
-from .model_calls import ModelCallConflict, canonical
+from .model_calls import ModelCallConflict, ModelCallRecord, canonical
 from .skill_evolution_contracts import (
+    HostModelSkillVersionApproval,
     HostSkillVersionApproval,
-    HostValidationPlanApproval,
+    ModelVersionPayload,
     PlanPayload,
+    PlanPayloadV2,
     PlanSpec,
+    PlanSpecV2,
     ReceiptPayload,
+    ReceiptPayloadV2,
     SkillValidationPlan,
+    SkillValidationPlanV2,
     SkillValidationReceipt,
+    SkillValidationReceiptV2,
     SkillVersion,
+    SkillVersionV2,
+    ValidationApproval,
+    ValidationPlanRecord,
+    ValidationReceiptRecord,
+    VersionApproval,
     VersionPayload,
+    VersionRecord,
+    parse_plan,
+    parse_plan_payload,
+    parse_receipt,
+    parse_receipt_payload,
+    parse_version,
+    parse_version_payload,
 )
 from .task import digest, verify_task
 from .working_context_materials import _directory_anchor
@@ -93,11 +117,64 @@ def _publish_tree(directory: Path, tree: _ClosedTree, metadata_name: str | None 
         _write_file(directory / metadata_name, metadata)
 
 
-def _single(value: str) -> EvaluationManifestV5:
+def _single(value: str, *, schema: int = 5) -> Any:
     manifest = parse_evaluation_manifest(_object(value))
-    if not isinstance(manifest, EvaluationManifestV5):
-        raise ValueError("Skill validation requires manifest 5")  # noqa: TRY004 - unsupported schema is invalid evidence
+    if manifest.schema_version != schema:
+        raise ValueError("Skill validation requires its exact manifest generation")
     return manifest
+
+
+def _learning_costs_from_bundle(files: dict[str, bytes], version_id: str,
+                                approval: VersionApproval) -> dict[str, Any]:
+    """Derive costs only from an already closed, semantically authenticated bundle.
+
+    This pure helper grants no source authority. The callers export the complete
+    immutable closure before using it; parsing below also fixes every linked
+    version/approval/source ID instead of trusting a stored cost summary.
+    """
+    operations: dict[tuple[str, str], dict[str, Any]] = {}
+    current, external = version_id, approval
+    seen: set[str] = set()
+    while True:
+        if current in seen or len(seen) >= MAX_VERSION_DEPTH:
+            raise ValueError("learning cost ancestry is cyclic or exceeds capacity")
+        seen.add(current)
+        record = parse_version(files["versions/" + current + ".json"].decode("utf-8"))
+        body = parse_version_payload(record.payload_json)
+        if record.version_id != current or body.approval != external:
+            raise ValueError("learning cost bundle differs from linked original approval")
+        if isinstance(body, ModelVersionPayload):
+            from .learning_contracts import LearningSource
+
+            source = LearningSource.model_validate_json(files["source-learning/" + body.learning_source_id + "/source.json"])
+            payload = LearningSourcePayload.model_validate_json(source.payload_json)
+            if source.source_id != body.learning_source_id or payload.approval != body.learning_approval:
+                raise ValueError("learning cost bundle has another original source")
+            key = (payload.approval.operation_id, payload.approval.run_id)
+            owner_key = content_hash(payload.owner)
+            item = operations.setdefault(key, {"operation_id": key[0], "run_id": key[1], "owner_sha256": owner_key,
+                "source_binding_sha256": payload.owner.source_binding_sha256, "source_ids": [], "records": {}})
+            if item["owner_sha256"] != owner_key or item["source_binding_sha256"] != payload.owner.source_binding_sha256:
+                raise ValueError("learning operation ancestry changed its original owner")
+            item["source_ids"].append(source.source_id)
+            for call in _object(payload.operation_calls_json)["calls"]:
+                entry = ModelCallRecord.model_validate_json(encode(call["record"]))
+                if item["records"].setdefault(entry.intent.call_id, entry) != entry:
+                    raise ValueError("learning ancestor call changed between source packages")
+        if body.approval.parent_version_id is None or body.parent_approval is None:
+            break
+        current, external = body.approval.parent_version_id, body.parent_approval
+    rows, all_records = [], []
+    for key in sorted(operations):
+        item = operations[key]
+        records = list(item.pop("records").values())
+        all_records.extend(records)
+        item["source_ids"] = sorted(set(item["source_ids"]))
+        item["cost"] = _cost(records).model_dump(mode="json")
+        rows.append(item)
+    return {"status": "not_run" if not rows else "observed", "operations": rows,
+            "cost": None if not rows else _cost(all_records).model_dump(mode="json"),
+            "monetary_cost": None, "scope": "offline_synthetic"}
 
 
 def _timestamp(value: str) -> datetime:
@@ -109,7 +186,7 @@ def _timestamp(value: str) -> datetime:
     return actual
 
 
-def _aggregate(manifest: EvaluationManifestV5, root: Path) -> dict[str, Any]:
+def _aggregate(manifest: Any, root: Path) -> dict[str, Any]:
     try:
         return aggregate_evaluation(manifest, root)
     except (KnowledgeError, ModelCallConflict) as exc:
@@ -176,7 +253,8 @@ class SkillValidationStore:
         path = self._folder(folder) / (identifier + ".json")
         reader = _ClosedTree(path.parent, self.limits, budget)
         raw = _raw(reader, path)
-        record = model.model_validate_json(encode(_object(raw.decode("utf-8"))))
+        parser = model.model_validate_json if hasattr(model, "model_validate_json") else model
+        record = parser(encode(_object(raw.decode("utf-8"))))
         if encode(record).encode("utf-8") != raw:
             raise ValueError("Skill saved record has noncanonical bytes")
         return record
@@ -212,7 +290,7 @@ class SkillValidationStore:
         version = SkillVersion(version_id="skill-version-" + key, content_sha256=key, payload_json=encode(payload))
         budget = _ReadBudget(self.limits.max_capture_read_bytes)
         self._publish_record("versions", version.version_id, version, budget, 2 * len(encode(version).encode("utf-8")))
-        return self._read_version(version.version_id, approval, budget, set())
+        return cast(SkillVersion, self._read_version(version.version_id, approval, budget, set()))
 
     def create_revision(self, parent_version_id: str, feedback_store: FeedbackStore, candidate_id: str, *,
                         approval: HostSkillVersionApproval, parent_approval: HostSkillVersionApproval,
@@ -282,24 +360,95 @@ class SkillValidationStore:
                 candidate_id, candidate_approval, feedback_approval, budget) != candidate:
             raise ValueError("existing Skill source feedback differs from approved original")
         self._publish_record("versions", version.version_id, version, budget, version_reads)
-        return self._read_version(version.version_id, approval, budget, set())
+        return cast(SkillVersion, self._read_version(version.version_id, approval, budget, set()))
 
-    def read_version(self, version_id: str, *, approval: HostSkillVersionApproval) -> SkillVersion:
+    def create_model_revision(self, parent_version_id: str, learning: LearningStore | LearningSourceStore,
+                              draft_id: str, *, approval: HostModelSkillVersionApproval,
+                              parent_approval: VersionApproval, learning_approval: HostLearningApproval) -> SkillVersionV2:
+        approval, parent_approval, learning_approval = _copy(approval), _copy(parent_approval), _copy(learning_approval)
+        if type(approval) is not HostModelSkillVersionApproval or approval.parent_version_id != parent_version_id or approval.source_draft_id != draft_id:
+            raise ValueError("model revision requires its exact reviewed parent and draft")
+        budget = _ReadBudget(self.limits.max_capture_read_bytes)
+        parent = self._read_version(parent_version_id, parent_approval, budget, set())
+        previous = parse_version_payload(parent.payload_json)
+        sources = LearningSourceStore(self.root, limits=self.limits)
+        if type(learning) is LearningStore:
+            source = sources._capture(learning, draft_id, learning_approval, budget, publish=False)
+        elif type(learning) is LearningSourceStore:
+            source = learning._read_source(approval.learning_source_id, learning_approval, budget)
+        else:
+            raise ValueError("model revision needs authenticated original or portable learning")
+        payload = LearningSourcePayload.model_validate_json(source.payload_json)
+        draft = LearningDraftPayload.model_validate_json(payload.draft.payload_json)
+        if (source.source_id != approval.learning_source_id or payload.draft.draft_id != draft_id or
+                approval.skill_id != previous.approval.skill_id or approval.projection_sha256 == previous.approval.projection_sha256 or
+                not set(approval.allowed_splits).issubset(previous.approval.allowed_splits) or
+                not set(approval.allowed_splits).issubset(draft.allowed_splits) or
+                not set(previous.approval.excluded_lineage_groups).issubset(approval.excluded_lineage_groups) or
+                not set(draft.excluded_lineage_groups).issubset(approval.excluded_lineage_groups)):
+            raise ValueError("model revision expands authority or changes its reviewed source")
+        groups = set(previous.learning_lineage_groups) | set(draft.learning_lineage_groups) | set(approval.learning_lineage_groups)
+        body = ModelVersionPayload(approval=approval, projection=draft.projection, parent_approval=parent_approval,
+            learning_approval=learning_approval, learning_source_id=source.source_id, draft_cost=draft.cost,
+            operation_cost=payload.operation_cost, learning_lineage_groups=tuple(sorted(groups)))
+        if type(learning) is LearningStore:
+            copied = sources._capture(learning, draft_id, learning_approval, budget)
+        else:
+            copied = sources._copy_source(cast(LearningSourceStore, learning), approval.learning_source_id, learning_approval, budget)
+        if copied != source:
+            raise ValueError("model source changed after external review authentication")
+        key = content_hash(body)
+        version = SkillVersionV2(version_id="skill-version-" + key, content_sha256=key, payload_json=encode(body))
+        initial = budget.used
+        # Authenticate the complete source and parent again, then reserve that
+        # exact closure plus record reads before creating the version namespace.
+        if self._read_version(parent_version_id, parent_approval, budget, set()) != parent or sources._read_source(source.source_id, learning_approval, budget) != source:
+            raise ValueError("model revision source changed before publication")
+        closure_reads = budget.used - initial
+        self._publish_record("versions", version.version_id, version, budget,
+                             closure_reads + 2 * len(encode(version).encode("utf-8")))
+        result = self._read_version(version.version_id, approval, budget, set())
+        if not isinstance(result, SkillVersionV2):
+            raise TypeError("model revision unexpectedly changed schema")
+        return result
+
+    def read_version(self, version_id: str, *, approval: VersionApproval) -> VersionRecord:
         return self._read_version(version_id, _copy(approval), _ReadBudget(self.limits.max_capture_read_bytes), set())
 
-    def _read_version(self, version_id: str, approval: HostSkillVersionApproval,
-                      budget: _ReadBudget, seen: set[str]) -> SkillVersion:
+    def _read_version(self, version_id: str, approval: VersionApproval,
+                      budget: _ReadBudget, seen: set[str]) -> VersionRecord:
         _identity(version_id, "skill-version-")
         if version_id in seen or len(seen) >= MAX_VERSION_DEPTH:
             raise ValueError("Skill version parent cycle or depth limit")
         seen.add(version_id)
-        version = self._record("versions", version_id, SkillVersion, budget)
+        version = self._record("versions", version_id, parse_version, budget)
         if version.version_id != version_id:
             raise ValueError("Skill version filename changed")
-        payload = VersionPayload.model_validate_json(version.payload_json)
+        payload = parse_version_payload(version.payload_json)
         if payload.approval != approval:
             raise ValueError("Skill version differs from external original approval")
         groups = set(approval.learning_lineage_groups)
+        if isinstance(payload, ModelVersionPayload):
+            parent = self._read_version(payload.approval.parent_version_id, payload.parent_approval, budget, seen)
+            old = parse_version_payload(parent.payload_json)
+            source = LearningSourceStore(self.root, limits=self.limits)._read_source(payload.learning_source_id, payload.learning_approval, budget)
+            original = LearningSourcePayload.model_validate_json(source.payload_json)
+            draft = LearningDraftPayload.model_validate_json(original.draft.payload_json)
+            if (original.draft.draft_id != payload.approval.source_draft_id or payload.projection != draft.projection or
+                    payload.draft_cost != draft.cost or payload.operation_cost != original.operation_cost or
+                    payload.approval.skill_id != old.approval.skill_id or
+                    payload.approval.projection_sha256 == old.approval.projection_sha256 or
+                    not set(payload.approval.allowed_splits).issubset(old.approval.allowed_splits) or
+                    not set(payload.approval.allowed_splits).issubset(draft.allowed_splits) or
+                    not set(old.approval.excluded_lineage_groups).issubset(payload.approval.excluded_lineage_groups) or
+                    not set(draft.excluded_lineage_groups).issubset(payload.approval.excluded_lineage_groups)):
+                raise ValueError("saved model Skill expands authority or changes reviewed original")
+            groups |= set(old.learning_lineage_groups) | set(draft.learning_lineage_groups)
+            if tuple(sorted(groups)) != payload.learning_lineage_groups:
+                raise ValueError("model Skill learning lineage closure differs")
+            seen.remove(version_id)
+            return version
+        approval = payload.approval
         if approval.parent_version_id is not None:
             if payload.parent_approval is None or payload.candidate_approval is None or payload.feedback_approval is None:
                 raise ValueError("Skill revision approvals missing")
@@ -325,29 +474,144 @@ class SkillValidationStore:
         seen.remove(version_id)
         return version
 
-    def _validate_spec(self, spec: PlanSpec, approval: HostValidationPlanApproval,
-                       budget: _ReadBudget) -> tuple[set[str], list[EvaluationManifestV5]]:
+    def export_version_sources(self, version_id: str, *, approval: VersionApproval) -> dict[str, bytes]:
+        """Authenticate and return only this version's complete immutable closure."""
+        return self._export_version_sources(version_id, _copy(approval), _ReadBudget(self.limits.max_capture_read_bytes))
+
+    def export_version_bundle(self, version_id: str, *, approval: VersionApproval) -> tuple[dict[str, bytes], tuple[str, ...]]:
+        return self._export_version_bundle(version_id, _copy(approval), _ReadBudget(self.limits.max_capture_read_bytes))
+
+    def _export_version_bundle(self, version_id: str, approval: VersionApproval,
+                               budget: _ReadBudget) -> tuple[dict[str, bytes], tuple[str, ...]]:
+        directories: set[str] = set()
+        files = self._export_version_sources(version_id, approval, budget, directories=directories)
+        directories.update(parent.as_posix() for name in files for parent in Path(name).parents if parent.as_posix() != ".")
+        return files, tuple(sorted(directories))
+
+    def _export_version_sources(self, version_id: str, approval: VersionApproval, budget: _ReadBudget,
+                                *, directories: set[str] | None = None) -> dict[str, bytes]:
+        initial = budget.used
+        original = self._read_version(version_id, approval, budget, set())
+        semantic_reads = budget.used - initial
+        files: dict[str, bytes] = {}
+        visited: set[str] = set()
+        captured: list[_ClosedTree] = []
+
+        def add(relative: str, raw: bytes) -> None:
+            if relative in files and files[relative] != raw:
+                raise ValueError("version source export has conflicting originals")
+            files[relative] = raw
+            if len(files) > self.limits.max_entries or sum(map(len, files.values())) > self.limits.max_total_bytes:
+                raise ValueError("version source export exceeds closure capacity")
+
+        def collect(identifier: str, external: VersionApproval) -> None:
+            if identifier in visited:
+                return
+            visited.add(identifier)
+            path = self.root / "versions" / (identifier + ".json")
+            record = _ClosedTree(self.root, self.limits, budget)
+            raw = record.capture_file(path.relative_to(self.root).as_posix())
+            captured.append(record)
+            version = parse_version(raw.decode("utf-8"))
+            if (encode(version).encode("utf-8") != raw or version.version_id != identifier or
+                    parse_version_payload(version.payload_json).approval != external):
+                raise ValueError("version export record differs from its authenticated link")
+            add(path.relative_to(self.root).as_posix(), raw)
+            body = parse_version_payload(version.payload_json)
+            source = ("source-learning/" + body.learning_source_id if isinstance(body, ModelVersionPayload)
+                      else None if body.approval.source_candidate_id is None else "source-feedback/" + body.approval.source_candidate_id)
+            if source is not None:
+                tree = _ClosedTree(self.root / source, self.limits, budget)
+                tree.scan(((".", None),))
+                captured.append(tree)
+                if directories is not None:
+                    directories.add(source)
+                    directories.update(source + "/" + path for path in tree.directories)
+                for relative, raw in tree.raw.items():
+                    add(source + "/" + relative, raw)
+            if body.approval.parent_version_id is not None and body.parent_approval is not None:
+                collect(body.approval.parent_version_id, body.parent_approval)
+
+        collect(version_id, approval)
+        budget.require_remaining(semantic_reads + sum(tree.byte_count for tree in captured))
+        if self._read_version(version_id, approval, budget, set()) != original:
+            raise ValueError("version source closure changed during export")
+        # Close the exact captured bytes after the final semantic read. A source
+        # temporarily changed during capture and restored before that read must
+        # never become the authenticated copy supplied to a new task.
+        for tree in captured:
+            tree.finish()
+        return dict(sorted(files.items()))
+
+    def export_version_source_directories(self, version_id: str, *, approval: VersionApproval) -> tuple[str, ...]:
+        """Keep empty original directories in addition to exported file bytes."""
+        return self._export_version_source_directories(version_id, _copy(approval), _ReadBudget(self.limits.max_capture_read_bytes))
+
+    def _export_version_source_directories(self, version_id: str, approval: VersionApproval,
+                                          budget: _ReadBudget) -> tuple[str, ...]:
+        current = parse_version_payload(self._read_version(version_id, approval, budget, set()).payload_json)
+        directories: set[str] = {"versions"}
+        while True:
+            source = ("source-learning/" + current.learning_source_id if isinstance(current, ModelVersionPayload)
+                      else None if current.approval.source_candidate_id is None else "source-feedback/" + current.approval.source_candidate_id)
+            if source is not None:
+                tree = _ClosedTree(self.root / source, self.limits, budget)
+                tree.scan(((".", None),))
+                directories.add(source)
+                directories.add(source.split("/")[0])
+                directories.update(source + "/" + path for path in tree.directories)
+                tree.finish()
+            if current.approval.parent_version_id is None or current.parent_approval is None:
+                break
+            current = parse_version_payload(self._read_version(current.approval.parent_version_id, current.parent_approval, budget, set()).payload_json)
+        return tuple(sorted(directories))
+
+    def version_learning_costs(self, version_id: str, *, approval: VersionApproval) -> dict[str, Any]:
+        return self._version_learning_costs(version_id, _copy(approval), _ReadBudget(self.limits.max_capture_read_bytes))
+
+    def _version_learning_costs(self, version_id: str, approval: VersionApproval,
+                                budget: _ReadBudget) -> dict[str, Any]:
+        files, _directories = self._export_version_bundle(version_id, approval, budget)
+        return _learning_costs_from_bundle(files, version_id, approval)
+
+    def _validate_spec(self, spec: PlanSpec | PlanSpecV2, approval: ValidationApproval,
+                       budget: _ReadBudget) -> tuple[set[str], list[Any]]:
+        if spec.schema_version != approval.schema_version:
+            raise ValueError("Skill plan and external approval mix incompatible generations")
+        if spec.policy_json is not None:
+            from .skill_transition_contracts import parse_synthetic_policy
+            if parse_synthetic_policy(spec.policy_json).schema_version != spec.schema_version:
+                raise ValueError("Skill policy changes the plan's cost-accounting generation")
         if content_hash(spec) != approval.spec_sha256:
             raise ValueError("Skill validation spec differs from external approval")
         old = self._read_version(spec.old_version_id, approval.old_version_approval, budget, set())
         new = self._read_version(spec.new_version_id, approval.new_version_approval, budget, set())
-        new_payload = VersionPayload.model_validate_json(new.payload_json)
+        new_payload = parse_version_payload(new.payload_json)
+        if new_payload.schema_version != spec.schema_version:
+            raise ValueError("Skill plan does not match its candidate generation")
         if new_payload.approval.parent_version_id != old.version_id:
             raise ValueError("Skill validation must compare a direct parent and revision")
         groups = set(old.contents()["learning_lineage_groups"]) | set(new_payload.learning_lineage_groups)
-        manifests: list[EvaluationManifestV5] = []
+        manifests: list[Any] = []
         lineages, logs, tasks, works, runs = set(), set(), set(), set(), set()
         for pair in spec.pairs:
             for role in ("old", "new"):
-                manifest = _single(getattr(pair, role + "_manifest_json"))
+                manifest = _single(getattr(pair, role + "_manifest_json"), schema=6 if spec.schema_version == 2 else 5)
                 task, cell = manifest.tasks[0], manifest.runs[0]
                 version_approval = getattr(approval, role + "_version_approval")
                 if (task.lineage_group_id in groups or task.lineage_group_id in version_approval.excluded_lineage_groups or
                         "candidate_validation" not in version_approval.allowed_splits or
                         manifest.configuration.knowledge_profile["scope"]["split"] != "candidate_validation"):
                     raise ValueError("Skill validation is not independent permitted candidate-validation material")
-                files = manifest.configuration.shared_static_skill_profile["files"]
-                target = [file for file in files if file["entry_id"] == getattr(pair, role + "_entry_id")]
+                config = manifest.configuration.model_dump(mode="json")
+                if spec.schema_version == 2:
+                    files = config["shared_version_skill_profile"]["resources"]
+                    target = [file for file in files if file["version_id"] == getattr(pair, role + "_entry_id")]
+                    if getattr(pair, role + "_entry_id") != (spec.old_version_id if role == "old" else spec.new_version_id):
+                        raise ValueError("model validation role names another frozen version")
+                else:
+                    files = config["shared_static_skill_profile"]["files"]
+                    target = [file for file in files if file["entry_id"] == getattr(pair, role + "_entry_id")]
                 if len(target) != 1 or target[0]["projection_sha256"] != version_approval.projection_sha256:
                     raise ValueError("Skill validation role target is not its complete approved version")
                 if cell.run_id in runs or cell.work_path in works:
@@ -371,8 +635,8 @@ class SkillValidationStore:
             raise ValueError("Skill validation cases must share the same knowledge, model, tools and budgets")
         return groups, manifests
 
-    def freeze_plan(self, spec: PlanSpec, evidence_root: Path, *,
-                    approval: HostValidationPlanApproval) -> SkillValidationPlan:
+    def freeze_plan(self, spec: PlanSpec | PlanSpecV2, evidence_root: Path, *,
+                    approval: ValidationApproval) -> ValidationPlanRecord:
         spec, approval = _copy(spec), _copy(approval)
         budget = _ReadBudget(self.limits.max_capture_read_bytes)
         initial = budget.used
@@ -397,27 +661,29 @@ class SkillValidationStore:
                         ("task_id", "source_snapshot_sha256", "crash_sha256")) or
                     digest((source / task.task_path / "task.json").read_bytes()) != task.task_sha256):
                 raise ValueError("Skill prospective task differs from its exact selection")
-        payload = PlanPayload(approval=approval, spec=spec,
+        payload_type: Any = PlanPayloadV2 if spec.schema_version == 2 else PlanPayload
+        payload = payload_type(approval=approval, spec=spec,
             frozen_at=datetime.now(UTC).isoformat(), evidence_root=str(source),
             evidence_root_identity=_directory_anchor(source.lstat()), learning_lineage_groups=tuple(sorted(groups)),
             observed_absent_work_paths=works)
         key = content_hash(payload)
-        plan = SkillValidationPlan(plan_id="skill-plan-" + key, content_sha256=key, payload_json=encode(payload))
+        record_type: Any = SkillValidationPlanV2 if spec.schema_version == 2 else SkillValidationPlan
+        plan = record_type(plan_id="skill-plan-" + key, content_sha256=key, payload_json=encode(payload))
         if any(_exists(source / path) for path in works) or _directory_anchor(source.lstat()) != source_identity:
             raise ValueError("Skill role run appeared before plan publication")
         self._publish_record("plans", plan.plan_id, plan, budget,
                              2 * len(encode(plan).encode("utf-8")) + version_reads)
         return self._read_plan(plan.plan_id, approval, budget)
 
-    def read_plan(self, plan_id: str, *, approval: HostValidationPlanApproval) -> SkillValidationPlan:
+    def read_plan(self, plan_id: str, *, approval: ValidationApproval) -> ValidationPlanRecord:
         return self._read_plan(plan_id, _copy(approval), _ReadBudget(self.limits.max_capture_read_bytes))
 
-    def _read_plan(self, plan_id: str, approval: HostValidationPlanApproval, budget: _ReadBudget) -> SkillValidationPlan:
+    def _read_plan(self, plan_id: str, approval: ValidationApproval, budget: _ReadBudget) -> ValidationPlanRecord:
         _identity(plan_id, "skill-plan-")
-        plan = self._record("plans", plan_id, SkillValidationPlan, budget)
+        plan = self._record("plans", plan_id, parse_plan, budget)
         if plan.plan_id != plan_id:
             raise ValueError("Skill validation plan filename differs")
-        payload = PlanPayload.model_validate_json(plan.payload_json)
+        payload = parse_plan_payload(plan.payload_json)
         if payload.approval != approval:
             raise ValueError("Skill validation plan differs from external original approval")
         _timestamp(payload.frozen_at)
@@ -427,32 +693,40 @@ class SkillValidationStore:
             raise ValueError("Skill plan scope or absent-run observation changed")
         return plan
 
-    def _receipt_facts(self, plan: SkillValidationPlan, case_id: str, role: Literal["old", "new"],
-                       source: Path) -> tuple[EvaluationManifestV5, dict[str, Any],
+    def _receipt_facts(self, plan: ValidationPlanRecord, case_id: str, role: Literal["old", "new"],
+                       source: Path) -> tuple[Any, dict[str, Any],
                                               Literal["followed", "not_followed", "unknown"], tuple[str, ...]]:
-        payload = PlanPayload.model_validate_json(plan.payload_json)
+        payload = parse_plan_payload(plan.payload_json)
         pair = next((item for item in payload.spec.pairs if item.case_id == case_id), None)
         if pair is None or role not in ("old", "new"):
             raise ValueError("Skill validation role is not in the frozen plan")
-        manifest = _single(getattr(pair, role + "_manifest_json"))
+        manifest = _single(getattr(pair, role + "_manifest_json"), schema=6 if payload.schema_version == 2 else 5)
         work = source / (manifest.runs[0].work_path or "")
         session = _load(work / "session.json")
         if (_timestamp(session["started_at"]) < _timestamp(payload.frozen_at) or
-                type(session.get("schema_version")) is not int or session["schema_version"] != 13 or
+                type(session.get("schema_version")) is not int or session["schema_version"] != (14 if payload.schema_version == 2 else 13) or
                 session["knowledge_profile"]["approval"]["scope"]["split"] != "candidate_validation"):
             raise ValueError("Skill validation run precedes its plan or changes original scope")
+        if payload.schema_version == 2:
+            binding = session["version_skill_profile"]["approval"]
+            if (binding["validation_spec_sha256"] != payload.approval.spec_sha256 or
+                    binding["validation_case_id"] != case_id or binding["validation_role"] != role or
+                    binding["validation_plan_json"] != encode(plan) or
+                    binding["validation_plan_approval"] != payload.approval.model_dump(mode="json")):
+                raise ValueError("model Skill role uses another prospective validation approval")
         result = _aggregate(manifest, source)
         row = result["rows"][0]
         if row["terminal_status"] not in {"finished", "failed", "canceled"}:
             raise ValueError("Skill validation requires an actual stopped role run")
         reasons: list[str] = []
-        facts = row.get("static_skill_facts")
+        facts = row.get("version_skill_facts" if payload.schema_version == 2 else "static_skill_facts")
         status: Literal["followed", "not_followed", "unknown"] = "unknown"
         if isinstance(facts, dict):
             target_entry = getattr(pair, role + "_entry_id")
             other_entry = pair.new_entry_id if role == "old" else pair.old_entry_id
-            target = next((item for item in facts["resources"] if item["entry_id"] == target_entry), None)
-            other = next((item for item in facts["resources"] if item["entry_id"] == other_entry), None)
+            resource_key = "version_id" if payload.schema_version == 2 else "entry_id"
+            target = next((item for item in facts["resources"] if item[resource_key] == target_entry), None)
+            other = next((item for item in facts["resources"] if item[resource_key] == other_entry), None)
             if target is None:
                 raise ValueError("Skill validation receipt has no approved role resource")
             if not target["actions"]:
@@ -464,8 +738,15 @@ class SkillValidationStore:
             # Plain retrieval can expose the other procedure through the same
             # common tools; it must not turn into a hidden qualifying exception.
             knowledge = row.get("knowledge_facts")
-            if isinstance(knowledge, dict) and _cross_role_retrieved(knowledge, other_entry):
-                reasons.append("other_role_procedure_retrieved")
+            if isinstance(knowledge, dict):
+                other_entries = [other_entry]
+                if payload.schema_version == 2:
+                    other_approval = payload.approval.new_version_approval if role == "old" else payload.approval.old_version_approval
+                    snapshot = KnowledgeStore(work / "knowledge").read_snapshot(session["knowledge_profile"]["approval"]["snapshot_sha256"])
+                    other_entries = [ref.entry_id for ref in SnapshotPayload.model_validate_json(snapshot.payload_json).entries
+                                     if ref.projection_sha256 == other_approval.projection_sha256]
+                if any(_cross_role_retrieved(knowledge, entry) for entry in other_entries):
+                    reasons.append("other_role_procedure_retrieved")
             status = "not_followed" if reasons else "followed"
             if any(item["state"] != "completed" for item in facts["actions"]):
                 reasons.append("procedure_action_result_unknown")
@@ -476,13 +757,13 @@ class SkillValidationStore:
         return manifest, result, status, tuple(reasons)
 
     def record_validation(self, plan_id: str, case_id: str, role: Literal["old", "new"], evidence_root: Path, *,
-                          approval: HostValidationPlanApproval) -> SkillValidationReceipt:
+                          approval: ValidationApproval) -> ValidationReceiptRecord:
         approval = _copy(approval)
         budget = _ReadBudget(self.limits.max_capture_read_bytes)
         initial = budget.used
         plan = self._read_plan(plan_id, approval, budget)
         plan_reads = budget.used - initial
-        plan_payload = PlanPayload.model_validate_json(plan.payload_json)
+        plan_payload = parse_plan_payload(plan.payload_json)
         source = local_evidence_path(evidence_root)
         _guard(source)
         if str(source) != plan_payload.evidence_root or _directory_anchor(source.lstat()) != plan_payload.evidence_root_identity:
@@ -490,7 +771,7 @@ class SkillValidationStore:
         pair = next((item for item in plan_payload.spec.pairs if item.case_id == case_id), None)
         if pair is None or role not in ("old", "new"):
             raise ValueError("Skill validation role is absent from frozen plan")
-        manifest = _single(getattr(pair, role + "_manifest_json"))
+        manifest = _single(getattr(pair, role + "_manifest_json"), schema=6 if plan_payload.schema_version == 2 else 5)
         work = manifest.runs[0].work_path or ""
         if any(_overlap((source / relative).resolve(), self.root.resolve()) for relative in (manifest.tasks[0].task_path, work)):
             raise ValueError("Skill receipt store overlaps its original inputs")
@@ -499,14 +780,18 @@ class SkillValidationStore:
         manifest, aggregate, use_status, reasons = self._receipt_facts(plan, case_id, role, source)
         tree.finish()
         version = approval.old_version_approval if role == "old" else approval.new_version_approval
-        payload = ReceiptPayload(plan_id=plan_id, approval_sha256=content_hash(approval), case_id=case_id, role=role,
-            version_id=plan_payload.spec.old_version_id if role == "old" else plan_payload.spec.new_version_id,
+        version_id = plan_payload.spec.old_version_id if role == "old" else plan_payload.spec.new_version_id
+        skill_digest = version_id.removeprefix("skill-version-") if plan_payload.schema_version == 2 else version.projection_sha256
+        payload_type: Any = ReceiptPayloadV2 if plan_payload.schema_version == 2 else ReceiptPayload
+        payload = payload_type(plan_id=plan_id, approval_sha256=content_hash(approval), case_id=case_id, role=role,
+            version_id=version_id,
             manifest_json=canonical(manifest.model_dump(mode="json")), aggregate_json=canonical(aggregate),
             directories=tuple(sorted(tree.directories)), files=tuple(tree.files[key] for key in sorted(tree.files)),
-            target_projection_sha256=version.projection_sha256, target_skill_id="dfx-" + version.projection_sha256[:56],
+            target_projection_sha256=version.projection_sha256, target_skill_id="dfx-" + skill_digest[:56],
             use_status=use_status, use_reasons=reasons)
         key = content_hash(payload)
-        receipt = SkillValidationReceipt(receipt_id="skill-receipt-" + key, content_sha256=key, payload_json=encode(payload))
+        record_type: Any = SkillValidationReceiptV2 if plan_payload.schema_version == 2 else SkillValidationReceipt
+        receipt = record_type(receipt_id="skill-receipt-" + key, content_sha256=key, payload_json=encode(payload))
         raw = encode(receipt).encode("utf-8")
         if len(raw) + tree.byte_count > self.limits.max_total_bytes or len(raw) > self.limits.max_file_bytes:
             raise ValueError("Skill receipt closure exceeds publication capacity")
@@ -526,26 +811,26 @@ class SkillValidationStore:
         os.rename(pending, destination)
         return self._read_receipt(receipt.receipt_id, approval, budget)
 
-    def read_receipt(self, receipt_id: str, *, approval: HostValidationPlanApproval) -> SkillValidationReceipt:
+    def read_receipt(self, receipt_id: str, *, approval: ValidationApproval) -> ValidationReceiptRecord:
         return self._read_receipt(receipt_id, _copy(approval), _ReadBudget(self.limits.max_capture_read_bytes))
 
-    def _read_receipt(self, receipt_id: str, approval: HostValidationPlanApproval,
-                      budget: _ReadBudget) -> SkillValidationReceipt:
+    def _read_receipt(self, receipt_id: str, approval: ValidationApproval,
+                      budget: _ReadBudget) -> ValidationReceiptRecord:
         _identity(receipt_id, "skill-receipt-")
         return self._read_receipt_directory(self._folder("receipts") / receipt_id, receipt_id, approval, budget)
 
-    def _read_receipt_directory(self, directory: Path, receipt_id: str, approval: HostValidationPlanApproval,
-                                budget: _ReadBudget) -> SkillValidationReceipt:
+    def _read_receipt_directory(self, directory: Path, receipt_id: str, approval: ValidationApproval,
+                                budget: _ReadBudget) -> ValidationReceiptRecord:
         _guard(directory)
         if {item.name for item in directory.iterdir()} != {"receipt.json", "payload"}:
             raise ValueError("Skill receipt has extra or missing originals")
         metadata = _ClosedTree(directory, self.limits, budget)
         metadata._parents(directory)
         raw, descriptor = metadata._read(directory / "receipt.json")
-        receipt = SkillValidationReceipt.model_validate_json(encode(_object(raw.decode("utf-8"))))
+        receipt = parse_receipt(encode(_object(raw.decode("utf-8"))))
         if receipt.receipt_id != receipt_id or encode(receipt).encode("utf-8") != raw:
             raise ValueError("Skill receipt canonical bytes or filename changed")
-        payload = ReceiptPayload.model_validate_json(receipt.payload_json)
+        payload = parse_receipt_payload(receipt.payload_json)
         if payload.approval_sha256 != content_hash(approval):
             raise ValueError("Skill receipt differs from external original validation approval")
         plan = self._read_plan(payload.plan_id, approval, budget)
@@ -560,7 +845,7 @@ class SkillValidationStore:
                 status != payload.use_status or reasons != payload.use_reasons):
             raise ValueError("Skill receipt disagrees with independently recomputed full facts")
         version = approval.old_version_approval if payload.role == "old" else approval.new_version_approval
-        planned = PlanPayload.model_validate_json(plan.payload_json).spec
+        planned = parse_plan_payload(plan.payload_json).spec
         if (payload.version_id != (planned.old_version_id if payload.role == "old" else planned.new_version_id) or
                 payload.target_projection_sha256 != version.projection_sha256):
             raise ValueError("Skill receipt changes its intended version")

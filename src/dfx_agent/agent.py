@@ -514,7 +514,8 @@ def _static_checkpoint_admission(workspace: CandidateWorkspace, service: StaticS
 
 
 def _resume_session(task: Path, work: Path, run_id: str,
-                    knowledge_approval: TaskKnowledgeBinding | None = None) -> dict[str, Any]:
+                    knowledge_approval: TaskKnowledgeBinding | None = None,
+                    version_skill_approval: Any = None) -> dict[str, Any]:
     absolute = work.absolute()
     for path in reversed((absolute, *absolute.parents)):
         info = path.lstat()
@@ -528,15 +529,15 @@ def _resume_session(task: Path, work: Path, run_id: str,
     session = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(session, dict) or session.get("run_id") != run_id:
         raise ValueError("resume session identity differs")
-    if session.get("schema_version") not in (10, 11, 12, 13):
+    if session.get("schema_version") not in (10, 11, 12, 13, 14):
         raise ValueError("historical sessions are read-only")
-    if session["schema_version"] in (11, 12, 13):
+    if session["schema_version"] in (11, 12, 13, 14):
         profile = normalize_run_knowledge_profile(session["knowledge_profile"])
         if knowledge_approval is None or knowledge_approval.model_dump(mode="json") != profile["approval"]:
             raise ValueError("knowledge resume requires the original external host approval")
     elif "knowledge_profile" in session or knowledge_approval is not None:
         raise ValueError("a session without knowledge cannot acquire approval")
-    if session["schema_version"] in (12, 13):
+    if session["schema_version"] in (12, 13, 14):
         normalize_applicability_profile(session["applicability_profile"])
     elif "applicability_profile" in session:
         raise ValueError("historical session cannot acquire applicability configuration")
@@ -544,6 +545,18 @@ def _resume_session(task: Path, work: Path, run_id: str,
         normalize_static_skill_profile(session["static_skill_profile"])
     elif "static_skill_profile" in session or "static_skill_facts" in session:
         raise ValueError("historical session cannot acquire static skill configuration")
+    if session["schema_version"] == 14:
+        from .version_skill_contracts import (
+            TaskVersionSkillBinding,
+            normalize_version_skill_profile,
+        )
+
+        profile = normalize_version_skill_profile(session["version_skill_profile"])
+        if (type(version_skill_approval) is not TaskVersionSkillBinding or
+                version_skill_approval.model_dump(mode="json") != profile["approval"]):
+            raise ValueError("version resume requires the complete original external task approval")
+    elif version_skill_approval is not None or any(key in session for key in ("version_skill_profile", "version_skill_facts")):
+        raise ValueError("historical session cannot acquire version Skill configuration")
     saved = validate_session_provenance(session)
     if saved is None:
         raise ValueError("legacy execution provenance is unknown; session is read-only")
@@ -552,10 +565,11 @@ def _resume_session(task: Path, work: Path, run_id: str,
 
 
 def preflight_resume(task: Path, work: Path, run_id: str, *,
-                     knowledge_approval: TaskKnowledgeBinding | None = None) -> dict[str, Any]:
+                     knowledge_approval: TaskKnowledgeBinding | None = None,
+                     version_skill_approval: Any = None) -> dict[str, Any]:
     """Reject incompatible saved execution facts before any writable run resource."""
     try:
-        return _resume_session(task, work, run_id, knowledge_approval)
+        return _resume_session(task, work, run_id, knowledge_approval, version_skill_approval)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise ResumeAdmissionRejected(
             "resume execution provenance or session identity differs; legacy sessions are read-only") from exc
@@ -575,6 +589,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     knowledge_approval: TaskKnowledgeBinding | None = None,
                     applicability_policy: ApplicabilityPolicy | None = None,
                     static_skill_policy: StaticSkillPolicy | None = None,
+                    version_skills: Any = None,
+                    version_skill_approval: Any = None,
+                    version_skills_enabled: bool | None = None,
                     compaction_responses: list[AIMessage] | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
@@ -595,7 +612,15 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
             raise ValueError("static skills require explicit applicability configuration")
     if (resume and knowledge is not None) or (not resume and knowledge_approval is not None):
         raise ValueError("knowledge input is startup-only; resume accepts the original approval")
-    session = preflight_resume(task, work, run_id, knowledge_approval=knowledge_approval) if resume else {}
+    if (resume and version_skills is not None) or (not resume and version_skill_approval is not None):
+        raise ValueError("version source is startup-only; resume needs original external approval")
+    if (version_skills is not None or version_skill_approval is not None) and (
+            static_skill_policy is not None or applicability_profile is None):
+        raise ValueError("version Skills need explicit applicability configuration and their own resource protocol")
+    if version_skills is not None and version_skills_enabled is not None and version_skills.enabled != version_skills_enabled:
+        raise ValueError("version Skill injection switch differs from explicit startup input")
+    session = preflight_resume(task, work, run_id, knowledge_approval=knowledge_approval,
+                              version_skill_approval=version_skill_approval) if resume else {}
     execution_provenance = session["execution_provenance"] if resume else capture_execution_provenance()
     try:
         task_info = verify_task(task)
@@ -632,6 +657,18 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     static_profile["entry_ids"] != list(static_skill_policy.entry_ids)):
                 raise ValueError("resume static skill selection differs")
         static_service = read_run_static_skills(static_owner, static_profile)
+        from .version_skills import prepare_run_version_skills, read_run_version_skills
+
+        version_profile = (session.get("version_skill_profile") if resume else
+            prepare_run_version_skills(workspace, task, version_skills, ledger=ledger,
+                                      max_calls=max_calls, max_tool_calls=max_tool_calls))
+        if version_profile is not None:
+            if knowledge_store is None or static_profile is not None:
+                raise ValueError("version Skills need common approved knowledge and a distinct source protocol")
+            if version_skills_enabled is not None and version_profile["enabled"] != version_skills_enabled:
+                raise ValueError("version Skill injection switch differs from explicit run configuration")
+            static_service = read_run_version_skills(workspace, task, version_profile, ledger=ledger)
+        effective_skill_profile = version_profile if version_profile is not None else static_profile
         if resume and static_service is not None:
             _static_checkpoint_admission(workspace, static_service)
         if resume and knowledge_profile is not None:
@@ -656,13 +693,13 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                   static_skill_service=static_service))
         audit_stored_applicability(workspace, task, ledger, knowledge_profile, applicability_profile)
         if resume:
-            audit_stored_static_skills(workspace, task, ledger, knowledge_profile, static_profile)
+            audit_stored_static_skills(workspace, task, ledger, knowledge_profile, effective_skill_profile)
         if resume and applicability_profile is not None:
             model_path, action_path = workspace.root / "model-calls.sqlite", workspace.root / "tool-actions.sqlite"
             if model_path.exists() and action_path.exists():
                 audit_run_applicability(workspace, task, ledger, knowledge_profile, applicability_profile,
                     ModelCallStore(model_path, read_only=True), ToolActionStore(action_path, read_only=True))
-                audit_run_static_skills(workspace, task, ledger, knowledge_profile, static_profile,
+                audit_run_static_skills(workspace, task, ledger, knowledge_profile, effective_skill_profile,
                     ModelCallStore(model_path, read_only=True), ToolActionStore(action_path, read_only=True))
             elif (workspace.root / "solver-inputs").exists() and any((workspace.root / "solver-inputs").iterdir()):
                 raise ValueError("applicability restoration lacks accounted ledgers")
@@ -671,7 +708,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                        knowledge_store=knowledge_store, applicability_policy=applicability_policy,
                        solver_visibility=solver_visibility, static_skill_service=static_service)
         system_prompt = build_system_prompt(policy_features)
-        session_identity = {"schema_version": (13 if static_profile is not None else
+        session_identity = {"schema_version": (14 if version_profile is not None else 13 if static_profile is not None else
                             12 if applicability_profile is not None else (10 if knowledge_profile is None else 11)),
                             "run_id": run_id, "started_at": started_at.isoformat(),
                             "execution_provenance": execution_provenance,
@@ -697,6 +734,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
             session_identity["applicability_profile"] = applicability_profile
         if static_profile is not None:
             session_identity["static_skill_profile"] = static_profile
+        if version_profile is not None:
+            session_identity["version_skill_profile"] = version_profile
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error, ModelCallConflict) as exc:
         if resume:
             raise ResumeAdmissionRejected("resume saved facts or configuration differ") from exc
@@ -832,7 +871,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                   task_directory=task)
     status = completion["suggested_status"]
     report: dict[str, Any] = {
-        "schema_version": (10 if static_profile is not None else
+        "schema_version": (11 if version_profile is not None else 10 if static_profile is not None else
                            9 if applicability_profile is not None else (7 if knowledge_profile is None else 8)),
         "task_id": workspace.task_id, "run_id": run_id,
         "execution_provenance": execution_provenance,
@@ -867,6 +906,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     if static_profile is not None:
         report["static_skill_profile"] = static_profile
         report["static_skill_facts"] = completion["static_skill_facts"]
+    if version_profile is not None:
+        report["version_skill_profile"] = version_profile
+        report["version_skill_facts"] = completion["version_skill_facts"]
     _atomic_json(workspace.root / "agent-report.json", report)
     return report
 

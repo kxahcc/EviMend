@@ -48,6 +48,26 @@ _AUTHORITY = {"derivation_authority": "host_curated",
 _LINK_KEYS = ("action_id", "model_call_id", "tool_name", "state", "authorization", "receipt_sha256")
 
 
+def _version(profile: dict[str, Any]) -> bool:
+    return profile.get("source_type") == "approved_versions"
+
+
+def _normalize(profile: dict[str, Any]) -> dict[str, Any]:
+    if _version(profile):
+        from .version_skill_contracts import normalize_version_skill_profile
+
+        return normalize_version_skill_profile(profile)
+    return normalize_static_skill_profile(profile)
+
+
+def _section(profile: dict[str, Any]) -> str | None:
+    if _version(profile):
+        from .version_skills import version_skill_section
+
+        return version_skill_section(profile)
+    return static_skill_section(profile)
+
+
 def static_skill_result(service: StaticSkillService, skill_id: str) -> dict[str, Any]:
     """Return exactly one selected complete original without adding permissions."""
     body = service.body(skill_id)
@@ -56,11 +76,16 @@ def static_skill_result(service: StaticSkillService, skill_id: str) -> dict[str,
     raw = body.encode("utf-8")
     if digest(raw) != file["sha256"] or len(raw) != file["bytes"]:
         raise StaticSkillError()
+    authority = ({"derivation_authority": file["derivation_authority"],
+                  "epistemic_status": "historical_guidance_not_current_evidence",
+                  "application_verification": "not_run", "version_id": file["version_id"],
+                  "purpose": profile["approval"]["purpose"], "source_costs": file["source_costs"]}
+                 if _version(profile) else _AUTHORITY)
     return {"skill_id": skill_id,
             "snapshot_sha256": profile["snapshot_sha256"], "entry_id": file["entry_id"],
             "content_sha256": file["content_sha256"], "projection_sha256": file["projection_sha256"],
             "body_sha256": file["sha256"], "body_bytes": file["bytes"], "path": file["path"],
-            "metadata": file["metadata"], "body": body, **_AUTHORITY}
+            "metadata": file["metadata"], "body": body, **authority}
 
 
 def static_skill_tools(service: StaticSkillService) -> list[Any]:
@@ -80,12 +105,17 @@ def static_skill_tools(service: StaticSkillService) -> list[Any]:
         except (ValueError, OSError, TypeError, KeyError, UnicodeError, RecursionError):
             return "rejected: static_skill_source_invalid"
 
+    if _version(service.profile):
+        read_skill.description = ("Read one complete immutable Skill version from the explicitly approved frozen pool. "
+            "Use its catalog name: dfx- plus the first 56 characters of version content_sha256. "
+            "The complete result retains original host_curated/model_inference authority, source costs and purpose. "
+            "It is historical guidance, not current evidence or application verification; it grants no extra permissions.")
     return [read_skill]
 
 
 def _check_catalog(profile: dict[str, Any], messages: list[BaseMessage], section: str | None) -> None:
     """Authenticate the native appended block, including absence in off mode."""
-    if type(messages) is not list or section != static_skill_section(profile):
+    if type(messages) is not list or section != _section(profile):
         raise StaticSkillError()
     systems = [message for message in messages if type(message) is SystemMessage]
     matches = []
@@ -114,8 +144,9 @@ def validate_static_skill_messages(service: StaticSkillService, messages: list[B
 
 def validate_static_skill_report(profile: dict[str, Any], facts: dict[str, Any]) -> None:
     """Exact final writer representation of both static report locations."""
-    fragment = {"static_skill_profile": profile, "static_skill_facts": facts,
-                "completion": {"static_skill_profile": profile, "static_skill_facts": facts}}
+    prefix = "version_skill" if _version(profile) else "static_skill"
+    fragment = {prefix + "_profile": profile, prefix + "_facts": facts,
+                "completion": {prefix + "_profile": profile, prefix + "_facts": facts}}
     if len(json.dumps(fragment, ensure_ascii=True, indent=2).encode("utf-8")) > MAX_STATIC_SKILL_REPORT_BYTES:
         raise ValueError("static skill complete report fragments exceed capacity")
 
@@ -123,11 +154,15 @@ def validate_static_skill_report(profile: dict[str, Any], facts: dict[str, Any])
 def preflight_static_skill_report(profile: dict[str, Any], expected_section: str | None,
                                  max_calls: int, max_tool_calls: int) -> None:
     """Reserve frozen originals' ASCII projection and bounded links before writes."""
-    profile = normalize_static_skill_profile(profile)
+    profile = _normalize(profile)
     if (type(max_calls) is not int or type(max_tool_calls) is not int or
-            min(max_calls, max_tool_calls) < 1 or expected_section != static_skill_section(profile)):
+            min(max_calls, max_tool_calls) < 1 or expected_section != _section(profile)):
         raise StaticSkillError()
-    full_catalog = static_skill_section({**profile, "enabled": True})
+    enabled_profile = {**profile, "enabled": True}
+    if _version(profile):
+        enabled_profile["profile_sha256"] = sha256(canonical({key: value for key, value in enabled_profile.items()
+                                                            if key != "profile_sha256"}))
+    full_catalog = _section(enabled_profile)
     if full_catalog is None or full_catalog.count(STATIC_SKILL_MARKER) != 1:
         raise StaticSkillError()
     # Body bytes live only in the originals and durable receipts. The native
@@ -142,7 +177,8 @@ def preflight_static_skill_report(profile: dict[str, Any], expected_section: str
 
 
 def _absent(workspace: CandidateWorkspace) -> None:
-    if any(_exists(workspace.root / name) for name in (PROFILE_PATH, NAMESPACE)):
+    if any(_exists(workspace.root / name) for name in (PROFILE_PATH, NAMESPACE, "version-skills-profile.json",
+                                                      "version-skills", "version-skill-sources")):
         raise ValueError("historical run cannot acquire static skill resources")
 
 
@@ -153,7 +189,12 @@ def _approved(workspace: CandidateWorkspace, task_directory: Path | None, ledger
     store = read_run_knowledge(workspace, task_directory, knowledge_profile, ledger=ledger)
     if store is None:
         raise ValueError("static skills require approved run knowledge")
-    service = read_run_static_skills(store, profile)
+    if _version(profile):
+        from .version_skills import read_run_version_skills
+
+        service = read_run_version_skills(workspace, task_directory, profile, ledger=ledger)
+    else:
+        service = read_run_static_skills(store, profile)
     if service is None:
         raise ValueError("static skills have no approved frozen resources")
     return service
@@ -163,10 +204,11 @@ def _session(workspace: CandidateWorkspace, knowledge: dict[str, Any] | None,
              profile: dict[str, Any]) -> dict[str, Any]:
     reads = _ReadSet(workspace.root, max_read_bytes=2 * MAX_PAYLOAD_BYTES, max_read_calls=2)
     value = _object(reads.read(workspace.root / "session.json"))
-    if (value.get("schema_version") != 13 or value.get("static_skill_profile") != profile or
+    prefix = "version_skill" if _version(profile) else "static_skill"
+    if (value.get("schema_version") != (14 if _version(profile) else 13) or value.get(prefix + "_profile") != profile or
             value.get("knowledge_profile") != knowledge or not isinstance(value.get("applicability_profile"), dict)):
         raise ValueError("static skill profile differs from its actual session")
-    preflight_static_skill_report(profile, static_skill_section(profile), value["max_calls"], value["max_tool_calls"])
+    preflight_static_skill_report(profile, _section(profile), value["max_calls"], value["max_tool_calls"])
     reads.finish()
     return value
 
@@ -200,7 +242,7 @@ class _StaticSolverReadSet(_ReadSet):
 
 def _catalog_sources(workspace: CandidateWorkspace, visibility: Any, inputs: list[dict[str, Any]],
                      profile: dict[str, Any], max_calls: int) -> list[dict[str, Any]]:
-    section = static_skill_section(profile)
+    section = _section(profile)
     if len(inputs) > max_calls:
         raise ValueError("static skill solver input count exceeds the frozen budget")
     reads = _StaticSolverReadSet(workspace.root, max_calls)
@@ -227,7 +269,7 @@ def audit_stored_static_skills(workspace: CandidateWorkspace, task_directory: Pa
     if static_profile is None:
         _absent(workspace)
         return
-    profile = normalize_static_skill_profile(static_profile)
+    profile = _normalize(static_profile)
     _approved(workspace, task_directory, ledger, knowledge_profile, profile)
     session = _session(workspace, knowledge_profile, profile)
     if task_directory is None:
@@ -253,7 +295,7 @@ def audit_run_static_skills(workspace: CandidateWorkspace, task_directory: Path 
         if rows or any(set(call.intent.tool_names) & STATIC_SKILL_TOOLS for call in calls):
             raise ValueError("historical run cannot acquire static skill tools")
         return None
-    profile = normalize_static_skill_profile(static_profile)
+    profile = _normalize(static_profile)
     service = _approved(workspace, task_directory, ledger, knowledge_profile, profile)
     session = _session(workspace, knowledge_profile, profile)
     if task_directory is None or (model_calls.path != workspace.root / "model-calls.sqlite" or
@@ -265,7 +307,10 @@ def audit_run_static_skills(workspace: CandidateWorkspace, task_directory: Path 
     resources = {file["skill_id"]: {**file, "actions": []} for file in profile["files"]}
     facts: dict[str, Any] = {"profile": profile, "resources": list(resources.values()), "solver_inputs": inputs,
         "actions": [], "budget_rejections": [], "unread_skill_ids": sorted(resources),
-        "use_authentication": "accounted_solver_and_action_receipts", **_AUTHORITY}
+        "use_authentication": "accounted_solver_and_action_receipts", **(_AUTHORITY if not _version(profile) else {
+            "derivation_authority": "per_immutable_version", "epistemic_status": "historical_guidance_not_current_evidence",
+            "application_verification": "not_run", "purpose": profile["approval"]["purpose"],
+            "cost_scope": "source_learning_and_current_run_separate_not_total_budget_comparison"})}
     schema = static_skill_tools(service)[0].args_schema
     budget_rejections: dict[str, list[dict[str, Any]]] = {}
     if (len(calls) > session["max_calls"] or
@@ -323,7 +368,7 @@ def audit_run_static_skills(workspace: CandidateWorkspace, task_directory: Path 
         if receipt.content != encode(expected):
             raise ValueError("static skill receipt differs from complete frozen guidance")
         view = actual_view(parent.intent.call_id)
-        _check_catalog(profile, _messages(view["final_view_messages_json"]), static_skill_section(profile))
+        _check_catalog(profile, _messages(view["final_view_messages_json"]), _section(profile))
         seen = []
         # A complete successful read may still never reach a later solver.
         for item in inputs:
