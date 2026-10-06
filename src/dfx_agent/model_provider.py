@@ -393,7 +393,8 @@ class ChatCompletionsAdapter:
         except (TypeError, ValueError, OverflowError, UnicodeError, RecursionError):
             raise AdapterRequestError("unsupported_request") from None
 
-    def invoke(self, request: PreparedRequest) -> AIMessage:
+    def validate(self, request: PreparedRequest) -> PreparedRequest:
+        """Pure admission before ledger dispatch; invoke repeats it at the wire boundary."""
         if type(self._transport) is not httpx.MockTransport:
             raise AdapterRequestError("mock_transport_required")
         try:
@@ -421,6 +422,10 @@ class ChatCompletionsAdapter:
             raise AdapterRequestError("prepared_request_changed") from None
         except (AttributeError, KeyError, TypeError, ValueError, UnicodeError, RecursionError):
             raise AdapterRequestError("prepared_request_changed") from None
+        return validated
+
+    def invoke(self, request: PreparedRequest) -> AIMessage:
+        validated = self.validate(request)
         try:
             with (httpx.Client(transport=self._transport, timeout=self.settings.timeout_seconds,
                                follow_redirects=False, trust_env=False) as client,

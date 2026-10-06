@@ -61,7 +61,7 @@ SDK 的两种离线模型共用 `ToolAuthorizationMiddleware`：主机把工具�
 
 `model_provider.py` 的 `ProviderSettings` 冻结 provider_id、model_id、输出上限、可选 temperature 和请求超时；身份仅是配置，实际提供方/型号仍未选择。`ChatCompletionsAdapter` 当前只接收主机注入的 exact HTTPX MockTransport，端点固定为 model.invalid，无凭据、真实端点配置、自动重试或重定向。profile 包含 wire/schema、mock-only 标志、设置及请求/响应限额。2026-10-02 查阅 [DeepSeek Chat Completion 官方接口](https://api-docs.deepseek.com/api/create-chat-completion/) 作为文字/工具 wire 的设计参考，不表示完成该提供方或所有兼容 API 的接入。
 
-`PreparedRequest` 冻结 canonical body、body_sha256 和 profile_sha256；messages/tools/parameters 仅是由 body 解析的独立视图，不能通过修改嵌套副本改变发送内容。发送前重核规范字节、哈希、profile 和有限请求结构，再发送相同 UTF-8 body。支持 system/user/assistant/tool 文字消息、原生 function 工具、stop、tool_choice 和明确的 parallel_tool_calls；assistant reasoning_content 若存在，按原值保存并用于续轮。tool ID 必须唯一，结果须对应尚未完成的工具调用；附件、未知角色/生成选项、未闭合工具历史及不支持的格式发送前拒绝，不静默丢字段。请求/响应限额以适配器常量及 profile 为准；非有限数、重复 JSON 键和不合法 Unicode 拒绝。
+`PreparedRequest` 冻结 canonical body、body_sha256 和 profile_sha256；messages/tools/parameters 仅是由 body 解析的独立视图，不能通过修改嵌套副本改变发送内容。validate 纯校验规范字节、哈希、profile、exact MockTransport 和有限请求结构，不发送请求；上层学习在 dispatch 前调用，invoke 在发送边界再次执行同一校验，再发送相同 UTF-8 body。支持 system/user/assistant/tool 文字消息、原生 function 工具、stop、tool_choice 和明确的 parallel_tool_calls；assistant reasoning_content 若存在，按原值保存并用于续轮。tool ID 必须唯一，结果须对应尚未完成的工具调用；附件、未知角色/生成选项、未闭合工具历史及不支持的格式发送前拒绝，不静默丢字段。请求/响应限额以适配器常量及 profile 为准；非有限数、重复 JSON 键和不合法 Unicode 拒绝。
 
 `ModelCallStore` 用项目受管目录内的 SQLite 保存 `reserved → dispatched → completed` 或 `dispatched → unknown`。先持久化意图，紧邻外部调用前标记 dispatched；重启后已完成的同一请求回放已保存的 `AIMessage`，不再发请求。已发出但无完整本地响应时，同一 call ID 禁止重发，结果与费用维持 unknown；确需另试须显式建新 call ID 并另占次数。标记 dispatched 与网络实际送达之间的崩溃窗口也保守算 unknown。提供方通常不保证以 call ID 查询或幂等，不能承诺 exactly-once。异常捕获后的原因只记录类别，不把异常文本中的凭据写进账本。
 
@@ -352,7 +352,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 ### 3.1 工作上下文、经验与 Skill 的实施契约
 
-本节定义 W07 新机制的输入、行为与拒绝边界，分步实施。工作上下文已有模型发送路径；经验准入、知识快照、确定性检索，以及绑定当前任务的冻结上下文和三态适用性交接已有主机接口。普通检索和显式三态 SDK 切片均已编码：主机批准固定知识、run 内复制原件、授权查询/回读，三态入口另核验实际发送的焦点与材料；对应会话、报告、聚合和私有导出保留完整记录。受管验收结论由 STATUS 维护，静态过程资源及 Agent 会话交接已有程序入口，受管配置已接入固定/模拟脚本，学习尚待接入。通用修复路径继续可用；来源/引用核验、确定性记录和合成分支不能证明模型推理正确、经验可迁移或修复效果。模型提出语义判断，主机核验已登记事实及权限，不把结构完整性当语义确认。
+本节定义 W07 新机制的输入、行为与拒绝边界，分步实施。工作上下文已有模型发送路径；经验准入、知识快照、确定性检索，以及绑定当前任务的冻结上下文和三态适用性交接已有主机接口。普通检索和显式三态 SDK 切片均已编码：主机批准固定知识、run 内复制原件、授权查询/回读，三态入口另核验实际发送的焦点与材料；对应会话、报告、聚合和私有导出保留完整记录。受管验收结论由 STATUS 维护，静态过程资源及 Agent 会话交接已有程序入口，受管配置已接入固定/模拟脚本；独立模拟提炼见第 3.1.3 节，模型草案进入批准知识/版本和启动的桥接尚待完成。通用修复路径继续可用；来源/引用核验、确定性记录和合成分支不能证明模型推理正确、经验可迁移或修复效果。模型提出语义判断，主机核验已登记事实及权限，不把结构完整性当语义确认。
 
 #### 3.1.1 工作上下文和当前焦点
 
@@ -390,7 +390,7 @@ format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materia
 
 #### 3.1.2 经验、检索和适用性交接
 
-经验机制让 Agent 在新任务中获得可查证的历史指导：保留适用前提、未知查证问题、过程、保留行为和反例，再用当前证据判断能否借用。历史经验不作为当前根因或补丁已通过的依据。`knowledge_contracts.py`、`knowledge.py`、`retrieval_contracts.py` 和 `knowledge_retrieval.py` 提供材料准入、不可变经验、知识快照及确定性检索；`applicability_contracts.py` 和 `applicability.py` 提供当前任务绑定、冻结上下文和独立三态交接。`knowledge_run.py` 把主机批准知识复制成 run 内自包含原件，`knowledge_handoff.py` 提供普通检索 SDK 工具及只读查询/动作审查；`solver_visibility.py` 保存和审读实际发送输入，`applicability_handoff.py` 将三态准备、提交与回读接入 SDK。受管验收结果见 STATUS；静态过程资源及实际会话交接已有程序入口，受管配置和自动学习仍待接入。
+经验机制让 Agent 在新任务中获得可查证的历史指导：保留适用前提、未知查证问题、过程、保留行为和反例，再用当前证据判断能否借用。历史经验不作为当前根因或补丁已通过的依据。`knowledge_contracts.py`、`knowledge.py`、`retrieval_contracts.py` 和 `knowledge_retrieval.py` 提供材料准入、不可变经验、知识快照及确定性检索；`applicability_contracts.py` 和 `applicability.py` 提供当前任务绑定、冻结上下文和独立三态交接。`knowledge_run.py` 把主机批准知识复制成 run 内自包含原件，`knowledge_handoff.py` 提供普通检索 SDK 工具及只读查询/动作审查；`solver_visibility.py` 保存和审读实际发送输入，`applicability_handoff.py` 将三态准备、提交与回读接入 SDK。受管验收结果见 STATUS；静态过程资源及实际会话交接已有程序入口，受管配置已接入；模型草案到批准知识/版本和启动的桥接仍待完成。
 
 知识基础路径是**主机审核完整可见投影 → 捕获获准材料原字节 → 按来源权限准入 → 物化经验条目 → 固定条目与检索配置快照 → 显式建立派生索引**。普通检索接入继而批准实际 task/run、复制完整原件到 run、授权有界查询并回读完整返回页；独立三态接口在绑定查询之后另冻结显式焦点及当前原件，再逐前提核验引用并保存建议。主机须先审核整个 SolverProjection 文档，为其原字节设定 MaterialGrant；ExperienceDraft 只引用已批准的材料 ID，不能提交任意新指导文本或自填权限、验证资格与成本。结构校验与主机角色声明不能识别自由文本中暗含的答案，审核完整投影仍是主机责任，不宣称已有语义防泄漏能力。
 
@@ -426,7 +426,7 @@ format 2 的 plan schema 2 将原字节放在同 run 的 working-context/materia
 
 冻结或回读快照时再核对**所有原来源 grant 的 solve 用途与目标 split 交集**，不因某一来源只作审计而跳过权限；任一历史 lineage_group_id 落入 excluded_lineage_groups 时拒绝该选择。该范围由主机显式传入，不从标签或 task_id 自动推断谱系。KnowledgeStore.read_projection 只返回已绑定快照中的指导副本，并先核验整张快照闭包；history 原文不随它转成当前 Evidence。空快照可以显式冻结，但缺失或破损快照不会自动退成空库。检索前核对完整请求 scope 与快照 scope，再核验整张来源闭包；权限错误不能变成少返回几项或空结果。
 
-excluded_lineage_groups 只排除已经显式声明的 HistoricalSource 谱系。没有 history 的获准 projection 也可能合法，因此该过滤不能自动证明指导文字或 model_inference 已穷尽来源、未包含目标答案；仍依赖主机完整审阅投影并如实声明来源。未来自动提炼须另增派生依据闭包和学习调用核验，不能沿用此包的字段完整性作为全量来源证明。低层 KnowledgeStore/KnowledgeRetriever 核对给定快照及冻结 scope，检索审计回读重放保存查询，仍不认证调用者实际 task/run。ApplicabilityStore 以外部主机 approval 将具体快照、scope 与实际 workspace/task/run/日志绑定；SDK 普通检索再固定 session profile，并认证实际模型响应、动作和回执，不向模型开放低层自选范围。独立三态接口仍使用显式主机焦点；SDK 外层已有实际发送来源核验，不能由普通检索的授权关联推定最新焦点或语义适用性。
+excluded_lineage_groups 只排除已经显式声明的 HistoricalSource 谱系。没有 history 的获准 projection 也可能合法，因此该过滤不能自动证明指导文字或 model_inference 已穷尽来源、未包含目标答案；仍依赖主机完整审阅投影并如实声明来源。独立模拟提炼的派生依据和调用核验见第 3.1.3 节；其草案进入本知识接口的兼容桥接仍待实现，不能沿用此包的字段完整性作为全量来源证明。低层 KnowledgeStore/KnowledgeRetriever 核对给定快照及冻结 scope，检索审计回读重放保存查询，仍不认证调用者实际 task/run。ApplicabilityStore 以外部主机 approval 将具体快照、scope 与实际 workspace/task/run/日志绑定；SDK 普通检索再固定 session profile，并认证实际模型响应、动作和回执，不向模型开放低层自选范围。独立三态接口仍使用显式主机焦点；SDK 外层已有实际发送来源核验，不能由普通检索的授权关联推定最新焦点或语义适用性。
 
 KnowledgeStore 的 root 由受管主机预先建立；constructor 和读取方法不创建目录。发布操作才可在核验该 root 后建立固定 materials/entries/snapshots 子目录，按原字节摘要保存材料、按内容身份保存规范条目和快照；检索显式发布另使用 indexes/retrievals 子目录。已有文件必须字节一致，不能覆盖或修复。先发布材料再发布引用对象，部分失败留下的 pending/孤立文件不取得权威资格，也不自动清理。原材料可保留获准的空白/换行，原字节 grant 摘要与解析后规范对象摘要分开；条目、投影、全部来源权限、历史描述及检索配置均由各自完整内容身份绑定。单产物和 registry 总输入遵循 `knowledge_contracts.MAX_PAYLOAD_BYTES`，快照条目数遵循 `MAX_SNAPSHOT_ENTRIES`，其他长度/集合约束以相应契约模块 schema 为准，不截断或自动放宽。
 
@@ -452,7 +452,7 @@ review 保留每项前提及理由，整体状态按 contradicted 优先、unkno
 
 既有 build_working_context 前段的任务/来源扫描仍没有累计 I/O 门，受外层受管 Job、单来源和最终 packet 限额约束；不能声称 prepare_context 整个操作的全部扫描都已由新增累计读计数覆盖。_capture_material 新增可选 reader/max_references 供本入口捕获时计数，旧 SDK 默认调用方式保持原行为。普通检索工具的实际固定/模拟 solver 调用和动作关联已进入原账本；独立三态及历史提炼声明仍不因此取得真实调用成本。字节容量与读取次数不等于 Token、耗时、语义准确性或修复收益。SDK 三态提案引用实际 solver 和动作账本，共用原有成本，不因独立模块的声明而取得真实云端或应用效果证据。
 
-普通检索、三态及静态 Skill SDK 入口分别保存其运行身份、实际工具回执、报告、聚合及私有导出；受管验收结论见 STATUS。独立合成判定和沙盒别名见下节，自动提炼/学习调用及别名启动桥接仍待实现；普通检索不能充当适用性验证或演进收益。
+普通检索、三态及静态 Skill SDK 入口分别保存其运行身份、实际工具回执、报告、聚合及私有导出；受管验收结论见 STATUS。独立合成判定和沙盒别名见下节，独立模拟提炼/学习调用见第 3.1.3 节，模型来源版本及别名启动桥接仍待实现；普通检索不能充当适用性验证或演进收益。
 
 三态 SDK 入口须显式提供 `ApplicabilityPolicy`，冻结完整 `applicability_profile={schema_version:1,enabled:bool}`；未提供时保持普通经验检索代。开启与关闭两组提供同名同定义的 `prepare_experience_context`、`review_experience`、`read_experience_review` 三项工具，以及原有完整指导和通用工具，均受原模型/动作预算约束。关闭组只返回完整普通指导，不发布三态上下文或审查，也不解析评语来施加三态引用约束；普通权限和参数形状检查继续执行。开启组准备响应直接返回 review_proposal_schema，模型按此提交格式及冻结 context 引用判断；缺少已见诊断或假设时返回 unknown 与普通检索，不从最新登记记录猜测焦点。
 
@@ -481,11 +481,11 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 | ExperienceCandidate / read_candidate | 不可改写的 pending_host_review，application_qualification=none；回读重新核外部批准、原 capsule 和完整投影。没有原运行或成本依据不补零，不自动入旧经验库、生成发布别名或激活 Skill |
 | 成本与容量 | 原修复成本取独立重建的完整账本，失败/未知仍在分母；首版候选为主机提议，新增学习模型调用 not_run，模型成本保持 null，不冒充自动提炼。单次 API 的复制/关闭重读共用 FeedbackLimits 累计读取预算，元数据、原件与各回读阶段不能重新领取额度；完整文件和总容量有门。该计量不包含聚合内部 I/O，不声称全流程耗时/内存已闭合 |
 
-反馈摘要中的定位、归因和义务解释仍是推断，程序认证的是原记录、版本和权限关系；应用验证继续 not_run。后续模型提炼须先显式接新调用用途及其恢复/成本账本，主机批准桥接须保留完整 capsule 来源，不能给旧 schema 补字段冒充新资格。该机制给 Skill 演进提供可复核输入，候选内容的迁移质量及论文收益仍须独立实测。
+反馈摘要中的定位、归因和义务解释仍是推断，程序认证的是原记录、版本和权限关系；应用验证继续 not_run。独立模拟提炼已使用分代学习用途及恢复/成本账本，见第 3.1.3 节；后续主机批准桥接须保留完整 capsule、原调用及派生来源，不能给旧 schema 补字段冒充新资格。该机制给 Skill 演进提供可复核输入，候选内容的迁移质量及论文收益仍须独立实测。
 
 #### 3.1.3 Skill 版本、验证与演进
 
-**静态过程先提供完整可读的诊断步骤，再由独立版本验证为是否更新提供依据。** `static_skills.py` 从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。`static_skill_handoff.py` 将完整读取、实际模型输入、动作账本与报告接起来；程序入口、启停对照和私有导出使用同一冻结身份。受管脚本/CLI 配置、独立版本/事前计划/完整合成回执及独立沙盒演进接口已实现，实际验收见 STATUS；别名启动桥接和自动模型提炼仍待实现。合成调用及可见性不证明学会经验或提高修复率。
+**静态过程先提供完整可读的诊断步骤，再由独立版本验证为是否更新提供依据。** `static_skills.py` 从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。`static_skill_handoff.py` 将完整读取、实际模型输入、动作账本与报告接起来；程序入口、启停对照和私有导出使用同一冻结身份。受管脚本/CLI 配置、独立版本/事前计划/完整合成回执及独立沙盒演进接口已实现，实际验收见 STATUS；模型草案进入版本链及别名启动桥接仍待实现。合成调用及可见性不证明学会经验或提高修复率。
 
 | 静态入口/对象 | 当前约束 |
 |---|---|

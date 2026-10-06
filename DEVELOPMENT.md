@@ -67,7 +67,9 @@ flowchart LR
 
 设计把 context、memory 和 Skills 连接起来：每一步先突出当前假设、业务义务与有效反例；检索到旧经验后，用当前证据判断其前提。适用时提供步骤，矛盾时指出不适用，未知时提供区分问题。任务内反馈继续修代码；跨任务反馈先形成候选经验，经独立开发案例和边界反例验证后才更新冻结 Skill。工作上下文与普通经验检索已接入实际 SDK：主机固定批准知识，Agent 获取完整指导，查询和实际工具结果随调用账本、报告及私有导出保存。普通检索是共同基线，相关性排序不判断能否照搬修法。三态工具以每次实际请求为依据核对当前焦点（实际请求中的诊断、所选假设和当前候选）及逐前提引用，支持时提供完整过程，矛盾时提示暂停照搬，未知时保留查证问题；判断仍为模型推断。启停两组共用相同工具、知识和预算，完整指导及调用来源随报告和私有导出保存。知识、三态和静态 Skill 已有完整 SDK 会话、报告、对照及私有导出入口，固定/模拟脚本通过显式主机批准接入同一受管 CLI。启动消费已经批准的冻结库，恢复使用 run 原件和原批准，不要求原库存在；跨任务反馈使用独立 FeedbackStore 固定完整来源，人工提议形成待审核经验候选。详细流程见 [设计第 7 节](docs/development/system-design-draft.md#7-skills-的具体位置)，字段和失败行为见 [规格第 3.1 节](docs/design-contracts.md#31-工作上下文经验与-skill-的实施契约)，实际完成与下一包见 STATUS。
 
-Skill 版本、验证与独立合成演进的程序接口已实现，实际验收见 STATUS：主机批准完整种子或候选过程，形成不可改写版本；在运行开始前固定代表案例、边界案例、旧/新角色及合成判定策略；从已停止的 SDK 合成运行保存完整验证回执。当前旧/新过程放在同一个批准知识池，模型、工具、资源及预算相同，只按计划核验实际读取的目标过程及后续模型可见性，不证明模型逐步正确执行指导。这是同池定向过程验证，尚非不同知识快照的效果比较。独立演进判定保留所有尝试的收益、损害、缺项和成本，阈值未定、结果或选定的合成 Token/调用成本轴未知仍为 pending；人工完整新候选可缩界或补分支。沙盒别名可以显式初始化、按合成判定更新或退回既已发表的祖先，冻结选择仍绑定旧完整版本；别名尚未桥接 Agent/SDK 启动，不是当前运行会自动使用新 Skill。实际费用/耗时仍未知，模型学习调用为 not_run、成本为 null，这些不是当前合成门测得的成本；云端模型、应用验证及迁移收益仍待实测。
+Skill 版本、验证与独立合成演进的程序接口已实现，实际验收见 STATUS：主机批准完整种子或候选过程，形成不可改写版本；在运行开始前固定代表案例、边界案例、旧/新角色及合成判定策略；从已停止的 SDK 合成运行保存完整验证回执。当前旧/新过程放在同一个批准知识池，模型、工具、资源及预算相同，只按计划核验实际读取的目标过程及后续模型可见性，不证明模型逐步正确执行指导。这是同池定向过程验证，尚非不同知识快照的效果比较。独立演进判定保留所有尝试的收益、损害、缺项和成本，阈值未定、结果或选定的合成 Token/调用成本轴未知仍为 pending；人工完整新候选可缩界或补分支。沙盒别名可以显式初始化、按合成判定更新或退回既已发表的祖先，冻结选择仍绑定旧完整版本；别名尚未桥接 Agent/SDK 启动，不是当前运行会自动使用新 Skill。这条人工版本链的模型学习为 not_run、成本为 null，实际费用/耗时未测得；独立模拟提炼草案的调用与成本另保存，尚未接入这条版本链；云端模型、应用验证及迁移收益仍待实测。
+
+独立学习路径将已批准开发反馈中的原日志、失败与成功候选补丁及检查结果交给模拟模型，形成有前提、查证步骤、保留行为和退出条件的待审核过程；实际请求、原响应、格式修复和未知费用都保留。这条路径尚未把模型草案桥接为 Skill 版本或新任务知识，也未证明模型能提炼出有用过程。它的具体接口见 [原型说明](src/dfx_agent/README.md#独立模型提炼与待审核草案仅模拟程序接口)，实际完成见 STATUS。
 
 论文希望回答的具体问题是：**相同模型、知识、工具和预算下，围绕当前修复义务组织证据并迁移经验，是否能减少错误尝试，交出更多保留功能的补丁？** 以静态 Skill、普通案例检索和可关闭的机制比较解释收益；目前没有效果证据。
 
@@ -177,6 +179,7 @@ Export 从显式评测清单保留任务源码、全部候选、账本和失败�
 | `tests/test_skill_validation.py`、`tests/test_skill_validation_integration.py` | 不可改写版本、外部来源批准、前置计划、同池目标过程完整读取/后续可见性、来源移走后回读及递归读取预算的合成反例；不证明学习收益 |
 | `tests/test_skill_evolution.py`、`tests/test_skill_evolution_retry.py`、`tests/test_skill_evolution_audit.py`、`tests/test_skill_publication.py` | 分别检查基础合成判定、历史重试、配置/来源关闭审计、沙盒发布/退回/冻结旧选择；共用非测试模块 `tests/skill_evolution_support.py` 的真实 SDK 合成原件。新激活必须使用候选当前判定，旧发表仍可回读；不证明自主学习或 SDK 已消费别名 |
 | `tests/test_learning_model_calls.py` | 独立学习意图代、全部用途预算、未发送/未知/完成回放、格式修复父链及请求/响应/usage 漂移；来源语义准入仍须上层工作流 |
+| `tests/test_learning_workflow.py`、`tests/test_learning_workflow_audit.py`、`tests/test_learning_root_binding.py` | 分别检查完整反馈正文到模拟请求/待审核草案、来源/账本/容量反例和物理工作根绑定；共用非测试模块 `tests/learning_workflow_support.py` 的已停止 SDK 合成反馈。仅 MockTransport，不证明学习质量或迁移收益 |
 | `tests/test_managed_knowledge_workflow.py` | 固定/模拟 CLI 全流程及真实 Windows Job 验收的合成 fixture，核完整 Skill 可见性与同资源启停矩阵 |
 | `tests/test_model_provider.py`、`tests/test_provider_loop.py`、`tests/test_reporting.py`、`tests/test_offline_script.py`、`tests/test_offline_cli.py` | 模拟模型请求/响应、SDK 交接、最终摘要核验和受管脚本/命令入口；不调用真实模型 |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
@@ -224,7 +227,8 @@ Export 从显式评测清单保留任务源码、全部候选、账本和失败�
 | `solver_visibility.py` | 在实际模型请求发出前固定最终输入；从完整已发送结果与工作上下文取得可见依据，摘要不授予事实引用权限 |
 | `applicability_handoff.py` | 三态准备、审查和回读 SDK 工具；绑定实际输入焦点，保留完整指导、未知问题和调用来源，支持同工具关闭对照 |
 | `static_skills.py` | 从 run 批准人工知识生成冻结过程正文/清单，复用原生 SkillsMiddleware 并核验资源和缓存；开启注入目录，关闭保留相同正文和读取能力 |
-| `feedback_contracts.py`、`feedback.py` | 核验已停止开发运行，保存可独立回读的反馈原件及完整待审核经验过程；人工提议，尚不自动模型提炼、入库或晋升 Skill |
+| `feedback_contracts.py`、`feedback.py` | 核验已停止开发运行，保存可独立回读的反馈原件及完整待审核经验过程；人工提议；模拟提炼由独立 LearningStore 承担，均不自动入库或晋升 Skill |
+| `learning_contracts.py`、`learning.py` | 独立主机批准、完整日志/候选补丁输入、MockTransport 提炼与显式格式修复、成本及 model_inference 待审核草案；恢复依赖原反馈 capsule，尚未桥接版本、知识库或 Agent 启动 |
 | `skill_evolution_contracts.py`、`skill_validation.py` | 独立不可改写 Skill 版本、外部批准、递归来源/权限与学习谱系；冻结事前验证计划，从完整停止原件重算同池定向合成回执；不执行模型、不自动发布别名 |
 | `skill_transition_contracts.py`、`skill_evolution.py` | 前置合成策略、完整尝试矩阵的追加判定、受原批准约束的沙盒别名和冻结选择；同 API 内复用已认证计划，成功/发布前重核其完整来源，每份回执仍独立重聚合；无跨 API 缓存、真实资格或 Agent 别名启动桥接 |
 | `static_skill_handoff.py` | 将完整 read_skill 结果与父模型/动作账本、实际后续输入和报告关联；分开记录读取与可见性，提供启停共同容量门；受管配置由 offline_script/CLI 消费，演进别名启动桥接另待接入 |

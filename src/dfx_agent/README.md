@@ -135,7 +135,17 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 3. `read_capsule(capsule_id, approval=...)` 从原件重建，无需原任务、run 或知识库；损坏、缺失和不合格来源拒绝，读取不创建资源或修复数据库。
 4. 主机提供完整 SolverProjection（host_curated、validation_scopes 为空），用 HostCandidateApproval 绑定 capsule 与投影身份，再调用 `propose_candidate(..., feedback_approval=...)`。`read_candidate` 需要重传这两份外部批准并核原 capsule。
 
-候选始终 pending_host_review、application_qualification=none；前提、未知问题、步骤、保留行为、反例和退出条件完整保存。原修复成本与新候选提议分开，失败和未知不剔除、不补零；首版未调用学习模型，not_run/null 不能写成自动总结或零成本学习。FeedbackLimits 约束单次 API 的原件复制/关闭核验累计读量、文件数和容量；元数据、原件及各回读阶段共用预算，不覆盖聚合内部全部 I/O。旧 KnowledgeStore 条目不变，此接口不自动入库、晋升或修改在跑任务。候选完整原件可由下文独立 Skill 版本/验证及沙盒演进消费；正式模型提炼和 Agent 启动知识桥接仍待接入，边界见 [模块规格第 3.1.2 节](../../docs/design-contracts.md#312-经验检索和适用性交接)。
+人工候选始终 pending_host_review、application_qualification=none；前提、未知问题、步骤、保留行为、反例和退出条件完整保存。原修复成本与新候选提议分开，失败和未知不剔除、不补零；该人工接口未调用学习模型，not_run/null 不能写成自动总结或零成本学习。FeedbackLimits 约束单次 API 的原件复制/关闭核验累计读量、文件数和容量；元数据、原件及各回读阶段共用预算，不覆盖聚合内部全部 I/O。旧 KnowledgeStore 条目不变，此接口不自动入库、晋升或修改在跑任务。人工候选完整原件可由下文独立 Skill 版本/验证及沙盒演进消费；独立模拟提炼见下一节，真实模型及 Agent 启动知识桥接仍待接入，边界见 [模块规格第 3.1.2 节](../../docs/design-contracts.md#312-经验检索和适用性交接)。
+
+### 独立模型提炼与待审核草案：仅模拟程序接口
+
+`LearningStore` 使用预建的独立受管目录和原 FeedbackStore。主机先通过 `learning_root_binding(root)` 只读固定真实路径及物理目录身份，再给出完整 HostLearningApproval：原 capsule/反馈批准、独立 operation/run、模型设置及本操作预算。构造、summary/read_draft 不创建目录或重建缺失账本；尚无学习 CLI，也不能用此接口连接云端。
+
+1. `invoke(call_id, approval=..., adapter=...)` 仅接 exact ChatCompletionsAdapter/MockTransport。先核全部原件和知识祖先谱系，再发送完整聚合、清单、权限、原日志及全部已登记候选 diff 正文；它们是数据，未授工具能力。完整 PreparedRequest 和响应随账本保存。未发送完整工程源码，不保证片段足以解释所有业务语义。
+2. 输出格式错误仍占用次数并保存 usage；只在主机显式提供 `repair_of_call_id` 时另发格式修复，引用原完成响应。合法输出不能伪装格式修复，新 ID 不能重复相同完整请求。发送前 preflight 失败保留 reserved，可核原批准后续发同 ID；发送后 unknown 不重发，完成同 ID 只回放。
+3. `propose_draft(call_id, approval=...)` 将合法 ExperienceContent 保存为完整 LearningDraft：model_inference、无验证范围、pending_host_review。它保留来源权限、全部声明学习谱系、完整调用/响应和冻结成本前缀，不成为人工 ExperienceCandidate、SkillVersion 或已启用知识。`read_draft(draft_id, approval=...)` 只读重核原件；没有批准/版本兼容桥接，不能直接传给旧 host_curated 版本接口。
+
+提炼和格式修复共享本操作调用/已知 Token 预算；未知发送、缺失或无效 usage 使总 Token 保持 null，已知和只是下界，实际费用始终未知。summary 也核验已有草案，缺原 capsule、缺账本、删行、改请求或换物理根均拒绝。初始化的跨文件中断失配不自动修复，尚无主机对账入口或独立不可删除日志；恢复并非可移植学习包。容量门预留有限模拟响应及 SQLite 开销，不能据此声称全内部 I/O、峰值内存或跨操作总预算已经闭合。契约见模块规格第 3.1 节，实际验收见 STATUS。
 
 ### 运行来源与恢复兼容
 
@@ -215,7 +225,7 @@ run 内 `experience-bindings/approved.json` 保存主机批准，`experience-que
 
 独立演进入口为 `SkillTransitionStore(validation_store)`，对象在 skill_transition_contracts.py，存储和重算在 skill_evolution.py。主机先将完整 SyntheticValidationPolicy 规范对象写入 PlanSpec.policy_json，再 freeze_plan、执行验证和保存回执；七项覆盖/质量/Token/调用/尝试阈值默认 None，无真实默认，不能在看到结果后补策略。`decide_skill_transition(plan_id, approval=HostTransitionApproval(...), plan_approval=original_plan_approval)` 从明确批准的回执和完整历史矩阵追加 synthetic_pending/rejected/eligible。结果/旧缺角色或选定的 synthetic_tokens/reserved_calls 成本轴未知保留 pending，所有 attempt 的覆盖、损害、成本和分母都计入；同计划补齐不重复计费，跨计划父/策略/共同配置及 task/log/lineage 独立性继续核验。实际金额/耗时与人工学习 not_run/null 单独保持未知，不属于当前合成门，eligible 不表示测得这些费用。`read_transition` 只读重算来源，不补写未知、不自动解释失败或提炼修法。人工缩界/补分支须先形成完整新候选，再经 create_revision 和独立验证。
 
-`publish_alias(approval=HostPublicationApproval(...), version_approval=..., transition_approval=...)` 只追加 synthetic_sandbox 发表：initialize_seed 要求明确批准的原种子；新 activate 要求候选当前判定 head 为 synthetic_eligible，且修订与当前父版本相符；后来追加损害/未知后不能再使用旧合格判定首次激活，历史回读和完全相同的幂等返回仍核原事件；rollback 只能回到此前发表过的当前父链祖先。后续发表须绑定 current previous_publication_id，前驱过期拒绝。`freeze_alias(alias, approval=...)` 返回 FrozenSkillSelection；`read_selection(selection, publication_approval=...)` 核原发表并返回完整原版本投影，后续别名更新不改变旧选择。读操作不创建文件，计划及来源按下面的单操作首尾协议核验，事件发表后核字节/FD，整次 API 共用闭合读取预算；非全 I/O 或峰值内存计量。当前 SDK/受管 repair 不消费这些别名，启动桥接待实现；真实资格恒 none、学习模型 not_run/null、费用和耗时无依据仍 unknown，具体验收只记 STATUS。
+`publish_alias(approval=HostPublicationApproval(...), version_approval=..., transition_approval=...)` 只追加 synthetic_sandbox 发表：initialize_seed 要求明确批准的原种子；新 activate 要求候选当前判定 head 为 synthetic_eligible，且修订与当前父版本相符；后来追加损害/未知后不能再使用旧合格判定首次激活，历史回读和完全相同的幂等返回仍核原事件；rollback 只能回到此前发表过的当前父链祖先。后续发表须绑定 current previous_publication_id，前驱过期拒绝。`freeze_alias(alias, approval=...)` 返回 FrozenSkillSelection；`read_selection(selection, publication_approval=...)` 核原发表并返回完整原版本投影，后续别名更新不改变旧选择。读操作不创建文件，计划及来源按下面的单操作首尾协议核验，事件发表后核字节/FD，整次 API 共用闭合读取预算；非全 I/O 或峰值内存计量。当前 SDK/受管 repair 不消费这些别名，启动桥接待实现；这条人工版本链的真实资格恒 none、学习模型 not_run/null；独立模拟提炼草案未接入该链，费用和耗时无依据仍 unknown，具体验收只记 STATUS。
 
 私有 _EvolutionBudget / _PlanReadView 只在同一 API 预算与完整原批准内复用已核验 Plan；每份 receipt 的全部原件和聚合仍独立重核。成功读取/幂等返回或正式写入前，_close_plans 绕过视图重读全部涉及的计划、父版本和反馈源，关闭时漂移拒绝；finally 丢弃视图，下一次调用不能复用，公共 SkillValidationStore 接口未改。这只是减少同操作重复核验，不宣称性能达标或统一全 I/O/峰值内存限制。
 

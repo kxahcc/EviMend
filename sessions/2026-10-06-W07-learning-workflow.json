@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "scope": "offline_synthetic",
+  "batch": "W07-learning-workflow",
+  "date": "2026-10-06",
+  "objective": "Turn independently approved stopped development feedback into an explicitly metered, unvalidated model-inference draft using only MockTransport.",
+  "result": "passed",
+  "implementation": {
+    "files": ["src/dfx_agent/learning_contracts.py", "src/dfx_agent/learning.py", "src/dfx_agent/model_provider.py"],
+    "inputs": "Original crash.log, all registered candidate patch.diff texts, complete aggregate and manifest, original permission and declared ancestor lineages. Actual UTF-8 bytes, paths, hashes and candidate identities are retained. No full engineering source, Graph, SQLite, hidden labels or full original model dialogue is sent.",
+    "source_admission": "Original capsule is fully reaggregated before mutable ledger access. Host approval binds provider settings, one operation/run, budgets and a precreated physical learning root. All frozen knowledge entries contribute declared ancestor lineages, including entries not retrieved in the original run.",
+    "dispatch": "Pure adapter.validate checks exact MockTransport and full request before durable dispatch; invoke repeats admission at the wire boundary. Requests and ledger rows must have exact correspondence. Missing original database, deleted rows or changed complete requests cannot become fresh unsent requests.",
+    "recovery": "Completed same-ID calls replay read-only; reserved preflight failures remain unsent and charged against call count; dispatched/unknown calls never auto-resend. One extraction position and explicit invalid-parent format repairs; new IDs cannot duplicate the same complete request or repair already valid guidance.",
+    "draft": "Canonical immutable LearningDraft retains owner, all complete requests/records/responses, exact original cost prefix, permission and declared lineage. Guidance stays model_inference, has no validation scopes, remains pending_host_review, and grants no tools or application qualification. Ordinary summary/invoke also reaudits existing drafts.",
+    "usage": "Known tokens are a lower bound when dispatch or usage is unknown, missing or invalid; total remains null. Monetary fees are unknown. Format failures and repairs remain in the denominator.",
+    "root_binding": "Real path plus device, inode and directory type; mutable non-identity attributes are excluded, but each observation independently rejects non-directory, symlink, reparse or unavailable inode. Original shared directory anchor and capacity assertions were not changed.",
+    "limits": "Original file/tree/read budgets and conservative finite mock-response/SQLite headroom. Not all internal aggregation I/O, peak memory, hard actual token costs, global one-time authorization, or cross-operation and learning/deployment budget accounting.",
+    "application_qualification": "none"
+  },
+  "tests": {
+    "workflow": {"path": "tests/test_learning_workflow.py", "receipt": "cdbe9f87-68f6-460a-9494-39fbf80e3bf7", "passed": 5, "skipped": 0, "warnings": 1, "seconds": 343.09, "scope": "Executed before the local root-identity helper refinement; complete wire texts, explicit repair, replay, preflight, unknown dispatch, usage and shared budget. Final audit exercises normal owner/invoke paths after the refinement."},
+    "audit_initial": {"path": "tests/test_learning_workflow_audit.py", "receipt": "cc5a335d-deff-4641-bb3c-af77a93b04c0", "passed": 23, "failed": 1, "warnings": 1, "seconds": 272.03, "failure": "Capacity counterexample encountered unequal root-binding observations before reaching the headroom guard; the differing tuple fields were not captured, so no Archive-attribute cause is asserted."},
+    "root_identity": {"path": "tests/test_learning_root_binding.py", "receipt": "fed7205d-d605-47a8-97c3-6cea56167a2b", "passed": 9, "skipped": 0, "seconds": 3.76},
+    "audit_final": {"path": "tests/test_learning_workflow_audit.py", "receipt": "6fcd3264-576f-4b9c-a892-656473c0c41e", "passed": 24, "skipped": 0, "warnings": 1, "seconds": 273.74, "capacity": "Original headroom exception, no-send and empty-root assertions unchanged and passed."},
+    "provider_regression": {"path": "tests/test_model_provider.py", "receipt": "e715d0b0-50cd-4791-9f69-62aed6230c4e", "passed": 115, "skipped": 0, "seconds": 0.80},
+    "sdk_regression": {"path": "tests/test_agent_loop.py", "receipt": "656e4e9f-745a-42eb-9f28-6add536e9bfb", "passed": 12, "skipped": 0, "seconds": 19.82},
+    "warning": "learning_workflow_support was imported before plugin assertion rewriting. Warnings retained; assertions remain in collected test modules.",
+    "prefix_test_scope": "The unknown/future-cost counterexample constructs unit records; it is not accepted stopped-run evidence or a legitimate exercised post-Draft provider append.",
+    "not_full_repository_round": true
+  },
+  "quality": {
+    "ruff": {"receipt": "88e23365-4916-4303-a574-e301788d8f0f", "result": "passed"},
+    "pyright": {"receipt": "a6be7845-b832-4405-99e0-745a739179a9", "errors": 0, "warnings": 0},
+    "docs": {"receipt": "68d94fef-eab8-4bbc-b718-b7d53314a4e5", "result": "passed", "registered_documents": 14},
+    "semantic_review": "Registered new modules/tests and distinguished independent Mock drafts from old manual not_run versions. Six stale specification statements were replaced in the original body; derivation, deployment, portable recovery and end-to-end budget limitations remain explicit."
+  },
+  "environment": {
+    "new_dependencies": 0, "model_weights": 0, "harmonyos_installs": 0,
+    "real_model_runs": 0, "application_runs": 0,
+    "resource_limits_changed": false, "global_environment_changed": false, "templates_changed": false,
+    "managed_and_exports_observation_bytes": 362738859,
+    "observation_not_peak": true, "owner_valid": true, "active_state": "none", "cleanup_available": true,
+    "cleanup": "Manager reclaimed successful test temporary material. Failed/interrupted records and pre-existing evidence remain; no broad cleanup was performed."
+  },
+  "remaining": [
+    "Explicit approval and compatible model-derived version/projection/Agent startup bridge; do not relabel model inference as host-curated",
+    "Portable learning source closure; current recovery still requires original capsule and complete original ledger",
+    "Host reconciliation for interrupted cross-file initialization; no automatic reconstruction or external undeletable log",
+    "ResearchProfile, cross-operation and learning/validation/deployment total budget and comparison",
+    "Real cloud provider, HarmonyOS execution, independent business verification and measured learning/repair effects"
+  ]
+}
