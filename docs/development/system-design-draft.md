@@ -115,7 +115,7 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 | working_context.py / working_context_plan.py / working_context_materials.py / working_context_projection.py | 注册记录闭包；可见回执推导焦点、完整组组织；run 内原字节去重与有界求解投影，冻结历史材料并绑定实际发送 | 原 Graph 不变；投影保留领域原文，通用压缩另有开关。历史原字节与完整闭包由 Store 核验；静态 Skill 目录/完整读取和受管配置已接 Agent，版本会话经独立入口消费冻结选择，验收见 STATUS；结构核验不证明语义或效果 |
 | feedback_contracts.py / feedback.py | 已结束开发运行的独立来源闭包、权限和成本核验，完整待审核人工经验候选 | 人工提议，合成范围不授应用资格；独立 Skill 版本可绑定人工候选完整原件 |
 | learning_contracts.py / learning.py / learning_source.py | 独立批准开发 capsule 和物理工作根，发送完整日志/候选 diff 并形成模型推断草案，提炼/格式修复独立记账；复制完整学习来源供只读回核 | 仅 MockTransport 离线模拟、待审核无验证范围；执行恢复绑定原根/capsule，复制来源不授新执行预算；模型来源版本入口和 Agent 启动整链按 STATUS 继续 |
-| skill_evolution_contracts.py / skill_validation.py / skill_transition_contracts.py / skill_evolution.py | 外部批准完整版本、前置验证计划、停止原件回执及全历史合成判定，追加沙盒别名与冻结旧选择 | 同池定向过程验证，不比较不同知识快照；真实资格 none、学习 not_run/null，未知/失败/损害与成本保留；别名尚不进入 SDK 启动身份 |
+| skill_evolution_contracts.py / skill_validation.py / skill_transition_contracts.py / skill_evolution.py | 外部批准完整版本、前置验证计划、停止原件回执及全历史合成判定，追加沙盒别名与冻结旧选择 | 同池定向过程验证，不比较不同知识快照；真实资格 none，人工学习 not_run/null、模型来源保留完整原学习成本，未知/失败/损害保留；冻结选择另经版本消费入口认证原批准后接入 SDK，验收见 STATUS |
 | knowledge.py / knowledge_retrieval.py / applicability.py | 主机批准经验、不可变快照、完整原件检索、任务绑定及独立三态提案 | 相关性不确认适用性；历史材料和主机提炼成本声明不升级为当前任务或应用事实 |
 | knowledge_run.py / knowledge_handoff.py | 批准快照精确复制到 run、纯读回建、search_experience/read_experience 工具及查询/模型/动作审查 | 普通知识和三态 SDK 共用原预算，静态会话交接见下行；受管配置已有入口，自动学习待闭合，实际验收见 STATUS |
 | solver_visibility.py / applicability_handoff.py | 每次求解实际发送请求、可见完整结果与焦点的冻结/审读；三态准备、提交与回读，统一账本及对照身份 | 缺焦点返回普通指导与未知；摘要或同响应兄弟结果不升格，前提仍为模型推断；启停保持同工具、知识和预算 |

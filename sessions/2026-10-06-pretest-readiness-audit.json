@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-06",
+  "scope": "offline_synthetic_readiness_audit",
+  "objective": "Verify the latest implementation and evidence before the user's mechanism-by-mechanism design and contribution review.",
+  "inspected_commit": "ab07e16",
+  "initial_working_tree": "clean",
+  "result": "review_started_readiness_gate_not_met",
+  "findings": [
+    "Reviewed model version consumption is implemented. The prior candidate SDK receipt contains three passed tests; the current file has four tests, so the new warm-service drift counterexample is not covered by that receipt.",
+    "The complete deployment/publication/rollback/feedback/export test has no final managed receipt. Its progress character does not establish complete acceptance.",
+    "ResearchProfile provides pure stage structures and schema-6 row reconstruction. Validation facts are not passed by metrics; deployment/rollback reconstruction, cross-row aggregation/deduplication, learning-factor comparison and shared cross-stage budget enforcement are not connected.",
+    "Architecture, context, obligations, applicability, source permissions and actual SDK visibility are inspectable. Real value sampling remains a host synthetic fixture; real provider/application adapters and effectiveness remain unknown.",
+    "One stale design module-table clause denying SDK version consumption was corrected; historical sessions were not rewritten."
+  ],
+  "checks": {
+    "research_profile": {
+      "receipt": "d6b91a7f-f60e-4c02-b807-b65417a25054",
+      "path": "tests/test_research_profile.py",
+      "passed": 2,
+      "failed": 1,
+      "seconds": 0.96,
+      "failure": "The content-identity counterexample passes JSON-mode list containers to strict Python tuple validation and fails before the expected identity diagnostic. No implementation change or acceptance relaxation was made."
+    },
+    "ruff": {"receipt": "af977fe6-9b10-48fc-82fb-c379a26f41e5", "errors": 5},
+    "pyright": {"receipt": "d45c3cc6-f595-4899-83da-873bbdad749c", "errors": 14, "warnings": 0},
+    "docs_before_status_update": {"receipt": "24c80dd6-6637-4467-9901-1bbed97a7551", "result": "passed"},
+    "docs_after_status_update": {"receipt": "e96633ae-4ecf-49af-aa09-e7c9a12e60d8", "result": "passed"},
+    "not_full_repository_round": true
+  },
+  "environment": {
+    "observed_at_local": "2026-10-06 23:47 Asia/Shanghai",
+    "resource_accounting": "complete",
+    "inaccessible_paths": [],
+    "owner_valid": true,
+    "active_state": "none",
+    "cleanup_available": true,
+    "access_or_acl_changed_in_this_audit": false,
+    "new_dependencies": 0,
+    "real_model_runs": 0,
+    "application_runs": 0,
+    "limits_changed": false,
+    "templates_changed": false,
+    "cleanup": "No broad cleanup or evidence deletion."
+  },
+  "remaining": [
+    "Fix current quality failures and accept the complete current version-consumption chain, including meaningful rejection cases and original-run restoration.",
+    "Implement complete research-stage accounting, cross-row shared-source deduplication, frozen learning comparisons and shared budget/deadline semantics, then test actual persisted evidence.",
+    "Close the pre-real-test review mapping, required offline adapter boundaries and representative capacity/runtime evidence; retain optional and real-environment gaps explicitly."
+  ]
+}
