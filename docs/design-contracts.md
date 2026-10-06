@@ -452,7 +452,7 @@ review 保留每项前提及理由，整体状态按 contradicted 优先、unkno
 
 既有 build_working_context 前段的任务/来源扫描仍没有累计 I/O 门，受外层受管 Job、单来源和最终 packet 限额约束；不能声称 prepare_context 整个操作的全部扫描都已由新增累计读计数覆盖。_capture_material 新增可选 reader/max_references 供本入口捕获时计数，旧 SDK 默认调用方式保持原行为。普通检索工具的实际固定/模拟 solver 调用和动作关联已进入原账本；独立三态及历史提炼声明仍不因此取得真实调用成本。字节容量与读取次数不等于 Token、耗时、语义准确性或修复收益。SDK 三态提案引用实际 solver 和动作账本，共用原有成本，不因独立模块的声明而取得真实云端或应用效果证据。
 
-普通检索、三态及静态 Skill SDK 入口分别保存其运行身份、实际工具回执、报告、聚合及私有导出；受管验收结论见 STATUS。发布别名、自动提炼/学习调用仍待实现；静态资源和独立版本验证入口见下节，普通检索不能充当适用性验证或演进收益。
+普通检索、三态及静态 Skill SDK 入口分别保存其运行身份、实际工具回执、报告、聚合及私有导出；受管验收结论见 STATUS。独立合成判定和沙盒别名见下节，自动提炼/学习调用及别名启动桥接仍待实现；普通检索不能充当适用性验证或演进收益。
 
 三态 SDK 入口须显式提供 `ApplicabilityPolicy`，冻结完整 `applicability_profile={schema_version:1,enabled:bool}`；未提供时保持普通经验检索代。开启与关闭两组提供同名同定义的 `prepare_experience_context`、`review_experience`、`read_experience_review` 三项工具，以及原有完整指导和通用工具，均受原模型/动作预算约束。关闭组只返回完整普通指导，不发布三态上下文或审查，也不解析评语来施加三态引用约束；普通权限和参数形状检查继续执行。开启组准备响应直接返回 review_proposal_schema，模型按此提交格式及冻结 context 引用判断；缺少已见诊断或假设时返回 unknown 与普通检索，不从最新登记记录猜测焦点。
 
@@ -466,7 +466,7 @@ SDK 外层报告以 `focus_authority=actual_solver_input` 保存这项额外认�
 
 SDK 搜索发布前还须通过 knowledge_handoff.MAX_KNOWLEDGE_REPORT_BYTES：按实际写入器的 ASCII 转义表示、保守缩进和报告顶层/completion 两份，合算未来全部完整查询页、绑定及知识配置，预留所有孤立记录 ID、共享 max_tool_calls 对应的动作关联和固定事实键。UTF-8 原件容量通过不代表该报告预算通过；即便本轮之后因 context_limit 停止，也必须保留可回读的失败证据。超门返回明确拒绝，不发布该查询、不截断指导、不放宽模型上下文或聚合单文件上限。此门限制新增知识片段，不声称已经覆盖其他领域产物或全矩阵汇总的所有容量。
 
-Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未合并 WAL。知识恢复要求主机显式提供原 knowledge_approval，并从 session 冻结 profile 和 run 原件核验；不要求外部库存在，不重新 prepare，不换最新版或空库。未来发布别名只影响新任务，不改变旧 run。新知识配置进入相应新会话、报告、导出和共同评测身份，不补写旧运行；普通检索和增强组读相同投影，基础组继续保留通用读取、反思和验证能力。Skill 版本及演进的后续义务见第 3.1.3 节。
+Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未合并 WAL。知识恢复要求主机显式提供原 knowledge_approval，并从 session 冻结 profile 和 run 原件核验；不要求外部库存在，不重新 prepare，不换最新版或空库。当前沙盒冻结选择绑定具体旧版本；未来 Agent 别名桥接只影响新任务，不改变旧 run。新知识配置进入相应新会话、报告、导出和共同评测身份，不补写旧运行；普通检索和增强组读相同投影，基础组继续保留通用读取、反思和验证能力。Skill 版本及独立合成演进见第 3.1.3 节。
 
 受管固定/模拟脚本 schema 5/6 必填 working_context 和 knowledge，旧 1–4 不接纳知识字段。knowledge 含仓库内规范 library_path、完整外部 TaskKnowledgeBinding，可选完整 ApplicabilityPolicy 和 StaticSkillPolicy；静态选择必须同时显式提供三态策略。启动只读核批准与任务身份、原件、冻结索引和权限，不扫描目录生成知识或建立空库。恢复从脚本取得原外部批准，以 run 原件核验知识和策略；library_path 是启动定位符，允许迁移或不存在，仍核词法范围，不能作为当前批准来源。批准/策略/选择/模型/预算漂移及准入阶段坏账本统一为只读拒绝，CLI 返回 3，worker 不覆盖旧 run-state。开始执行之后的失败仍保留正常失败语义。知识、脚本、会话和清单的分代独立，不将脚本 5/6 当成自动学习资格。
 
@@ -485,7 +485,7 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 
 #### 3.1.3 Skill 版本、验证与演进
 
-**静态过程先提供完整可读的诊断步骤，再由独立版本验证为是否更新提供依据。** `static_skills.py` 从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。`static_skill_handoff.py` 将完整读取、实际模型输入、动作账本与报告接起来；程序入口、启停对照和私有导出使用同一冻结身份。受管脚本/CLI 配置已接入，独立版本、事前计划及完整合成回执的程序接口已实现，实际验收见 STATUS；演进判定/别名属于下一批，尚未提交。合成调用及可见性不证明学会经验或提高修复率。
+**静态过程先提供完整可读的诊断步骤，再由独立版本验证为是否更新提供依据。** `static_skills.py` 从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。`static_skill_handoff.py` 将完整读取、实际模型输入、动作账本与报告接起来；程序入口、启停对照和私有导出使用同一冻结身份。受管脚本/CLI 配置、独立版本/事前计划/完整合成回执及独立沙盒演进接口已实现，实际验收见 STATUS；别名启动桥接和自动模型提炼仍待实现。合成调用及可见性不证明学会经验或提高修复率。
 
 | 静态入口/对象 | 当前约束 |
 |---|---|
@@ -511,20 +511,24 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 | use_status 与分区 | followed 只证明完整目标 read_skill 成功并在后续 solver 输入可见，不证明模型逐步正确执行自然语言过程。未读取、后续不可见或通过 read_skill/普通经验搜索/单条或整页回读接触另一角色过程，保留完整结果并标 not_followed；无法认证为 unknown。不得筛掉这些格子或从它们直接推断选错/步骤缺陷。验证来源固定不可学习，不能以开发批准回流 FeedbackStore；所有回执 application_qualification=none |
 | 容量与发布 | 使用 FeedbackLimits，单次 API 的元数据、原件关闭及各递归回读共享累计读取预算，正式发布前预留完整祖先与来源回读成本；单文件/原件闭包也有容量门。拒链接、共享文件、未合并 SQLite 日志、范围错配和读取时变化，不在失败后补写或放宽。内部聚合和知识审计读取仍有自己的门，不能声称全流程 I/O、时间或峰值内存统一闭合 |
 
-当前两角色共享同时含旧/新完整过程的批准池，计划声明各自目标 read_skill；既有清单 5 仍只支持共同资源及启停因子。这套同池定向验证不构成不同知识快照效果比较，目录/选中身份不构成使用，自包含原件/哈希也不认证指导语义。policy_json 可固定 offline_synthetic 策略原对象；空策略或尚未定义的规则不能据此自报通过。受管反例范围在 test_skill_validation.py / test_skill_validation_integration.py，具体结果只记 STATUS。
+当前两角色共享同时含旧/新完整过程的批准池，计划声明各自目标 read_skill；既有清单 5 仍只支持共同资源及启停因子。这套同池定向验证不构成不同知识快照效果比较，目录/选中身份不构成使用，自包含原件/哈希也不认证指导语义。PlanSpec.policy_json 固定完整规范 SyntheticValidationPolicy，不能在观察运行后补策略；空策略或阈值未定不产生通过。受管反例范围在 test_skill_validation.py / test_skill_validation_integration.py，具体结果只记 STATUS。
 
-后续演进拟使用追加 SkillTransition，将内容版本与发布别名分开；尚未提交的判定/缩界/退回/别名批次须绑定父版本、候选内容、允许反馈、归因提议、冻结计划、完整回执集合、成本及发布决定，不能把本批回执直接当启用资格。以下是后续状态义务，不代表当前 Agent 已消费演进别名。
+`skill_transition_contracts.py` / `skill_evolution.py` 实现独立合成判定、追加沙盒发表和冻结选择，`SkillTransitionStore(validation_store)` 复用已预建 SkillValidationStore。构造、read_transition/read_publication/read_selection 均不创建或修复原件；实际结果只记 STATUS。当前 Agent 尚未消费沙盒别名，不把这一接口当部署或自动学习。
 
-| 状态/动作 | 接受条件及下一步 |
+| 合成对象/状态/动作 | 当前接受条件及行为 |
 |---|---|
-| proposed → validating | 修改范围、来源与允许分区可核验，验证协议/对照/成本已冻结；否则 pending |
-| validating → pending / rejected / eligible | 证据不足、未知成本或门槛未定为 pending；按冻结规则明确不合格为 rejected；只有完整实际证据满足策略才 eligible，模型自评无资格 |
-| pending → validating | 缺项补齐后追加新的验证尝试和冻结计划身份，保留原 pending、未知成本及旧计划；不原地改写。已 dispatched 而结果未知的检查不盲重发；新尝试另占预算，所有成本继续保留 |
-| eligible → activated | 发布事件指向不可改写版本及验证依据；新任务解析发布别名，在跑任务仍读原快照 |
-| 缩界/补分支 | 形成新候选及父版本关系，重新验证，不原地覆盖旧 Skill |
-| 退回 | 追加激活事件指向仍可读的旧版本；不删除失败成本或改写在跑任务 |
+| SyntheticValidationPolicy | scope=offline_synthetic、comparison=same_pool_targeted_procedure；代表/边界覆盖、净收益、成功损失、验证 Token/调用/尝试上限七项均默认为 None，无真实阈值默认。完整规范对象须在前置 PlanSpec 冻结，unknown_handling=pending；只衡量 synthetic Token 与已登记调用，不冒充实际费用或应用稳定性 |
+| HostTransitionApproval / decide_skill_transition | 明确绑定计划、升序唯一回执 ID 集合及预期 previous_transition_id，同时外部提供原 plan_approval；新判定从全部已保留计划和回执重算完整事实，追加 SkillTransition，不接主机自报 pass，不覆盖旧事件。历史读取按原事件前缀重算，原批准或前驱错配拒绝 |
+| synthetic_pending | 阈值未定、缺角色、未遵循/未知使用、结果或选定的 synthetic_tokens/reserved_calls 成本轴未知、执行兼容未知均保留为 pending；旧尝试缺项不能被新计划成功遮蔽，unknown 不记作 fail。实际金额/耗时及人工学习 not_run/null 单独保留未知，缺费用不补零；这些不是本合成门，不因 eligible 声称已测得 |
+| synthetic_rejected / synthetic_eligible | 只有完整已知事实才按冻结策略判断；各 attempt 分别满足代表/边界覆盖，全部尝试的新增成功、损害、净收益分母、Token/调用和尝试次数共同计入。违反门槛为 rejected，全部满足才 eligible；状态始终 synthetic，application_qualification=none |
+| 同计划补回执 / 跨计划重试 | 同计划已有回执按 ID 去重计费，不能替换同 case/role 的旧原件；新计划仍保留全历史，父版本、完整 policy_json 及共同 configuration 不得重置，新增 task/log/lineage 不能与旧计划重复。实际 compatibility 或 solver tool schema 已知漂移拒绝，缺失则 pending；全部旧成本、损害及矩阵分母保留 |
+| create_revision 缩界/补分支 | 人工形成完整新过程及新候选，由原父版本和两份反馈原外部批准约束，保留父链并重新验证；不原地覆盖、不自动归因或调用模型提炼。新学习调用 not_run，Token/monetary_cost 为 null |
+| HostPublicationApproval / publish_alias | scope=synthetic_sandbox；initialize_seed 仅准明确批准的原种子及空别名链；新 activate 必须引用候选当前 transition head，且其 synthetic_eligible 判定对应当前已选父版本和新修订，不能选旧合格前缀绕过后续损害/未知。正式发布前再次核当前判定；历史发表回读及完全相同的幂等返回仍按原事件认证。所有后续发表必须提供当前预期 publication 前驱，别名/split/逻辑 Skill 身份不能扩大或更换 |
+| rollback | 只准该别名此前已发表且属于当前版本父链的可读祖先；追加新发表事件并核当前预期前驱，不覆盖失败版本，不删历史成本 |
+| freeze_alias / FrozenSkillSelection / read_selection | 冻结当时原批准的别名 head、publication_id、version_id、投影摘要及 split；后续回读具体旧发表和完整版本，即使别名更新也保持原选择。不自动生成 KnowledgeSnapshot、SDK 资源或启动配置；Agent 别名桥接另待实现 |
+| 来源/容量与追加发布 | 每次 API 的元数据、copy/closure 和递归回读共用 FeedbackLimits 预算；同预算+完整原批准内可由私有 _PlanReadView 复用已认证 Plan，不能跨 API。每份回执原件/账本/聚合仍独立审读；成功/idempotent 回读或正式 mutation 前，_close_plans 绕过视图重核全部 Plan、父版本和反馈源，关闭核验计入同一预算。来源首尾或批准漂移拒绝，finally 丢弃视图；前驱继续复核，发布后重读事件字节/FD。第一批公共 Store 不改。事件/链有容量门，超限不截断、不放宽；非文件系统锁，内部聚合/知识审计 I/O 和峰值内存不是同一全局计量 |
 
-失败首先保存候选/版本/实际观察，并区分选错、步骤缺陷、未遵循、环境/工具失败或未知的归因提议。主机能核验失败及版本，归因仍可能是推断；环境失败或结果未知不能直接推成“修法有害”。被 rejected 的内容修改形成新候选，不覆盖原拒绝记录。合成验收只授予 synthetic 状态转换资格，不生产真实应用 eligible/晋升证据。
+失败首先保存候选/版本/实际观察。当前完整读取与后续可见性只能形成 followed/not_followed/unknown，不能自动诊断选错、步骤缺陷或自然语言逐步执行正确；这些归因须另有明确提议和依据。环境失败或结果未知不能直接推成“修法有害”。被 rejected 的内容修改形成新候选，不覆盖原拒绝记录。所有判定/发表/选择真实资格恒为 none，学习模型 not_run/null；实际费用、耗时与迁移收益无依据仍未知。分拆合成测试入口见 [DEVELOPMENT 测试登记](../DEVELOPMENT.md)，不证明自动学习质量或 Agent 已使用发布别名。
 
 晋升策略由评测文档定义，执行配置冻结其摘要：独立开发验证谱系、适用边界反例、旧/新同协议比较、功能/回归、质量损失、成本及未知处理。数值待定不阻塞合成软件实现，但禁止真实晋升。学习、候选验证及确认材料权限分开；主评测冻结，确认反馈不回流选候选；持续学习仅按允许的先测后更新协议另评估。
 
