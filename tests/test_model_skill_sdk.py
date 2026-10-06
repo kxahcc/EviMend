@@ -14,7 +14,9 @@ import pytest
 from test_agent_loop import response
 from test_knowledge_reporting import open_run
 from test_metrics import read_json, terminal
-from test_model_skill_versions import model_version as model_version  # noqa: PLC0414 -- pytest fixture re-export
+from test_model_skill_versions import (
+    model_version as model_version,  # noqa: PLC0414 -- pytest fixture re-export
+)
 from test_skill_validation_integration import expected_text, manifest, setup
 
 from dfx_agent.agent import _tools, run_fixed_agent

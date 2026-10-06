@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from dfx_agent.model_calls import canonical
 from dfx_agent.research_profile import profile_from_facts
 
 
@@ -50,9 +51,10 @@ def test_profile_identity_is_content_bound() -> None:
     profile = profile_from_facts(_facts())
     assert profile.profile_id == "research-profile-" + profile.content_sha256
     assert profile.contents()["lineage_group_id"] is None
+    assert type(profile).model_validate_json(profile.model_dump_json()) == profile
 
     with pytest.raises(ValueError, match="content identity"):
-        type(profile).model_validate({**profile.model_dump(mode="json"), "run_id": "run-other"})
+        type(profile).model_validate_json(canonical({**profile.model_dump(mode="json"), "run_id": "run-other"}))
 
 
 def test_missing_cost_does_not_become_zero() -> None:
@@ -61,3 +63,18 @@ def test_missing_cost_does_not_become_zero() -> None:
     assert profile.total.total_tokens is None
     assert profile.total.known_tokens_lower_bound == 0
     assert all(stage.status == "unknown" for stage in profile.stages)
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_solver_totals_preserve_unknown_values(missing: bool) -> None:
+    facts = _facts()
+    del facts["validation_cost"]
+    if missing:
+        facts["cost"].update(reserved_calls=None, total_tokens=None, usage_complete=False)
+        facts["timing"] = {"repair_ms": None}
+    profile = profile_from_facts(facts, expected_stages=())
+
+    assert profile.total.reserved_calls == (None if missing else 2)
+    assert profile.total.total_tokens == (None if missing else 30)
+    assert profile.total.elapsed_ms == (None if missing else 120.0)
+    assert profile.total.known_tokens_lower_bound == 30

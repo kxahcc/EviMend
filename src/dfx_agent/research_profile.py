@@ -220,7 +220,7 @@ def _version_learning_stages(value: Any) -> list[ResearchStageCost]:
             binding = operation.get("source_binding_sha256")
             if not isinstance(owner, str) or not isinstance(binding, str):
                 continue
-            key = "/".join((operation_id, run_id, owner, binding))
+            key = f"{operation_id}/{run_id}/{owner}/{binding}"
             source_ids = _tuple_strings(operation.get("source_ids"))
             stage = _cost_stage("learning", operation.get("cost"), source_ids=source_ids,
                                 dedup_keys=("operation-cost/" + key,))
@@ -245,16 +245,17 @@ def profile_from_facts(facts: dict[str, Any], *, lineage_group_id: str | None = 
     caller and turns omitted deployment/application evidence into ``unknown``.
     """
     if not isinstance(facts, dict):
-        raise ValueError("research profile facts must be an object")
+        raise TypeError("research profile facts must be an object")
     task_id, run_id = facts.get("task_id"), facts.get("run_id")
     if not isinstance(task_id, str) or not isinstance(run_id, str):
-        raise ValueError("research profile requires the saved task and run IDs")
+        raise TypeError("research profile requires the saved task and run IDs")
     if lineage_group_id is not None:
         _identifier(lineage_group_id, "lineage group ID")
     stages: dict[str, ResearchStageCost] = {}
     cost = facts.get("cost")
-    timing = facts.get("timing") if isinstance(facts.get("timing"), dict) else {}
-    session = facts.get("session") if isinstance(facts.get("session"), dict) else {}
+    timing_value, session_value = facts.get("timing"), facts.get("session")
+    timing = timing_value if isinstance(timing_value, dict) else {}
+    session = session_value if isinstance(session_value, dict) else {}
     solver_deadline = _float(session.get("max_seconds"))
     if solver_deadline is not None:
         solver_deadline *= 1000
@@ -304,14 +305,17 @@ def _combine_stage(stage: str, values: list[ResearchStageCost]) -> ResearchStage
         return _cost_stage(stage, None)
     calls = [value.reserved_calls for value in values]
     totals = [value.total_tokens for value in values]
+    elapsed = [value.elapsed_ms for value in values]
+    known_calls = [value for value in calls if value is not None]
+    known_totals = [value for value in totals if value is not None]
+    known_elapsed = [value for value in elapsed if value is not None]
     reasons = sorted({reason for value in values for reason in value.unknown_reasons})
     return ResearchStageCost(stage=stage, status="unknown" if reasons else "observed",
-                             reserved_calls=None if any(value is None for value in calls) else sum(calls),
+                             reserved_calls=None if len(known_calls) != len(calls) else sum(known_calls),
                              known_tokens_lower_bound=sum(value.known_tokens_lower_bound for value in values),
-                             total_tokens=None if reasons or any(value is None for value in totals) else sum(totals),
+                             total_tokens=None if reasons or len(known_totals) != len(totals) else sum(known_totals),
                              unknown_calls=sum(value.unknown_calls for value in values),
-                             elapsed_ms=None if any(value.elapsed_ms is None for value in values)
-                             else sum(value.elapsed_ms for value in values),
+                             elapsed_ms=None if len(known_elapsed) != len(elapsed) else sum(known_elapsed),
                              deadline_ms=None,
                              source_ids=tuple(sorted({item for value in values for item in value.source_ids})),
                              dedup_keys=tuple(sorted({item for value in values for item in value.dedup_keys})),
@@ -323,12 +327,15 @@ def _combine_total(stages: tuple[ResearchStageCost, ...]) -> ResearchCostSummary
     calls = [stage.reserved_calls for stage in stages]
     totals = [stage.total_tokens for stage in stages]
     elapsed = [stage.elapsed_ms for stage in stages]
+    known_calls = [value for value in calls if value is not None]
+    known_totals = [value for value in totals if value is not None]
+    known_elapsed = [value for value in elapsed if value is not None]
     deadlines = [stage.deadline_ms for stage in stages if stage.deadline_ms is not None]
-    return ResearchCostSummary(reserved_calls=None if any(value is None for value in calls) else sum(calls),
+    return ResearchCostSummary(reserved_calls=None if len(known_calls) != len(calls) else sum(known_calls),
                                known_tokens_lower_bound=sum(stage.known_tokens_lower_bound for stage in stages),
-                               total_tokens=None if reasons or any(value is None for value in totals) else sum(totals),
+                               total_tokens=None if reasons or len(known_totals) != len(totals) else sum(known_totals),
                                unknown_calls=sum(stage.unknown_calls for stage in stages),
-                               elapsed_ms=None if any(value is None for value in elapsed) else sum(elapsed),
+                               elapsed_ms=None if len(known_elapsed) != len(elapsed) else sum(known_elapsed),
                                deadline_ms=max(deadlines) if deadlines else None,
                                unknown_reasons=tuple(reasons))
 

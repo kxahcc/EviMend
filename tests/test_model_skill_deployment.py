@@ -17,8 +17,12 @@ from test_exporting import io_path, managed_inputs
 from test_feedback_integration import feedback_approval, inventory
 from test_metrics import read_json, save_json, terminal
 from test_model_skill_sdk import binding_for
-from test_model_skill_sdk import planned_model_pool as planned_model_pool  # noqa: PLC0414 -- pytest fixture re-export
-from test_model_skill_versions import model_version as model_version  # noqa: PLC0414 -- pytest fixture re-export
+from test_model_skill_sdk import (
+    planned_model_pool as planned_model_pool,  # noqa: PLC0414 -- pytest fixture re-export
+)
+from test_model_skill_versions import (
+    model_version as model_version,  # noqa: PLC0414 -- pytest fixture re-export
+)
 from test_skill_validation_integration import expected_text, selection_task
 
 from dfx_agent import exporting
