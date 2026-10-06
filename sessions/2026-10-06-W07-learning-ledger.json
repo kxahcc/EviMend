@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "scope": "offline_synthetic",
+  "batch": "W07-learning-ledger",
+  "date": "2026-10-06",
+  "objective": "Keep legacy solver intents unchanged and separately meter learning purposes with durable recovery and completed parent-response audit.",
+  "result": "passed",
+  "implementation": {
+    "files": ["src/dfx_agent/model_calls.py"],
+    "new_intent_schema": 2,
+    "legacy_intent_schema": 1,
+    "learning_kinds": ["experience_extraction", "learning_format_repair"],
+    "ownership": "Independent task/run plus frozen owner/source hashes; hashes do not admit source permission. Same owner cannot mix generations or sources.",
+    "recovery": "Reservation consumes shared call count. Preflight failure stays reserved and undispatched; dispatched/unknown never auto-resend; completed full responses replay without a provider call.",
+    "format_repair": "Completed same-owner/source/provider/model parent required; complete response and observations recursively recomputed, with at most 128 calls including current.",
+    "usage": "Learning normalized and raw usage require exact nonnegative integers and consistent sums. Missing or invalid usage is retained, not estimated.",
+    "limits": "All learning subpurposes share owner call count and known-token threshold. This is not a hard total-token or cross-operation budget; actual fees remain unknown.",
+    "full_source_workflow": "Separate next package; bottom-level hashes do not prove actual request or learning permission.",
+    "application_qualification": "none"
+  },
+  "tests": {
+    "new": {"receipt": "95235f64-7833-4b0f-bf6b-d8faeaa652d5", "passed": 51, "skipped": 0, "seconds": 1.93},
+    "legacy": {"receipt": "e2a82ba8-d629-464b-8d46-f83e7f5ee3fc", "passed": 21, "skipped": 0, "seconds": 1.29},
+    "not_full_repository_round": true
+  },
+  "quality": {
+    "ruff": {"receipt": "a298ec6f-c5d8-4c8f-a249-bbf482a91366", "result": "passed"},
+    "pyright": {"receipt": "6c06e262-8c10-4660-b9ad-35485d9afff1", "errors": 0, "warnings": 0},
+    "docs": {"receipt": "5eaa9f24-a568-4f09-92c1-34c2df053da3", "result": "passed", "registered_documents": 14},
+    "initial_ruff_failure": {"receipt": "8df63127-5b52-4f28-8206-b011a86fb3d3", "reason": "Three new workflow import blocks and serialized-invalid-evidence exception category; imports corrected, intentional ValueError documented. No core runtime changes after the ledger tests."}
+  },
+  "environment": {"new_dependencies": 0, "model_weights": 0, "harmonyos_installs": 0, "resource_limits_changed": false, "global_environment_changed": false, "real_model_runs": 0, "application_runs": 0, "templates_changed": false},
+  "remaining": ["Complete feedback-to-draft workflow acceptance", "Approved model-derived versions and Agent startup bridge", "ResearchProfile and end-to-end learning/deployment comparison", "Real cloud and application validation"]
+}

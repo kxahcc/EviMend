@@ -126,6 +126,8 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 
 ### 开发反馈与待审核经验：程序接口
 
+模型调用账本保持分代：求解会话仍用 ModelCallIntent/schema 1；独立学习用 ModelCallIntentV2/schema 2，冻结学习 owner 和来源，experience_extraction 与 learning_format_repair 共享同 operation/run 预算。格式修复须引用同模型/来源的已完成父响应，完整父链和 usage 重核；未知发送不重试，完成只回放。invoke_accounted 的显式 preflight 在 reserve 后、dispatch 前执行，失败保留未发送预约且占额度；实际费用和总 Token 硬限制未接入。它是底层调用状态接口，来源权限仍须由学习工作流核验，不能仅凭哈希准入材料。合成检查入口是 tests/test_learning_model_calls.py，真实实验仍禁止。
+
 `feedback.py` 的 FeedbackStore 消费主机明确批准的单开发运行清单，捕获并独立重核反馈；当前只提供程序接口，须在受管工作流或软件自检内调用，尚无用户学习 CLI。预创建的 Store 位于项目受管目录，不从数据包扫描经验或自动启动模型。
 
 1. 用 HostFeedbackApproval 批准完整 manifest 身份、development 学习用途、允许部署分区及排除谱系。清单只能包含一任务、一变体、一 repeat 和一 run，必须有与 task schema 2 一致的完整 CaseSelection。

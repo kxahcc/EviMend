@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal, get_args
 
 from langchain_core.messages import AIMessage
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .contracts import IDENTIFIER, require_hash
 from .evidence_io import open_readonly_database
@@ -56,6 +56,72 @@ class ModelCallIntent(BaseModel):
 
     def sha256(self) -> str:
         return sha256(canonical(self.model_dump(mode="json")))
+
+
+class ModelCallIntentV2(BaseModel):
+    """Independent learning ownership; hashes alone do not grant source permission."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    schema_version: Literal[2] = 2
+    call_id: str
+    task_id: str
+    run_id: str
+    kind: Literal["experience_extraction", "learning_format_repair"]
+    provider_id: str = Field(min_length=1, max_length=100)
+    model_id: str = Field(min_length=1, max_length=200)
+    prompt_sha256: str
+    tool_schema_sha256: str
+    parameters_sha256: str
+    tool_names: tuple[str, ...]
+    source_binding_sha256: str
+    learning_owner_sha256: str
+    parent_call_id: str | None = None
+
+    @field_validator("schema_version", mode="before")
+    @classmethod
+    def exact_schema(cls, value: object) -> object:
+        if type(value) is not int or value != 2:
+            raise ValueError("learning call schema must be integer 2")
+        return value
+
+    @model_validator(mode="after")
+    def valid_intent(self) -> ModelCallIntentV2:
+        if type(self.schema_version) is not int:
+            raise ValueError("learning call schema must be integer 2")
+        for value in (self.call_id, self.task_id, self.run_id):
+            if not IDENTIFIER.fullmatch(value):
+                raise ValueError("invalid model call identity")
+        for value in (self.prompt_sha256, self.tool_schema_sha256, self.parameters_sha256,
+                      self.source_binding_sha256, self.learning_owner_sha256):
+            require_hash(value)
+        if self.tool_names:
+            raise ValueError("learning calls cannot authorize executable tools")
+        if self.kind == "experience_extraction":
+            if self.parent_call_id is not None:
+                raise ValueError("extraction cannot name a format repair parent")
+        elif (self.parent_call_id is None or not IDENTIFIER.fullmatch(self.parent_call_id) or
+              self.parent_call_id == self.call_id):
+            raise ValueError("format repair requires a distinct parent call")
+        return self
+
+    def sha256(self) -> str:
+        return sha256(canonical(self.model_dump(mode="json")))
+
+
+AnyModelCallIntent = ModelCallIntent | ModelCallIntentV2
+MODEL_CALL_KINDS = (*get_args(ModelCallIntent.model_fields["kind"].annotation),
+                    *get_args(ModelCallIntentV2.model_fields["kind"].annotation))
+MAX_LEARNING_PARENT_DEPTH = 128
+
+
+def parse_model_call_intent(value: str) -> AnyModelCallIntent:
+    """Read explicit generations without widening the original schema 1 enum."""
+    raw = json.loads(value)
+    if not isinstance(raw, dict):
+        raise ValueError("model call intent must be an object")  # noqa: TRY004 - invalid serialized evidence
+    if raw.get("schema_version", 1) == 1:
+        return ModelCallIntent.model_validate_json(value)
+    return ModelCallIntentV2.model_validate_json(value)
 
 
 class ModelUsage(BaseModel):
@@ -104,7 +170,7 @@ class ModelObservation(BaseModel):
         return self
 
 
-def normalize_message(intent: ModelCallIntent, message: AIMessage) -> ModelObservation:
+def normalize_message(intent: AnyModelCallIntent, message: AIMessage) -> ModelObservation:
     """Classify a LangChain message without treating its claims as execution facts."""
     errors: list[str] = []
     calls: list[ToolCallFingerprint] = []
@@ -152,6 +218,8 @@ def normalize_message(intent: ModelCallIntent, message: AIMessage) -> ModelObser
             else:
                 usage = ModelUsage.model_validate({key: usage_raw[key] for key in
                                                    ("input_tokens", "output_tokens", "total_tokens")})
+                if isinstance(intent, ModelCallIntentV2) and usage.total_tokens != usage.input_tokens + usage.output_tokens:
+                    raise ValueError("learning usage counts disagree")
             usage_status = "known"
         except (KeyError, TypeError, ValueError):
             usage = None
@@ -181,7 +249,7 @@ CallState = Literal["reserved", "dispatched", "completed", "unknown"]
 
 class ModelCallRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    intent: ModelCallIntent
+    intent: AnyModelCallIntent
     state: CallState
     observation: ModelObservation | None
     uncertainty_reason: str | None
@@ -222,7 +290,7 @@ class ModelCallStore:
 
     @staticmethod
     def _record(row: sqlite3.Row) -> ModelCallRecord:
-        intent = ModelCallIntent.model_validate_json(row["intent_json"])
+        intent = parse_model_call_intent(row["intent_json"])
         if (intent.sha256() != row["request_sha256"] or row["call_id"] != intent.call_id
                 or row["task_id"] != intent.task_id or row["run_id"] != intent.run_id):
             raise ModelCallConflict("stored request identity changed")
@@ -237,16 +305,75 @@ class ModelCallStore:
         return ModelCallRecord(intent=intent, state=row["state"], observation=observation,
                                uncertainty_reason=row["uncertainty_reason"])
 
+    @staticmethod
+    def _completed_message(row: sqlite3.Row, record: ModelCallRecord) -> AIMessage:
+        if record.state != "completed" or row["message_json"] is None or record.observation is None:
+            raise ModelCallConflict("learning format repair parent is not completed")
+        message = AIMessage.model_validate_json(row["message_json"])
+        if sha256(canonical(message.model_dump(mode="json"))) != record.observation.response_sha256:
+            raise ModelCallConflict("stored response changed")
+        if normalize_message(record.intent, message) != record.observation:
+            raise ModelCallConflict("stored observation changed")
+        return message
+
+    def _validate_learning_lineage(self, connection: sqlite3.Connection, intent: AnyModelCallIntent) -> None:
+        if not isinstance(intent, ModelCallIntentV2):
+            return
+        own_row = connection.execute("SELECT * FROM model_calls WHERE call_id=?", (intent.call_id,)).fetchone()
+        if own_row is not None:
+            own_record = self._record(own_row)
+            if own_record.intent != intent:
+                raise ModelCallConflict("call ID reused for a different request")
+            if own_record.state == "completed":
+                self._completed_message(own_row, own_record)
+        seen = {intent.call_id}
+        current = intent
+        while current.kind == "learning_format_repair":
+            parent_id = current.parent_call_id
+            if parent_id is None or parent_id in seen or len(seen) >= MAX_LEARNING_PARENT_DEPTH:
+                raise ModelCallConflict("learning format repair lineage is cyclic or excessive")
+            seen.add(parent_id)
+            row = connection.execute("SELECT * FROM model_calls WHERE call_id=?", (parent_id,)).fetchone()
+            if row is None:
+                raise ModelCallConflict("learning format repair parent is missing")
+            record = self._record(row)
+            parent = record.intent
+            if not isinstance(parent, ModelCallIntentV2) or any(
+                    getattr(parent, name) != getattr(current, name) for name in
+                    ("task_id", "run_id", "learning_owner_sha256", "source_binding_sha256", "provider_id", "model_id")):
+                raise ModelCallConflict("learning format repair parent ownership or source differs")
+            self._completed_message(row, record)
+            current = parent
+
+    def _validate_learning_owner(self, connection: sqlite3.Connection, intent: AnyModelCallIntent) -> None:
+        rows = connection.execute("SELECT * FROM model_calls WHERE task_id=? AND run_id=?",
+                                  (intent.task_id, intent.run_id)).fetchall()
+        if isinstance(intent, ModelCallIntent):
+            if any(isinstance(self._record(row).intent, ModelCallIntentV2) for row in rows):
+                raise ModelCallConflict("learning owner cannot mix sources or intent generations")
+            return
+        for row in rows:
+            record = self._record(row)
+            if not isinstance(record.intent, ModelCallIntentV2) or any(
+                    getattr(record.intent, name) != getattr(intent, name) for name in
+                    ("learning_owner_sha256", "source_binding_sha256")):
+                raise ModelCallConflict("learning owner cannot mix sources or intent generations")
+            self._validate_learning_lineage(connection, record.intent)
+
     def get(self, call_id: str) -> ModelCallRecord | None:
         with closing(self._connect()) as connection:
             row = connection.execute("SELECT * FROM model_calls WHERE call_id=?", (call_id,)).fetchone()
-        return self._record(row) if row is not None else None
+            record = self._record(row) if row is not None else None
+            if record is not None:
+                self._validate_learning_lineage(connection, record.intent)
+                self._validate_learning_owner(connection, record.intent)
+        return record
 
     def records(self, task_id: str, run_id: str, *, kind: str | None = None) -> list[ModelCallRecord]:
         """Read every owned call in reservation order, optionally selecting its kind."""
         if any(not isinstance(value, str) or not IDENTIFIER.fullmatch(value) for value in (task_id, run_id)):
             raise ValueError("invalid model ledger owner")
-        if kind is not None and kind not in get_args(ModelCallIntent.model_fields["kind"].annotation):
+        if kind is not None and kind not in MODEL_CALL_KINDS:
             raise ValueError("invalid model call kind")
         with closing(self._connect()) as connection:
             rows = connection.execute("SELECT call_id FROM model_calls WHERE task_id=? AND run_id=? ORDER BY rowid",
@@ -260,19 +387,39 @@ class ModelCallStore:
                 result.append(record)
         return result
 
-    def reserve(self, intent: ModelCallIntent, *, max_calls: int) -> ModelCallRecord:
+    def reserve(self, intent: AnyModelCallIntent, *, max_calls: int,
+                max_known_tokens: int | None = None) -> ModelCallRecord:
         if self.read_only:
             raise ValueError("model ledger is read-only")
-        if max_calls < 1:
+        if max_calls < 1 or (isinstance(intent, ModelCallIntentV2) and type(max_calls) is not int):
             raise ValueError("max_calls must be positive")
+        if max_known_tokens is not None and (type(max_known_tokens) is not int or max_known_tokens < 1):
+            raise ValueError("max_known_tokens must be a positive integer")
+        intent = parse_model_call_intent(canonical(intent.model_dump(mode="json")))
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
+            self._validate_learning_lineage(connection, intent)
+            self._validate_learning_owner(connection, intent)
             row = connection.execute("SELECT * FROM model_calls WHERE call_id=?", (intent.call_id,)).fetchone()
             if row is not None:
                 record = self._record(row)
                 if record.intent.sha256() != intent.sha256():
                     raise ModelCallConflict("call ID reused for a different request")
-                return record
+                if record.state != "reserved" or max_known_tokens is None:
+                    return record
+            if max_known_tokens is not None:
+                owned = connection.execute("SELECT * FROM model_calls WHERE task_id=? AND run_id=?",
+                                           (intent.task_id, intent.run_id)).fetchall()
+                known = 0
+                for owned_row in owned:
+                    owned_record = self._record(owned_row)
+                    self._validate_learning_lineage(connection, owned_record.intent)
+                    if owned_record.observation is not None and owned_record.observation.usage is not None:
+                        known += owned_record.observation.usage.total_tokens
+                if known >= max_known_tokens:
+                    raise ModelCallBudget("known model token threshold exhausted")
+            if row is not None:
+                return self._record(row)
             count = connection.execute("SELECT COUNT(*) FROM model_calls WHERE task_id=? AND run_id=?",
                                        (intent.task_id, intent.run_id)).fetchone()[0]
             if count >= max_calls:
@@ -294,13 +441,15 @@ class ModelCallStore:
             if updated != 1:
                 raise ModelCallConflict("model call is not an undispatched reservation")
 
-    def complete(self, intent: ModelCallIntent, message: AIMessage) -> ModelObservation:
+    def complete(self, intent: AnyModelCallIntent, message: AIMessage) -> ModelObservation:
         if self.read_only:
             raise ValueError("model ledger is read-only")
         observation = normalize_message(intent, message)
         message_json = canonical(message.model_dump(mode="json"))
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
+            self._validate_learning_lineage(connection, intent)
+            self._validate_learning_owner(connection, intent)
             row = connection.execute("SELECT * FROM model_calls WHERE call_id=?", (intent.call_id,)).fetchone()
             record = self._record(row) if row is not None else None
             if record is None or record.intent.sha256() != intent.sha256():
@@ -329,9 +478,11 @@ class ModelCallStore:
             if updated != 1:
                 raise ModelCallConflict("only dispatched calls can become unknown")
 
-    def replay(self, intent: ModelCallIntent) -> tuple[AIMessage, ModelObservation]:
+    def replay(self, intent: AnyModelCallIntent) -> tuple[AIMessage, ModelObservation]:
         with closing(self._connect()) as connection:
             row = connection.execute("SELECT * FROM model_calls WHERE call_id=?", (intent.call_id,)).fetchone()
+            self._validate_learning_lineage(connection, intent)
+            self._validate_learning_owner(connection, intent)
         if row is None or row["state"] != "completed" or row["message_json"] is None:
             raise ModelCallUncertain("no completed response to replay")
         record = self._record(row)
@@ -348,7 +499,10 @@ class ModelCallStore:
         with closing(self._connect()) as connection:
             rows = connection.execute("SELECT * FROM model_calls WHERE task_id=? AND run_id=?",
                                       (task_id, run_id)).fetchall()
-        records = [self._record(row) for row in rows]
+            records = [self._record(row) for row in rows]
+            for item in records:
+                self._validate_learning_lineage(connection, item.intent)
+                self._validate_learning_owner(connection, item.intent)
         known = [item.observation.usage for item in records if item.observation and item.observation.usage]
         return {"reserved_calls": len(records), "completed_calls": sum(item.state == "completed" for item in records),
                 "uncertain_calls": sum(item.state in ("dispatched", "unknown") for item in records),
@@ -361,14 +515,17 @@ class ModelCallStore:
                 "known_total_tokens": sum(item.total_tokens for item in known)}
 
 
-def invoke_accounted(store: ModelCallStore, intent: ModelCallIntent, provider: Callable[[], AIMessage],
-                     *, max_calls: int) -> tuple[AIMessage, ModelObservation]:
+def invoke_accounted(store: ModelCallStore, intent: AnyModelCallIntent, provider: Callable[[], AIMessage],
+                     *, max_calls: int, max_known_tokens: int | None = None,
+                     preflight: Callable[[], None] | None = None) -> tuple[AIMessage, ModelObservation]:
     """One logical call. A dispatched call is never silently sent again on resume."""
-    state = store.reserve(intent, max_calls=max_calls).state
+    state = store.reserve(intent, max_calls=max_calls, max_known_tokens=max_known_tokens).state
     if state == "completed":
         return store.replay(intent)
     if state != "reserved":
         raise ModelCallUncertain("provider result may exist; reconcile or use a new accounted call")
+    if preflight is not None:
+        preflight()
     store.dispatch(intent.call_id)
     try:
         message = provider()
