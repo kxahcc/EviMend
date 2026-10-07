@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-08",
+  "batch": "competition delivery 1: cloud request and managed local execution channels",
+  "scope": "software implementation and synthetic acceptance only",
+  "changes": ["cloud profile, environment credential and admission, single-attempt HTTPX dispatch", "SDK call ledger and readonly request reconstruction", "complete-project identity and analysis mapping, candidate overlay", "named managed Windows Job and nested child-tree termination", "baseline reproduction and build/target/behavior/regression stage receipts", "saved failed-check scope remains synthetic or application, inferred obligation links remain unknown"],
+  "validation": [
+    {"task": "tests/test_cloud_provider.py", "passed": 36, "seconds": 2.90, "receipt": "775a5278-8631-4d56-b103-9dc9a9b44d6b"},
+    {"task": "tests/test_local_execution.py", "passed": 16, "skipped": 1, "skip_reason": "Windows account cannot create symlinks", "seconds": 12.92, "receipt": "c3b6c9b9-e8f9-43c2-89e9-25026292fee9"},
+    {"task": "tests/test_agent_loop.py", "passed": 12, "seconds": 17.95, "receipt": "1167b3eb-f4f3-4c67-aefb-f1670d333862"},
+    {"task": "tests/test_causal_diagnosis.py", "passed": 21, "seconds": 8.15, "receipt": "d01fd9e3-52c8-466e-8afb-fe713dc45b8e"},
+    {"task": "Ruff", "result": "All checks passed", "receipt": "bcec56da-ffee-43f6-a8e0-c4e8f9b2f6ea"},
+    {"task": "Pyright", "errors": 0, "warnings": 0, "receipt": "78800c71-5636-48ee-afe2-a3fbaf0aa789"},
+    {"task": "documentation check", "result": "passed", "receipt": "1473ab93-ced6-4e7f-9e27-e46f9408e342"}
+  ],
+  "failures_retained": [
+    {"receipt": "1ec99932-f319-4e0d-8744-e3e0603b45bf", "failed": 16, "reason": "NULL Job query selected another nested Job; fixed named Job identity"},
+    {"receipt": "467f8ade-d670-4190-8fad-ce4c48b99d94", "failed": 11, "passed": 5, "skipped": 1, "reason": "Windows long execution paths; extended receipt paths and short per-key project copy paths"},
+    {"receipt": "7d68eee3-9e76-4cfa-b0fa-bbbd50e86c9c", "failed": 1, "passed": 15, "skipped": 1, "reason": "fixture assumed LF instead of checking exact frozen candidate bytes"},
+    {"receipt": "193ddd04-34d4-494a-8f5c-a61fe5167335", "reason": "Ruff found six style errors; imports, ctypes attribute access and fixture formatting fixed"},
+    {"receipt": "fe0273b4-d2ee-4e38-a242-18be57899230", "reason": "Pyright found four accesses to nonexistent feedback citation fields; scope and kind now derived from the saved check"}
+  ],
+  "environment": "existing project Python and locked dependencies reused; no installation, downloads, global changes or relaxed limits",
+  "real_model_calls": 0,
+  "harmonyos_application_runs": 0,
+  "limitations": ["real provider compatibility and exact tokenizer/fees unverified", "application command/oracle and device admission still required", "full original project must remain present and unchanged on execution resume", "a Windows Job is a process/resource boundary, not filesystem or device isolation"],
+  "next": "competition delivery 2: managed product entry and complete synthetic acceptance"
+}

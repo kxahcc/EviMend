@@ -239,10 +239,11 @@ class AnalysisStore:
             if (candidate["candidate_snapshot_sha256"] != feedback.candidate_snapshot_sha256 or result is None or
                     result.status != "fail" or result.idempotency_key != feedback.execution_id):
                 raise ValueError("feedback has no matching failed check and version")
-            facts.append(admit_evidence({**identity, "record_id": feedback.evidence_id, "kind": "local_execution",
+            facts.append(admit_evidence({**identity, "record_id": feedback.evidence_id,
+                         "kind": "application_execution" if result.execution_scope == "application" else "local_execution",
                          "artifact_sha256": digest(result.model_dump_json().encode()), "statement": result.detail,
                          "execution_id": result.idempotency_key, "evaluated_candidate_id": feedback.candidate_id,
-                         "execution_snapshot_sha256": feedback.candidate_snapshot_sha256, "execution_scope": "synthetic"},
+                         "execution_snapshot_sha256": feedback.candidate_snapshot_sha256, "execution_scope": result.execution_scope},
                          channel="execution_backend"))
         for note in submission.inferences:
             facts.append(admit_evidence({**identity, "record_id": note.evidence_id, "kind": "model_inference",

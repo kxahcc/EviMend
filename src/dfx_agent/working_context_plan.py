@@ -530,9 +530,11 @@ def _verify_raw_material(packet: WorkingContextPacket, raw: dict[str, bytes], sn
         elif checked.kind == "model_inference":
             if digest(checked.statement.encode()) != checked.artifact_sha256:
                 raise ValueError("frozen model inference changed")
-        elif checked.kind == "local_execution":
+        elif checked.kind in ("local_execution", "application_execution"):
             check = CheckResult.model_validate_json(canonical(value["checks"][checked.evaluated_candidate_id]["result"]))
-            if (checked.execution_scope != "synthetic" or check.status != "fail" or check.detail != checked.statement or
+            if (checked.execution_scope != check.execution_scope or checked.execution_scope !=
+                    ("application" if checked.kind == "application_execution" else "synthetic") or
+                    check.status != "fail" or check.detail != checked.statement or
                     checked.artifact_sha256 != digest(check.model_dump_json().encode()) or check.idempotency_key != checked.execution_id):
                 raise ValueError("frozen synthetic execution changed")
         else:

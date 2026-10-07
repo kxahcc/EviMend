@@ -257,7 +257,7 @@ class FixedResponseModel(BaseChatModel):
 
 
 class AccountedProviderModel(FixedResponseModel):
-    """Reuse the SDK/budget fields with an explicit mock-only wire adapter."""
+    """Use the same durable SDK budget boundary for admitted provider requests."""
 
     adapter: ChatCompletionsAdapter = Field(exclude=True)
     request_error_reason: str | None = None
@@ -290,6 +290,31 @@ class AccountedProviderModel(FixedResponseModel):
             tool_names=tuple(item["function"]["name"] for item in request.tools),
         )
 
+    def _provider_admission(self, request: PreparedRequest, intent: ModelCallIntent) -> Any:
+        from .model_provider import CloudChatCompletionsAdapter
+
+        if not isinstance(self.adapter, CloudChatCompletionsAdapter):
+            return None
+        existing = self.call_store.get(intent.call_id)
+        if existing is not None and existing.state == "completed":
+            return None
+        self._refresh_usage()
+        if self.missing_usage_calls:
+            raise ModelLimit("provider_usage_unknown")
+        try:
+            return self.adapter.admission(request, remaining_tokens=self.max_known_tokens - self.known_tokens,
+                                          remaining_seconds=self.deadline - time.monotonic())
+        except AdapterError as exc:
+            self.request_error_reason = exc.reason
+            raise ModelLimit("provider_admission_rejected") from exc
+
+    def _provider_invoke(self, request: PreparedRequest, admission: Any) -> AIMessage:
+        from .model_provider import CloudChatCompletionsAdapter
+
+        if isinstance(self.adapter, CloudChatCompletionsAdapter):
+            return self.adapter.invoke(request, admission=admission)
+        return self.adapter.invoke(request)
+
     def _summary(self, plan: CompactionPlan) -> AIMessage:
         try:
             request = plan.summary_request()
@@ -300,9 +325,10 @@ class AccountedProviderModel(FixedResponseModel):
             raise ModelLimit("context_compaction_input_limit") from exc
         intent = plan.summary_intent()
         self._guard_budget(intent)
+        admission = self._provider_admission(request, intent)
 
         def provide() -> AIMessage:
-            message = self.adapter.invoke(request).model_copy(deep=True)
+            message = self._provider_invoke(request, admission).model_copy(deep=True)
             message.response_metadata = {**message.response_metadata, "dfx_model_call_id": intent.call_id}
             return message
 
@@ -329,10 +355,11 @@ class AccountedProviderModel(FixedResponseModel):
             self.request_error_reason = exc.reason
             raise ModelLimit("provider_request_unsupported") from exc
         intent = self._request_intent(request)
+        admission = self._provider_admission(request, intent)
         self._reserve_solver(intent, request)
 
         def provide() -> AIMessage:
-            message = self.adapter.invoke(request).model_copy(deep=True)
+            message = self._provider_invoke(request, admission).model_copy(deep=True)
             message.response_metadata = {**message.response_metadata, "dfx_model_call_id": intent.call_id}
             return message
 

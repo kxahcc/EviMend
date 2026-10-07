@@ -6,6 +6,7 @@ import json
 import sqlite3
 import stat
 import time
+from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -366,7 +367,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
 
     @tool
     def run_check(candidate_id: str, proposal_json: str | None = None) -> str:
-        """Run a synthetic offline check only for a registered frozen candidate."""
+        """Run the host-fixed checks for a frozen candidate; inspect the returned evidence level."""
         try:
             result = ledger.run(candidate_id)
             return result.model_dump_json()
@@ -376,7 +377,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
     @tool
     def link_failed_check(candidate_id: str, violated_obligation_ids: list[str],
                           proposal_json: str | None = None) -> str:
-        """Link an actual failed synthetic check to model-inferred obligations."""
+        """Link an actual saved failed check to model-inferred obligations, preserving its scope."""
         try:
             if not policy_features.obligation_tracking:
                 raise ValueError("obligation tracking is disabled")
@@ -390,8 +391,10 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
                 raise ValueError("feedback obligation was not linked to this candidate")
             feedback = Counterexample(candidate_id=candidate_id,
                                       candidate_snapshot_sha256=record["candidate_snapshot_sha256"],
-                                      execution_id=result.idempotency_key, evidence_kind="local_execution",
-                                      scope="synthetic", link_authority="model_inference",
+                                      execution_id=result.idempotency_key,
+                                      evidence_kind=("application_execution" if result.execution_scope == "application"
+                                                     else "local_execution"),
+                                      scope=result.execution_scope, link_authority="model_inference",
                                       violated_obligation_ids=violated_obligation_ids,
                                       observation=result.detail)
             folder = workspace.root / "feedback"
@@ -592,7 +595,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     version_skills: Any = None,
                     version_skill_approval: Any = None,
                     version_skills_enabled: bool | None = None,
-                    compaction_responses: list[AIMessage] | None = None) -> dict[str, Any]:
+                    compaction_responses: list[AIMessage] | None = None,
+                    startup_hook: Callable[[CandidateWorkspace], None] | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
         raise ValueError("budgets must be positive")
@@ -626,6 +630,14 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         task_info = verify_task(task)
         workspace = (CandidateWorkspace.reopen(task, work, run_id) if resume
                      else CandidateWorkspace(task, work, run_id))
+        from .local_execution import LocalApplicationExecutor
+
+        if startup_hook is not None:
+            if resume:
+                raise ValueError("host startup hook cannot modify resumed evidence")
+            startup_hook(workspace)
+        if isinstance(executor, LocalApplicationExecutor):
+            executor.bind_workspace(workspace)
         ledger = CheckLedger(workspace, executor, read_only=resume)
         session_path = workspace.root / "session.json"
         if resume:
@@ -707,7 +719,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                        task_info["crash_sha256"], policy_features, capabilities, conditions,
                        knowledge_store=knowledge_store, applicability_policy=applicability_policy,
                        solver_visibility=solver_visibility, static_skill_service=static_service)
-        system_prompt = build_system_prompt(policy_features)
+        application_checks = isinstance(executor, LocalApplicationExecutor) and executor.config.mode == "application"
+        system_prompt = build_system_prompt(policy_features, application_checks=application_checks)
         session_identity = {"schema_version": (14 if version_profile is not None else 13 if static_profile is not None else
                             12 if applicability_profile is not None else (10 if knowledge_profile is None else 11)),
                             "run_id": run_id, "started_at": started_at.isoformat(),
@@ -723,7 +736,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                             "task_message_sha256": digest(build_task_message(
                                 task_id=workspace.task_id, run_id=run_id,
                                 source_snapshot_sha256=workspace.source_snapshot_sha256,
-                                capabilities=capabilities, resume=False).encode("utf-8")),
+                                capabilities=capabilities, resume=False,
+                                application_checks=application_checks).encode("utf-8")),
                             "tool_schema_sha256": digest(canonical([
                                 {"name": item.name, "description": item.description,
                                  "schema": item.args_schema.model_json_schema()} for item in tools
@@ -747,6 +761,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
     else:
         _atomic_json(session_path, session_identity)
     remaining_seconds = (started_at + timedelta(seconds=max_seconds) - datetime.now(UTC)).total_seconds()
+    if isinstance(executor, LocalApplicationExecutor):
+        executor.set_deadline(time.monotonic() + max(0, remaining_seconds))
     model_calls = ModelCallStore(workspace.root / "model-calls.sqlite")
     actions = ToolActionStore(workspace.root / "tool-actions.sqlite")
     if applicability_policy is not None:
@@ -844,7 +860,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                 graph.invoke({"messages": [{"role": "user", "content": build_task_message(
                     task_id=workspace.task_id, run_id=run_id,
                     source_snapshot_sha256=workspace.source_snapshot_sha256,
-                    capabilities=capabilities, resume=resume)}]}, config)
+                    capabilities=capabilities, resume=resume, application_checks=application_checks)}]}, config)
         except ModelLimit as exc:
             error = str(exc)
             status = "budget_exhausted" if error in ("model_budget", "wall_time") else "unresolved"

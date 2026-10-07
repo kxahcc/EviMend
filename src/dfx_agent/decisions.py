@@ -152,9 +152,10 @@ class DecisionStore:
         result = ledger.completed(request.candidate_id)
         if (result is None or result.status != "fail" or result.idempotency_key != feedback.execution_id or
                 feedback.candidate_snapshot_sha256 != candidate["candidate_snapshot_sha256"] or
-                feedback.observation != result.detail or feedback.scope != "synthetic" or
-                feedback.evidence_kind != "local_execution" or feedback.link_authority != "model_inference"):
-            raise ValueError("feedback has no matching saved failed synthetic check")
+                feedback.observation != result.detail or feedback.scope != result.execution_scope or
+                feedback.evidence_kind != ("application_execution" if result.execution_scope == "application"
+                                           else "local_execution") or feedback.link_authority != "model_inference"):
+            raise ValueError("feedback has no matching saved failed check in the same scope")
         if not set(feedback.violated_obligation_ids) <= set(candidate["restores"] + candidate["preserves"]):
             raise ValueError("feedback obligation is not linked to the candidate")
         return feedback

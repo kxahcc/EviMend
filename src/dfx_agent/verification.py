@@ -27,7 +27,11 @@ class CheckResult(BaseModel):
     protocol_sha256: str
     status: Literal["pass", "fail", "inconclusive"]
     detail: str
-    level: Literal["offline_synthetic"] = "offline_synthetic"
+    level: Literal["offline_synthetic", "application_execution"] = "offline_synthetic"
+
+    @property
+    def execution_scope(self) -> Literal["synthetic", "application"]:
+        return "application" if self.level == "application_execution" else "synthetic"
 
 
 class OfflineExecutor(Protocol):
@@ -131,8 +135,13 @@ class CheckLedger:
             _atomic_json(path, {"state": "pending", "idempotency_key": key, "candidate_id": candidate_id,
                                 "check_id": check_id, "protocol_sha256": self.executor.protocol_sha256})
         status, detail = self.executor.check(key=key, source=source)
+        from .local_execution import LocalApplicationExecutor
+
+        level: Literal["offline_synthetic", "application_execution"] = (
+            "application_execution" if isinstance(self.executor, LocalApplicationExecutor) and
+            self.executor.config.mode == "application" else "offline_synthetic")
         result = CheckResult(candidate_id=candidate_id, check_id=check_id, idempotency_key=key,
-                             protocol_sha256=self.executor.protocol_sha256, status=status, detail=detail)
+                             protocol_sha256=self.executor.protocol_sha256, status=status, detail=detail, level=level)
         _atomic_json(path, {"state": "done", "idempotency_key": key, "candidate_id": candidate_id,
                             "check_id": check_id, "protocol_sha256": self.executor.protocol_sha256,
                             "result": result.model_dump()})

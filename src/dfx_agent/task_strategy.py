@@ -93,7 +93,7 @@ Use actual failed-check feedback to revise the affected direction rather than re
 """
 
 
-def build_system_prompt(features: PolicyFeatures) -> str:
+def build_system_prompt(features: PolicyFeatures, *, application_checks: bool = False) -> str:
     """Return a strong shared task policy plus only the enabled method guidance."""
     sections = [_BASE_STRATEGY]
     if features.rule_guidance:
@@ -102,11 +102,19 @@ def build_system_prompt(features: PolicyFeatures) -> str:
         sections.append(_OBLIGATION_GUIDANCE)
     if features.decision_checks:
         sections.append(_DECISION_GUIDANCE)
-    return "\n".join(sections)
+    prompt = "\n".join(sections)
+    if application_checks:
+        prompt = prompt.replace(
+            "The current offline check supplies synthetic evidence only; do not fabricate compiler, device, business, or regression runs.",
+            "The host-fixed local checks build the full project, reproduce the baseline fault, and check target, behavior and regression. "
+            "Trust only returned stage receipts; missing, unknown or inconclusive stages are not passes.")
+        prompt = prompt.replace("The observation is real within its synthetic scope", "The observation is real within its recorded scope")
+        prompt = prompt.replace("available offline check", "available host-fixed local check")
+    return prompt
 
 
 def build_task_message(*, task_id: str, run_id: str, source_snapshot_sha256: str,
-                       capabilities: frozenset[str], resume: bool) -> str:
+                       capabilities: frozenset[str], resume: bool, application_checks: bool = False) -> str:
     """Serialize checked host identity without introducing task-data instructions."""
     require_identifiers([task_id, run_id, *capabilities])
     require_hash(source_snapshot_sha256)
@@ -118,13 +126,13 @@ def build_task_message(*, task_id: str, run_id: str, source_snapshot_sha256: str
         "source_snapshot_sha256": source_snapshot_sha256,
         "capabilities": sorted(capabilities),
         "resume": resume,
-        "verification_level": "offline_synthetic",
+        "verification_level": "application_execution" if application_checks else "offline_synthetic",
         "application_verification": "not_run",
         "request": (
             "Continue the existing repair using registered evidence and durable receipts, within the original total budget."
             if resume else
             "Analyze the authorized snapshot and crash log, locate the cause, prepare a behavior-preserving candidate, "
-            "and request the available offline check."
+            "and request the available host-fixed check."
         ),
     }
     return json.dumps(context, ensure_ascii=False, sort_keys=True)

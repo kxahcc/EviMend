@@ -137,7 +137,8 @@ def candidate_focus_matches(diagnosis: Diagnosis, candidate: CandidatePatch, fac
             candidate.diagnosis_id is None or candidate.diagnosis_id != previous.diagnosis_id):
         return False
     return any(
-        fact.kind == "local_execution" and fact.execution_scope == "synthetic" and
+        fact.kind in ("local_execution", "application_execution") and
+        fact.execution_scope == ("application" if fact.kind == "application_execution" else "synthetic") and
         fact.evaluated_candidate_id == previous.candidate_id and
         fact.execution_snapshot_sha256 == previous.candidate_snapshot_sha256
         for fact in facts
@@ -387,12 +388,13 @@ class _Builder:
                 raise ValueError("model inference lacks its registered basis")
             if digest(item.statement.encode()) != item.artifact_sha256:
                 raise ValueError("model inference content hash changed")
-        elif item.kind == "local_execution":
-            if (item.execution_scope != "synthetic" or item.evaluated_candidate_id is None or
+        elif item.kind in ("local_execution", "application_execution"):
+            if (item.execution_scope != ("application" if item.kind == "application_execution" else "synthetic") or
+                    item.evaluated_candidate_id is None or
                     item.location is not None or item.basis_ids):
-                raise ValueError("execution fact is not registered synthetic candidate feedback")
+                raise ValueError("execution fact is not registered candidate feedback in the same scope")
             candidate, result = self.candidate(item.evaluated_candidate_id)
-            if (result is None or result.status != "fail" or
+            if (result is None or result.status != "fail" or result.execution_scope != item.execution_scope or
                     item.execution_snapshot_sha256 != candidate.candidate_snapshot_sha256 or
                     item.execution_id != result.idempotency_key or item.statement != result.detail or
                     item.artifact_sha256 != digest(result.model_dump_json().encode())):

@@ -517,8 +517,7 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
              "report_validation": {"verified_top_level_fields": sorted(verified_fields),
                                    "unverified_top_level_fields": sorted(unverified_fields),
                                    "recomputation_input_field": "stopped_reason"},
-             "verification": {"level": "offline_synthetic" if any(item["check"] is not None
-                                                                         for item in candidate_artifacts) else "not_run",
+             "verification": {"level": latest["check"]["level"] if latest is not None and latest["check"] is not None else "not_run",
                               "application_verification": "not_run", "accepted": False,
                               "protocol_sha256": ledger.executor.protocol_sha256,
                               "pending_checks": pending_checks},

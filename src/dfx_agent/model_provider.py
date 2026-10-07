@@ -1,14 +1,13 @@
-"""Finite text/tool Chat Completions profile, restricted to an injected mock transport.
-
-This module has no credentials, configurable network endpoint or automatic retry.
-It exercises the wire boundary before a separately governed real provider is added.
-"""
+"""Finite text/tool Chat Completions with separate mock and host-gated cloud profiles."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import math
+import os
+import re
+import time
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -28,6 +27,8 @@ MOCK_ENDPOINT = "https://model.invalid/chat/completions"
 MAX_REQUEST_BYTES = 1_048_576
 MAX_RESPONSE_BYTES = 2_097_152
 WIRE_PROFILE = "chat-completions-text-tools-v1"
+INPUT_TOKEN_ESTIMATOR = "utf8-body-bytes-and-message-framing-v1"
+_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
 
 
 class AdapterError(RuntimeError):
@@ -130,6 +131,47 @@ class ProviderSettings(BaseModel):
             self.temperature is not None and not math.isfinite(self.temperature)
         ):
             raise ValueError("non-finite provider setting")
+        return self
+
+
+class CloudProviderConfig(BaseModel):
+    """Public connection identity. The credential value is never a configuration field."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
+    endpoint: str = Field(min_length=1, max_length=2048)
+    credential_env: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def valid_connection(self) -> CloudProviderConfig:
+        try:
+            url = httpx.URL(self.endpoint)
+            if (url.scheme != "https" or not url.host or url.userinfo or url.query or url.fragment or
+                    "?" in self.endpoint or "#" in self.endpoint or
+                    any(ord(character) <= 32 or ord(character) >= 127 for character in self.endpoint) or
+                    str(url) != self.endpoint):
+                raise ValueError("unsupported endpoint")
+        except (ValueError, TypeError, httpx.InvalidURL):
+            raise ValueError("invalid cloud endpoint") from None
+        if not _ENV_NAME.fullmatch(self.credential_env):
+            raise ValueError("invalid credential environment name")
+        return self
+
+
+class CloudCallAdmission(BaseModel):
+    """Ephemeral host budget reservation; excluded from the persisted provider profile."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    body_sha256: str
+    profile_sha256: str
+    reserved_tokens: int = Field(ge=1)
+    deadline: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def valid_admission(self) -> CloudCallAdmission:
+        require_hash(self.body_sha256)
+        require_hash(self.profile_sha256)
+        if not math.isfinite(self.deadline):
+            raise ValueError("invalid admission deadline")
         return self
 
 
@@ -357,6 +399,7 @@ class ChatCompletionsAdapter:
             raise AdapterRequestError("mock_transport_required")
         self.settings = ProviderSettings.model_validate(settings.model_dump())
         self._transport = transport
+        self._readonly = False
 
     def profile(self) -> dict[str, Any]:
         return {"schema_version": 1, "wire_profile": WIRE_PROFILE, "transport": "mock-only",
@@ -393,10 +436,13 @@ class ChatCompletionsAdapter:
         except (TypeError, ValueError, OverflowError, UnicodeError, RecursionError):
             raise AdapterRequestError("unsupported_request") from None
 
-    def validate(self, request: PreparedRequest) -> PreparedRequest:
-        """Pure admission before ledger dispatch; invoke repeats it at the wire boundary."""
+    def _validate_transport(self) -> None:
         if type(self._transport) is not httpx.MockTransport:
             raise AdapterRequestError("mock_transport_required")
+
+    def validate(self, request: PreparedRequest) -> PreparedRequest:
+        """Pure admission before ledger dispatch; invoke repeats it at the wire boundary."""
+        self._validate_transport()
         try:
             validated = PreparedRequest.model_validate(request.model_dump())
             if validated.profile_sha256 != _digest(_canonical(self.profile())):
@@ -426,6 +472,8 @@ class ChatCompletionsAdapter:
 
     def invoke(self, request: PreparedRequest) -> AIMessage:
         validated = self.validate(request)
+        if self._readonly:
+            raise AdapterRequestError("provider_readonly")
         try:
             with (httpx.Client(transport=self._transport, timeout=self.settings.timeout_seconds,
                                follow_redirects=False, trust_env=False) as client,
@@ -454,6 +502,178 @@ class ChatCompletionsAdapter:
         except (TypeError, ValueError, UnicodeError, RecursionError):
             raise AdapterResponseError("invalid_response_json") from None
         return _response_message(result)
+
+
+class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
+    """The same finite wire profile, with explicit host network and budget admission.
+
+    Exact MockTransport is the offline substitute for the production HTTP transport.
+    Neither constructing this adapter nor preparing/auditing its profile reads a key.
+    """
+
+    def __init__(self, settings: ProviderSettings, config: CloudProviderConfig, *,
+                 allow_network: bool = False, transport: httpx.MockTransport | None = None):
+        if not isinstance(settings, ProviderSettings) or not isinstance(config, CloudProviderConfig):
+            raise AdapterRequestError("invalid_cloud_configuration")
+        if type(allow_network) is not bool:
+            raise AdapterRequestError("invalid_network_permission")
+        if transport is not None and type(transport) is not httpx.MockTransport:
+            raise AdapterRequestError("unsupported_cloud_transport")
+        self.settings = ProviderSettings.model_validate(settings.model_dump())
+        self.config = CloudProviderConfig.model_validate(config.model_dump())
+        self._allow_network = allow_network
+        self._cloud_transport = transport
+        self._readonly = False
+
+    def _validate_transport(self) -> None:
+        # Structural validation remains useful for read-only recovery with networking
+        # disabled. The actual permission and credential gate is repeated in invoke.
+        if self._cloud_transport is not None and type(self._cloud_transport) is not httpx.MockTransport:
+            raise AdapterRequestError("unsupported_cloud_transport")
+        if type(self._allow_network) is not bool:
+            raise AdapterRequestError("invalid_network_permission")
+
+    def profile(self) -> dict[str, Any]:
+        return {"schema_version": 1, "wire_profile": WIRE_PROFILE, "transport": "cloud-httpx",
+                "endpoint": self.config.endpoint, "credential_env": self.config.credential_env,
+                "settings": self.settings.model_dump(mode="json"),
+                "max_request_bytes": MAX_REQUEST_BYTES, "max_response_bytes": MAX_RESPONSE_BYTES,
+                "automatic_retries": 0, "follow_redirects": False, "trust_env": False,
+                "input_token_estimator": INPUT_TOKEN_ESTIMATOR}
+
+    def _credential(self) -> str:
+        self._validate_transport()
+        if self._readonly:
+            raise AdapterRequestError("provider_readonly")
+        if self._cloud_transport is None and not self._allow_network:
+            raise AdapterRequestError("provider_network_disabled")
+        value = os.environ.get(self.config.credential_env)
+        if value is None or not value:
+            raise AdapterRequestError("provider_credential_missing")
+        if len(value) > 8192 or any(ord(character) <= 32 or ord(character) >= 127 for character in value):
+            raise AdapterRequestError("provider_credential_invalid")
+        return value
+
+    def reservation_tokens(self, request: PreparedRequest) -> int:
+        """Conservative estimate plus the entire configured output allowance.
+
+        UTF-8 wire bytes and framing deliberately overestimate common tokenizers;
+        this does not certify any as-yet unverified provider's exact tokenizer.
+        """
+        validated = self.validate(request)
+        return len(validated.body.encode("utf-8")) + 16 * len(validated.messages) + 64 + self.settings.max_output_tokens
+
+    def admission(self, request: PreparedRequest, *, remaining_tokens: int,
+                  remaining_seconds: float) -> CloudCallAdmission:
+        """Check readiness and reserve a bounded single attempt before ledger dispatch."""
+        validated = self.validate(request)
+        reserved = self.reservation_tokens(validated)
+        if type(remaining_tokens) is not int or remaining_tokens < reserved:
+            raise AdapterRequestError("provider_token_budget")
+        if (type(remaining_seconds) not in (int, float) or not math.isfinite(remaining_seconds) or
+                remaining_seconds <= 0):
+            raise AdapterRequestError("provider_time_budget")
+        # Do not cache this value on the adapter or in admission. Repeat immediately
+        # before sending so key removal/rotation cannot send a cached credential.
+        credential = self._credential()
+        if credential in validated.body or credential in _canonical(self.profile()):
+            raise AdapterRequestError("provider_credential_exposed")
+        return CloudCallAdmission(body_sha256=validated.body_sha256, profile_sha256=validated.profile_sha256,
+                                  reserved_tokens=reserved,
+                                  deadline=time.monotonic() + min(self.settings.timeout_seconds, remaining_seconds))
+
+    def invoke(self, request: PreparedRequest, *, admission: CloudCallAdmission | None = None) -> AIMessage:
+        validated = self.validate(request)
+        # This ordering also makes a read-only reconstructed profile refuse before
+        # constructing a client, even if the corresponding key is present.
+        credential = self._credential()
+        try:
+            if admission is None:
+                raise AdapterRequestError("provider_budget_required")
+            admitted = CloudCallAdmission.model_validate(admission.model_dump())
+            if (admitted.body_sha256 != validated.body_sha256 or
+                    admitted.profile_sha256 != validated.profile_sha256 or
+                    admitted.reserved_tokens != self.reservation_tokens(validated)):
+                raise AdapterRequestError("provider_admission_changed")
+        except AdapterError:
+            raise
+        except (AttributeError, TypeError, ValueError):
+            raise AdapterRequestError("provider_admission_changed") from None
+        timeout = min(self.settings.timeout_seconds, admitted.deadline - time.monotonic())
+        if timeout <= 0:
+            raise AdapterRequestError("provider_time_budget")
+        if credential in validated.body or credential in _canonical(self.profile()):
+            raise AdapterRequestError("provider_credential_exposed")
+        try:
+            # Creating the real transport is inside the host gate, never in profile
+            # reconstruction, prepare, validate or constructor. HTTPX's default
+            # certificate verification remains enabled; retries and proxy env are off.
+            transport = self._cloud_transport or httpx.HTTPTransport(retries=0, trust_env=False)
+            with (httpx.Client(transport=transport, timeout=timeout, follow_redirects=False, trust_env=False) as client,
+                  client.stream("POST", self.config.endpoint, content=validated.body.encode("utf-8"),
+                                headers={"Content-Type": "application/json", "Accept": "application/json",
+                                         "Accept-Encoding": "identity", "Authorization": "Bearer " + credential})
+                  as response):
+                if not 200 <= response.status_code < 300:
+                    raise AdapterTransportError("provider_http_error")
+                if response.headers.get("Content-Encoding", "identity").lower() not in ("identity", ""):
+                    raise AdapterResponseError("unsupported_response_encoding")
+                length = response.headers.get("Content-Length")
+                if length is not None and length.isdecimal() and int(length) > MAX_RESPONSE_BYTES:
+                    raise AdapterResponseError("response_byte_limit")
+                chunks: list[bytes] = []
+                size = 0
+                for chunk in response.iter_bytes():
+                    if time.monotonic() >= admitted.deadline:
+                        raise AdapterTransportError("provider_timeout")
+                    size += len(chunk)
+                    if size > MAX_RESPONSE_BYTES:
+                        raise AdapterResponseError("response_byte_limit")
+                    chunks.append(chunk)
+                raw = b"".join(chunks)
+        except AdapterError:
+            raise
+        except httpx.TimeoutException:
+            raise AdapterTransportError("provider_timeout") from None
+        except Exception:  # noqa: BLE001 - Never expose transport/response text or authorization headers.
+            raise AdapterTransportError("provider_transport_error") from None
+        try:
+            if time.monotonic() >= admitted.deadline:
+                raise AdapterTransportError("provider_timeout")
+            if credential.encode("utf-8") in raw:
+                raise AdapterResponseError("provider_credential_exposed")
+            result = _decode(raw)
+            # JSON escapes must not disguise a credential in a persisted response.
+            if credential in _canonical(result):
+                raise AdapterResponseError("provider_credential_exposed")
+            return _response_message(result)
+        except AdapterError:
+            raise
+        except (TypeError, ValueError, UnicodeError, RecursionError):
+            raise AdapterResponseError("invalid_response_json") from None
+
+
+def adapter_from_profile(profile: dict[str, Any]) -> ChatCompletionsAdapter:
+    """Reconstruct a non-dispatching adapter for request/source verification only."""
+    try:
+        value = _plain_json(profile)
+        settings = ProviderSettings.model_validate(value["settings"])
+        if value["transport"] == "mock-only":
+            def never(_: httpx.Request) -> httpx.Response:
+                raise AdapterRequestError("provider_readonly")
+
+            adapter: ChatCompletionsAdapter = ChatCompletionsAdapter(settings, httpx.MockTransport(never))
+        elif value["transport"] == "cloud-httpx":
+            adapter = CloudChatCompletionsAdapter(settings, CloudProviderConfig(
+                endpoint=value["endpoint"], credential_env=value["credential_env"]), allow_network=False)
+        else:
+            raise ValueError("unsupported provider profile")
+        if _canonical(adapter.profile()) != _canonical(value):
+            raise ValueError("provider profile differs")
+        adapter._readonly = True
+        return adapter
+    except (AdapterError, AttributeError, KeyError, TypeError, ValueError, UnicodeError, RecursionError):
+        raise AdapterRequestError("unsupported_model_profile") from None
 
 
 def _response_message(result: Any) -> AIMessage:

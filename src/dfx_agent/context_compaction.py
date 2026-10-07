@@ -12,7 +12,6 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Literal
 
-import httpx
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -36,7 +35,7 @@ from .model_provider import (
     AdapterError,
     ChatCompletionsAdapter,
     PreparedRequest,
-    ProviderSettings,
+    adapter_from_profile,
 )
 
 SUMMARY_PROMPT = (
@@ -151,12 +150,7 @@ def _groups(messages: list[BaseMessage]) -> tuple[int, list[int]]:
 
 
 def _adapter(profile: dict[str, Any]) -> ChatCompletionsAdapter:
-    adapter = ChatCompletionsAdapter(ProviderSettings.model_validate(profile["settings"]),
-                                     httpx.MockTransport(lambda _: (_ for _ in ()).throw(
-                                         AssertionError("audit must not dispatch"))))
-    if _json(adapter.profile()) != _json(profile):
-        raise ValueError("unsupported model profile")
-    return adapter
+    return adapter_from_profile(profile)
 
 
 class CompactionPlan(BaseModel):

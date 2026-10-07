@@ -617,7 +617,8 @@ try {
                 $env:DFX_EXPORT_VERIFY = if ($Verify) { '1' } else { '0' }; $env:DFX_EXPORT_PACKAGE = $exportPackage
                 $env:DFX_EXPORT_RUN_ID = $runId
             }
-            $job = [DfxLocal.BoundedJob]::new($effective.cpu_percent, $effective.memory_bytes, $effective.max_processes)
+            $jobName = 'Local\DFX-Guard-' + $runId
+            $job = [DfxLocal.BoundedJob]::new($effective.cpu_percent, $effective.memory_bytes, $effective.max_processes, $jobName)
             $exe = (Get-Process -Id $PID).Path
             if (-not [IO.File]::Exists($exe)) { throw 'PowerShell executable identity unavailable' }
             $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } elseif ($taskKind -eq 'offline') { 'local_agent.ps1' } elseif ($taskKind -eq 'aggregate') { 'local_metrics.ps1' } elseif ($taskKind -eq 'export') { 'local_export.ps1' } else { 'local_synthetic.ps1' }
@@ -633,7 +634,7 @@ try {
                 manager_pid = $PID; manager_start_utc_ticks = $self.StartTime.ToUniversalTime().Ticks
                 manager_executable = $exe; child_pid = $childPid
                 child_start_utc_ticks = $child.StartTime.ToUniversalTime().Ticks
-                task = $taskKind; effective_limits = $effective; started_at = [DateTimeOffset]::UtcNow.ToString('o')
+                task = $taskKind; job_name = $jobName; effective_limits = $effective; started_at = [DateTimeOffset]::UtcNow.ToString('o')
             } | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $script:ActivePath -Encoding UTF8
             $markerCreated = $true
             $elapsed = [Diagnostics.Stopwatch]::StartNew()

@@ -118,12 +118,17 @@ namespace DfxLocal {
             return new ulong[] { m.TotalPhysical, m.AvailablePhysical };
         }
 
-        public BoundedJob(int cpuPercent, ulong memoryBytes, uint maxProcesses) {
+        public BoundedJob(int cpuPercent, ulong memoryBytes, uint maxProcesses)
+            : this(cpuPercent, memoryBytes, maxProcesses, null) { }
+
+        public BoundedJob(int cpuPercent, ulong memoryBytes, uint maxProcesses, string jobName) {
             if (cpuPercent < 1 || cpuPercent > 100 || memoryBytes < 16 * 1024 * 1024 || maxProcesses < 1)
                 throw new ArgumentOutOfRangeException("Invalid Job limits");
-            job = CreateJobObject(IntPtr.Zero, null);
+            job = CreateJobObject(IntPtr.Zero, jobName);
             if (job == IntPtr.Zero) throw Error("CreateJobObject failed");
             try {
+                if (jobName != null && Marshal.GetLastWin32Error() == 183)
+                    throw new InvalidOperationException("Named managed Job already exists");
                 ExtendedLimits limits = new ExtendedLimits();
                 // JOB_MEMORY | ACTIVE_PROCESS | KILL_ON_JOB_CLOSE; no breakaway flags.
                 limits.Basic.Flags = 0x2000u | 0x8u | 0x200u;
