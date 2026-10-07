@@ -98,10 +98,12 @@ class _EvolutionBudget(_ReadBudget):
 
     def __init__(self, maximum: int):
         super().__init__(maximum)
+        self.active = True
         self.plans: dict[str, tuple[ValidationApproval, ValidationPlanRecord]] = {}
         self.receipts: dict[str, tuple[ValidationApproval, ValidationReceiptRecord, _ClosedTree, _ClosedTree]] = {}
 
     def clear(self) -> None:
+        self.active = False
         self.plans.clear()
         self.receipts.clear()
 
@@ -114,13 +116,13 @@ class _PlanReadView(SkillValidationStore):
         self.owner, self.budget = owner, budget
 
     def _read_plan(self, plan_id: str, approval: ValidationApproval, budget: _ReadBudget) -> ValidationPlanRecord:
-        if budget is not self.budget:
+        if budget is not self.budget or not self.budget.active:
             raise ValueError("plan read view cannot cross operation budgets")
         return self.owner._plan_once(plan_id, approval, self.budget)
 
     def _read_receipt(self, receipt_id: str, approval: ValidationApproval,
                       budget: _ReadBudget) -> ValidationReceiptRecord:
-        if budget is not self.budget:
+        if budget is not self.budget or not self.budget.active:
             raise ValueError("receipt read view cannot cross operation budgets")
         _identity(receipt_id, "skill-receipt-")
         approval = _typed(HostValidationPlanApproval, approval)
@@ -131,13 +133,15 @@ class _PlanReadView(SkillValidationStore):
             return cached[1]
         return super()._read_receipt(receipt_id, approval, budget)
 
-    def _receipt_closed(self, approval: ValidationApproval, receipt: ValidationReceiptRecord,
-                        tree: _ClosedTree, metadata: _ClosedTree, budget: _ReadBudget) -> None:
-        if budget is not self.budget or tree.budget is not budget or metadata.budget is not budget:
+    def _retain_receipt_proof(self, approval: ValidationApproval, receipt: ValidationReceiptRecord,
+                              tree: _ClosedTree, metadata: _ClosedTree, budget: _ReadBudget) -> bool:
+        if (budget is not self.budget or not self.budget.active or
+                tree.budget is not budget or metadata.budget is not budget):
             raise ValueError("receipt raw proof cannot cross operation budgets")
         if receipt.receipt_id in self.budget.receipts:
             raise ValueError("receipt view cannot replace its original raw proof")
         self.budget.receipts[receipt.receipt_id] = approval, receipt, tree, metadata
+        return True
 
 
 class SkillTransitionStore:
@@ -153,6 +157,8 @@ class SkillTransitionStore:
 
     def _plan_once(self, plan_id: str, approval: ValidationApproval,
                    budget: _EvolutionBudget) -> ValidationPlanRecord:
+        if not budget.active:
+            raise ValueError("plan read cannot reuse a completed operation budget")
         cached = budget.plans.get(plan_id)
         if cached is not None:
             if cached[0] != approval:
@@ -163,12 +169,14 @@ class SkillTransitionStore:
         return value
 
     def _close_plans(self, budget: _EvolutionBudget) -> None:
+        if not budget.active:
+            raise ValueError("source closure cannot reuse a completed operation budget")
         # Bypass the private view: reauthenticate every parent/source closure.
         for plan_id, (approval, original) in budget.plans.items():
             if self.validation._read_plan(plan_id, approval, budget) != original:
                 raise ValueError("approved plan sources changed before operation closure")
         # Reaggregation is unnecessary once its complete input closure has been
-        # authenticated. Reclose the original raw proofs, not fresh snapshots:
+        # semantically checked. Close the original scan proofs, not fresh snapshots:
         # restored bytes still fail if any file or directory identity changed.
         for _approval, _receipt, tree, metadata in budget.receipts.values():
             tree.finish()
@@ -222,6 +230,25 @@ class SkillTransitionStore:
         if any(_closure_directory_anchor(parent.lstat()) != identity for parent, identity in reader.directory_identities.items()):
             raise ValueError("evolution ancestor changed during read")
         return value
+
+    def _head_proof(self, name: str, key: str, budget: _EvolutionBudget) -> tuple[tuple[Path, ...], Any]:
+        files = tuple(self._chain(name, key))
+        parser = parse_publication if name == "publications" else parse_transition
+        return files, None if not files else self._read(files[-1], parser, budget)
+
+    def _close_head_proof(self, name: str, key: str, proof: tuple[tuple[Path, ...], Any],
+                          budget: _EvolutionBudget) -> None:
+        # These heads were semantically checked before the final source close.
+        # Check only their bytes and complete registry members afterwards;
+        # another derivation would consume retained receipts after their close.
+        files, original = proof
+        if tuple(self._chain(name, key)) != files:
+            raise ValueError("evolution registry changed during source closure")
+        parser = parse_publication if name == "publications" else parse_transition
+        if files and self._read(files[-1], parser, budget) != original:
+            raise ValueError("evolution head changed during source closure")
+        if tuple(self._chain(name, key)) != files:
+            raise ValueError("evolution registry changed after source closure")
 
     def _publish(self, name: str, key: str, sequence: int, identity: str, value: BaseModel,
                  budget: _ReadBudget) -> None:
@@ -640,8 +667,15 @@ class SkillTransitionStore:
         checked = self._publications(approval.alias, budget, until=approval.previous_publication_id)
         if self._publication_payload(approval, version_approval, transition_approval, checked, budget) != payload:
             raise ValueError("publication source changed before mutation")
-        self._close_plans(budget)
         self._activation_head(approval, budget)
+        transition_proof = None
+        if approval.action == "activate":
+            transition_proof = self._head_proof("transitions", approval.version_id, budget)
+            if transition_proof[1] is None or transition_proof[1].transition_id != approval.transition_id:
+                raise ValueError("activation requires the candidate's current transition head")
+        self._close_plans(budget)
+        if transition_proof is not None:
+            self._close_head_proof("transitions", approval.version_id, transition_proof, budget)
         self._publish("publications", approval.alias, len(chain) + 1, value.publication_id, value, budget)
         return value
 
@@ -734,21 +768,37 @@ class SkillTransitionStore:
             self._activation_head(publication_approval, budget)
             self._selected_model_head(selection, publication_approval, budget)
             self._read_selection(selection, publication_approval, budget)
-            self._close_plans(budget)
             self._activation_head(publication_approval, budget)
-            self._selected_model_head(selection, publication_approval, budget)
+            model_head = self._selected_model_head(selection, publication_approval, budget)
             if self._freeze_alias(selection.alias, publication_approval, budget) != selection:
                 raise ValueError("new deployment alias changed before current-selection closure")
+            publication_proof = self._head_proof("publications", selection.alias, budget)
+            if publication_proof[1] is None or publication_proof[1].publication_id != selection.publication_id:
+                raise ValueError("new deployment alias changed before current-selection closure")
+            transition_proof = None
+            if model_head is not None or publication_approval.action == "activate":
+                transition_proof = self._head_proof("transitions", selection.version_id, budget)
+                if ((model_head is not None and transition_proof[1] != model_head) or
+                        (publication_approval.action == "activate" and
+                         (transition_proof[1] is None or transition_proof[1].transition_id != publication_approval.transition_id))):
+                    raise ValueError("new deployment transition changed before current-selection closure")
+            self._close_plans(budget)
+            self._close_head_proof("publications", selection.alias, publication_proof, budget)
+            if transition_proof is not None:
+                self._close_head_proof("transitions", selection.version_id, transition_proof, budget)
         finally:
             budget.clear()
 
-    def _selected_model_head(self, selection: SkillSelection, approval: PublicationApproval, budget: _EvolutionBudget) -> None:
+    def _selected_model_head(self, selection: SkillSelection, approval: PublicationApproval,
+                             budget: _EvolutionBudget) -> TransitionRecord | None:
         publication = self._read_publication(selection.publication_id, approval, budget)
         body = parse_publication_payload(publication.payload_json)
         if isinstance(body.version_approval, HostModelSkillVersionApproval):
             events, _plans, _receipts = self._transitions(selection.version_id, budget)
             if not events or parse_transition_payload(events[-1].payload_json).state != "synthetic_eligible":
                 raise ValueError("new deployment requires selected model version's current eligible decision")
+            return events[-1]
+        return None
 
     def export_selection_sources(self, selection: SkillSelection, *,
                                  publication_approval: PublicationApproval) -> dict[str, bytes]:
@@ -827,7 +877,6 @@ class SkillTransitionStore:
                             add(relative + "/" + name, raw)
                         directories.add(relative)
                         directories.update(relative + "/" + name for name in tree.directories)
-            self._close_plans(budget)
             if self._read_selection(selection, publication_approval, budget) != projection:
                 raise ValueError("selection export sources changed during closure")
             budget.require_remaining(sum(tree.byte_count for tree in captured))
@@ -835,6 +884,7 @@ class SkillTransitionStore:
                 tree.finish()
             if len(files) + len(directories) > self.limits.max_entries:
                 raise ValueError("selection export complete inventory exceeds capacity")
+            self._close_plans(budget)
             return dict(sorted(files.items())), tuple(sorted(directories))
         finally:
             budget.clear()

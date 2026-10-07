@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "scope": "operation_final_original_receipt_closure",
+  "base_commit": "fba6ef2",
+  "initial_working_tree": "clean",
+  "observed_failure": {
+    "receipt": "442e4583-8403-44fa-8e01-6fadc28c33c2",
+    "path": "tests/test_model_skill_deployment.py",
+    "passed": 1, "setup_errors": 3, "seconds": 1151.44,
+    "reason": "The four actual scripted SDK validation roles passed; independent decision exhausted the original 128 MiB cumulative read budget while closing retained receipt bytes.",
+    "boundary": "No terminal qualification, publication, development deployment or portable export was accepted by this run."
+  },
+  "changes": [
+    "The private operation view retains original captured payload/metadata proofs and independently reaggregated temporary receipt results. Final closure is owned by the public evolution operation; ordinary standalone receipt APIs still close immediately.",
+    "Receipt bytes are scanned and finally closed twice rather than also closing after first capture. Original byte, descriptor, path, ancestor, membership and approval checks remain; every final read consumes the same original budget.",
+    "All successful returns, idempotent paths and source-dependent mutations close the original proofs after the last semantic source consumption. Finally clears caches and invalidates the old operation budget.",
+    "New-deployment and activation gates recheck authenticated chain members and head events after expensive receipt closure, preventing an intervening rejected transition or alias advance from authorizing stale use. This lightweight check does not rederive receipt facts."
+  ],
+  "checks": {
+    "receipt_counterexamples": {"receipt": "d010f3e3-bfd5-490a-8de0-3a6d08ce306a", "passed": 18, "seconds": 3.89},
+    "ruff": {"receipt": "98d995bd-8488-41c0-86f6-71f70299e964", "result": "passed"},
+    "pyright": {"receipt": "5fc34243-54ee-49bb-8ed0-49ee202f3f21", "errors": 0, "warnings": 0},
+    "legacy_publication": {"receipt": "19db27ae-88fc-4f70-96be-bd2a9787e274", "passed": 7, "warnings": 1, "seconds": 722.16, "warning": "Existing pytest helper was already imported before assertion rewriting."},
+    "source_inventory_regression": {"receipt": "560784ff-20e4-447f-8d2b-aef953d4ef28", "passed": 56, "seconds": 5.07},
+    "full_model_deployment": {"status": "pending"},
+    "docs": {"receipt": "afda43cd-7a42-4731-a67f-9669f2657836", "documents": 14, "errors": 0}
+  },
+  "test_boundary": "Small receipt tests stub expensive plan/facts reconstruction while retaining production parsing, capture, closure and public operation boundaries. They cannot qualify a Skill or establish application effects. Full SDK deployment acceptance remains pending.",
+  "review": "Independent read-only review checked all successful, idempotent and publication paths, including lightweight heads after closure; no later receipt/plan semantic consumption remains.",
+  "environment": {"new_dependencies": 0, "real_model_runs": 0, "application_runs": 0, "limits_changed": false, "templates_changed": false,
+    "resource_accounting_after_quality_checks": "complete", "inaccessible_paths_after_quality_checks": [],
+    "active_state_after_quality_checks": "none", "cleanup_available_after_quality_checks": true,
+    "managed_and_export_bytes_after_quality_checks": 419353866},
+  "remaining": ["Full scripted model-version deployment and portable export acceptance.", "Complete ResearchProfile, shared stage budget/deadline and fair learning comparison.", "Offline real-provider/local application adapters and real effect experiments."]
+}

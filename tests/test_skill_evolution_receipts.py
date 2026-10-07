@@ -40,9 +40,14 @@ from dfx_agent.skill_evolution_contracts import (
     SkillValidationReceipt,
 )
 from dfx_agent.skill_transition_contracts import (
+    FrozenSkillSelection,
+    FrozenSkillSelectionV2,
     HostPublicationApproval,
+    HostPublicationApprovalV2,
     HostTransitionApproval,
+    HostTransitionApprovalV2,
     PublicationPayload,
+    PublicationPayloadV2,
     SkillTransition,
     TransitionPayload,
 )
@@ -143,15 +148,17 @@ def _public_reader(store: SkillTransitionStore, case: ReceiptCase, monkeypatch: 
 def test_public_reads_aggregate_once_per_operation_and_reauthenticate_next_call(
         receipt_case: ReceiptCase, monkeypatch: pytest.MonkeyPatch) -> None:
     case = receipt_case
+    case.validation.limits = FeedbackLimits(max_capture_read_bytes=2 * case.initial_bytes)
     store = SkillTransitionStore(case.validation)
     result, host, budgets = _public_reader(store, case, monkeypatch)
     assert store.read_transition(result.transition_id, approval=host) == result
     assert len(case.observations) == 1
-    assert budgets[0].used == 3 * case.initial_bytes
-    assert not budgets[0].plans and not budgets[0].receipts
+    assert budgets[0].used == 2 * case.initial_bytes
+    assert not budgets[0].active and not budgets[0].plans and not budgets[0].receipts
     assert store.read_transition(result.transition_id, approval=host) == result
     assert len(case.observations) == 2 and budgets[0] is not budgets[1]
-    assert not budgets[1].plans and not budgets[1].receipts
+    assert budgets[1].used == 2 * case.initial_bytes
+    assert not budgets[1].active and not budgets[1].plans and not budgets[1].receipts
 
 
 def test_cached_receipt_cannot_change_external_approval_or_operation_budget(receipt_case: ReceiptCase) -> None:
@@ -167,6 +174,10 @@ def test_cached_receipt_cannot_change_external_approval_or_operation_budget(rece
     assert len(case.observations) == 1
     store._close_plans(budget)
     budget.clear()
+    with pytest.raises(ValueError, match="operation budgets"):
+        reader._read_receipt(case.receipt.receipt_id, case.approval, budget)
+    with pytest.raises(ValueError, match="completed operation budget"):
+        store._plan_once(case.receipt.contents()["plan_id"], case.approval, budget)
 
 
 @pytest.mark.parametrize("change", ["payload", "payload_restored", "metadata_restored", "membership"])
@@ -209,9 +220,9 @@ def test_cached_original_drift_rejects_before_publication(
 def test_final_receipt_closure_still_charges_and_enforces_the_original_read_budget(
         receipt_case: ReceiptCase, monkeypatch: pytest.MonkeyPatch) -> None:
     case = receipt_case
-    # Exactly enough for initial scan and its semantic-close rereads; the final
-    # operation close must fail rather than bypassing or extending this limit.
-    maximum = 2 * case.initial_bytes
+    # Exactly enough for the initial scan. The deferred final operation close
+    # must fail rather than bypassing or extending the original read limit.
+    maximum = case.initial_bytes
     case.validation.limits = FeedbackLimits(max_capture_read_bytes=maximum)
     store = SkillTransitionStore(case.validation)
     result, host, budgets = _public_reader(store, case, monkeypatch)
@@ -219,6 +230,178 @@ def test_final_receipt_closure_still_charges_and_enforces_the_original_read_budg
         store.read_transition(result.transition_id, approval=host)
     assert len(case.observations) == 1 and budgets[0].used == maximum
     assert not budgets[0].plans and not budgets[0].receipts
+
+
+@pytest.mark.parametrize("mode", ["ordinary", "evolution"])
+def test_drift_during_fact_reconstruction_cannot_escape_original_closure(
+        receipt_case: ReceiptCase, monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    case = receipt_case
+    reconstruct = SkillValidationStore._receipt_facts
+
+    def changed_facts(*args: Any, **kwargs: Any):
+        facts = reconstruct(*args, **kwargs)
+        case.source.write_bytes(b"drift after semantic read\n")
+        return facts
+
+    monkeypatch.setattr(SkillValidationStore, "_receipt_facts", changed_facts)
+    budgets: list[_EvolutionBudget] = []
+    with pytest.raises(ValueError, match="original size changed"):
+        if mode == "ordinary":
+            # The standalone public receipt reader has not delegated closure.
+            case.validation.read_receipt(case.receipt.receipt_id, approval=case.approval)
+        else:
+            store = SkillTransitionStore(case.validation)
+            result, host, budgets = _public_reader(store, case, monkeypatch)
+            store.read_transition(result.transition_id, approval=host)
+    assert len(case.observations) == 1
+    if mode == "evolution":
+        assert not budgets[0].active and not budgets[0].plans and not budgets[0].receipts
+
+
+@pytest.mark.parametrize("mode", ["deployment", "export"])
+def test_last_deployment_or_export_source_read_is_closed_before_success(
+        receipt_case: ReceiptCase, monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    case = receipt_case
+    store = SkillTransitionStore(case.validation)
+    host = HostPublicationApproval(approval_id="final-source-read", alias="capacity", action="initialize_seed",
+        version_id="skill-version-" + sha256("old"))
+    selection = FrozenSkillSelection(alias=host.alias, publication_id="skill-publication-" + sha256("publication"),
+        version_id=host.version_id, projection_sha256=case.approval.old_version_approval.projection_sha256,
+        split=host.split)
+    budgets: list[_EvolutionBudget] = []
+
+    def last_read(_value: Any, _host: Any, budget: _EvolutionBudget):
+        budgets.append(budget)
+        _read_twice(store, case, budget)
+        if len(budgets) == 2:
+            case.source.write_bytes(b"drift in final source audit\n")
+        return selection
+
+    if mode == "deployment":
+        monkeypatch.setattr(store, "_freeze_alias", last_read)
+        monkeypatch.setattr(store, "_activation_head", lambda *_args: None)
+        monkeypatch.setattr(store, "_selected_model_head", lambda *_args: None)
+        monkeypatch.setattr(store, "_read_selection", lambda *_args: None)
+        monkeypatch.setattr(store, "_chain", lambda name, *_args, **_kwargs: [case.metadata] if name == "publications" else [])
+        monkeypatch.setattr(store, "_read", lambda *_args: SimpleNamespace(publication_id=selection.publication_id))
+    else:
+        monkeypatch.setattr(store, "_read_selection", last_read)
+        monkeypatch.setattr(store, "_publications", lambda *_args, **_kwargs: [])
+    with pytest.raises(ValueError, match="original size changed"):
+        if mode == "deployment":
+            store.assert_current_selection(selection, publication_approval=host)
+        else:
+            store.export_selection_bundle(selection, publication_approval=host)
+    assert len(budgets) == 2 and budgets[0] is budgets[1] and len(case.observations) == 1
+    assert not budgets[0].active and not budgets[0].plans and not budgets[0].receipts
+
+
+@pytest.mark.parametrize("changed_registry", ["publications", "transitions"])
+def test_current_deployment_rejects_head_advance_during_final_receipt_close(
+        receipt_case: ReceiptCase, monkeypatch: pytest.MonkeyPatch, changed_registry: str) -> None:
+    case = receipt_case
+    store = SkillTransitionStore(case.validation)
+    host = HostPublicationApprovalV2(approval_id="closing-head", alias="capacity", action="rollback",
+        version_id="skill-version-" + sha256("selected-model"),
+        previous_publication_id="skill-publication-" + sha256("prior"))
+    selection = FrozenSkillSelectionV2(alias=host.alias, publication_id="skill-publication-" + sha256("head"),
+        version_id=host.version_id, projection_sha256=case.approval.old_version_approval.projection_sha256,
+        split=host.split)
+    budgets: list[_EvolutionBudget] = []
+    eligible = SimpleNamespace(transition_id="skill-transition-" + sha256("authenticated-eligible"))
+    original_transition = store.root / "authenticated-eligible.json"
+    chains: dict[str, list[Path]] = {"publications": [case.metadata], "transitions": [original_transition]}
+
+    def consume(_alias: str, _approval: Any, budget: _EvolutionBudget):
+        budgets.append(budget)
+        _read_twice(store, case, budget)
+        return selection
+
+    monkeypatch.setattr(store, "_freeze_alias", consume)
+    monkeypatch.setattr(store, "_activation_head", lambda *_args: None)
+    # Eligibility reconstruction is stubbed, as in the other source-proof
+    # fixtures. The selected model's previously authenticated head is retained.
+    monkeypatch.setattr(store, "_selected_model_head", lambda *_args: eligible)
+    monkeypatch.setattr(store, "_read_selection", lambda *_args: None)
+    monkeypatch.setattr(store, "_chain", lambda name, *_args, **_kwargs: list(chains[name]))
+    monkeypatch.setattr(store, "_read", lambda path, *_args: eligible if path == original_transition else
+                        SimpleNamespace(publication_id=selection.publication_id))
+    close = store._close_plans
+
+    def advance_during_close(budget: _EvolutionBudget):
+        # The original receipt still closes successfully; a later event makes
+        # the previously authenticated deployment head stale during that close.
+        tree = budget.receipts[case.receipt.receipt_id][2]
+        finish = tree.finish
+
+        def advance():
+            finish()
+            later = "later-rejected-transition.json" if changed_registry == "transitions" else "later-publication.json"
+            chains[changed_registry].append(store.root / later)
+
+        monkeypatch.setattr(tree, "finish", advance)
+        close(budget)
+
+    monkeypatch.setattr(store, "_close_plans", advance_during_close)
+    with pytest.raises(ValueError, match="registry changed during source closure"):
+        store.assert_current_selection(selection, publication_approval=host)
+    assert len(case.observations) == 1 and budgets[0].used == 2 * case.initial_bytes
+    assert not budgets[0].active and not budgets[0].plans and not budgets[0].receipts
+
+
+def test_activation_cannot_publish_after_rejected_transition_is_appended_during_receipt_close(
+        receipt_case: ReceiptCase, monkeypatch: pytest.MonkeyPatch) -> None:
+    case = receipt_case
+    store = SkillTransitionStore(case.validation)
+    prior = HostPublicationApproval(approval_id="activation-parent", alias="capacity", action="initialize_seed",
+        version_id="skill-version-" + sha256("old"))
+    previous_id = "skill-publication-" + sha256("previous")
+    transition_id = "skill-transition-" + sha256("eligible")
+    transition_host = HostTransitionApprovalV2(approval_id="qualifying-transition",
+        plan_id=case.receipt.contents()["plan_id"], receipt_ids=(case.receipt.receipt_id,))
+    host = HostPublicationApprovalV2(approval_id="activating-model", alias=prior.alias, action="activate",
+        version_id="skill-version-" + sha256("new"), transition_id=transition_id,
+        previous_publication_id=previous_id)
+    payload = PublicationPayloadV2(approval=host, version_approval=case.approval.new_version_approval,
+        transition_approval=transition_host, previous_approval=prior, sequence=2,
+        projection_sha256=case.approval.new_version_approval.projection_sha256)
+    budgets: list[_EvolutionBudget] = []
+    old_publication = store.root / "previous-publication.json"
+    eligible_path = store.root / "eligible-transition.json"
+    chains: dict[str, list[Path]] = {"publications": [old_publication], "transitions": [eligible_path]}
+
+    def publication_sources(_host: Any, _version: Any, _transition: Any, _prior: Any, budget: _EvolutionBudget):
+        budgets.append(budget)
+        _read_twice(store, case, budget)
+        return payload
+
+    monkeypatch.setattr(store, "_publication_payload", publication_sources)
+    monkeypatch.setattr(store, "_publications", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(store, "_chain", lambda name, *_args, **_kwargs: list(chains[name]))
+    monkeypatch.setattr(store, "_read", lambda path, *_args: SimpleNamespace(transition_id=transition_id)
+                        if path == eligible_path else SimpleNamespace(publication_id=previous_id))
+    close = store._close_plans
+
+    def advance_during_close(budget: _EvolutionBudget):
+        tree = budget.receipts[case.receipt.receipt_id][2]
+        finish = tree.finish
+
+        def reject():
+            finish()
+            chains["transitions"].append(store.root / "later-rejected-transition.json")
+
+        monkeypatch.setattr(tree, "finish", reject)
+        close(budget)
+
+    monkeypatch.setattr(store, "_close_plans", advance_during_close)
+    writes: list[Any] = []
+    monkeypatch.setattr(store, "_publish", lambda *args: writes.append(args))
+    with pytest.raises(ValueError, match="registry changed during source closure"):
+        store.publish_alias(approval=host, version_approval=case.approval.new_version_approval,
+                            transition_approval=transition_host)
+    assert not writes and not (store.root / "publications").exists()
+    assert len(case.observations) == 1 and budgets[0].used == 2 * case.initial_bytes
+    assert not budgets[0].active and not budgets[0].plans and not budgets[0].receipts
 
 
 def _directory_attributes(monkeypatch: pytest.MonkeyPatch, directory: Path, state: dict[str, int]) -> None:

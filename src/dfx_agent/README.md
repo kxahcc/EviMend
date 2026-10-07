@@ -232,7 +232,7 @@ run 内 `experience-bindings/approved.json` 保存主机批准，`experience-que
 
 `publish_alias(approval=HostPublicationApproval(...), version_approval=..., transition_approval=...)` 只追加 synthetic_sandbox 发表：initialize_seed 要求明确批准的原种子；新 activate 要求候选当前判定 head 为 synthetic_eligible，且修订与当前父版本相符；后来追加损害/未知后不能再使用旧合格判定首次激活，历史回读和完全相同的幂等返回仍核原事件；rollback 只能回到此前发表过的当前父链祖先。后续发表须绑定 current previous_publication_id，前驱过期拒绝。`freeze_alias(alias, approval=...)` 返回 FrozenSkillSelection；`read_selection(selection, publication_approval=...)` 核原发表并返回完整原版本投影，后续别名更新不改变旧选择。读操作不创建文件，计划及来源按下面的单操作首尾协议核验，事件发表后核字节/FD，整次 API 共用闭合读取预算；非全 I/O 或峰值内存计量。冻结选择可经独立版本程序入口接入 SDK，须提供完整外部批准；此代尚无受管 repair CLI 配置。人工链保持 none/not_run/null，模型来源使用 schema 2 及完整独立学习成本；费用和耗时无依据仍 unknown，具体验收只记 STATUS。
 
-私有 _EvolutionBudget / _PlanReadView 只在同一 API 预算与完整原批准内复用已核验 Plan 和 receipt。每份回执首次完整读取原件、账本并重聚合，保留 payload 与 metadata 的原始字节、FD/路径身份及目录成员证明；不可变结果仅在本次操作中复用。成功读取/幂等返回或正式写入前，_close_plans 绕过视图重读全部涉及的计划、父版本和反馈源，并重新关闭每份回执的原始证明，全部读取仍计入同一预算；修改后恢复字节或 mtime 也不能替换原身份。finally 丢弃全部视图，下一次调用重新认证，公共 SkillValidationStore 接口未改。这只是减少同操作重复核验，不宣称性能达标或统一全 I/O/峰值内存限制。
+私有 _EvolutionBudget / _PlanReadView 只在同一 API 预算与完整原批准内复用 Plan 和 receipt 的临时核验结果。每份回执首次完整捕获原件、账本并独立重聚合，保留 payload 与 metadata 的原始字节、FD/路径身份及目录成员证明；内部视图接管最终关闭，避免捕获后额外关闭一遍。成功读取/幂等返回或正式写入前，_close_plans 绕过视图重读全部涉及的计划、父版本和反馈源，并关闭每份回执的原始证明，全部读取仍计入同一预算；修改后恢复字节或 mtime 也不能替换原身份。新部署及激活在关闭后再轻量核对完整链成员和已认证头事件，不重新消费回执语义。finally 丢弃视图并使预算失效，下一次调用重新认证；公共 SkillValidationStore 仍即时关闭，接口未改。这只是减少同操作重复核验，不宣称性能达标或统一全 I/O/峰值内存限制。
 
 瞬时目录闭合只在实际目录上规范化已观察到的 NTFS 内部目录位 0x10000000；卷、文件 ID、类型及其他属性仍保持精确核验，路径 guard 继续拒绝重解析点。真实目录替换、成员/字节漂移仍拒绝。工作上下文的原目录锚及持久 Plan/owner 身份不改，不倒填历史批准；实际失败、反例和整链重跑结果见 STATUS。
 

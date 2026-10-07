@@ -826,9 +826,15 @@ class SkillValidationStore:
         _identity(receipt_id, "skill-receipt-")
         return self._read_receipt_directory(self._folder("receipts") / receipt_id, receipt_id, approval, budget)
 
-    def _receipt_closed(self, approval: ValidationApproval, receipt: ValidationReceiptRecord,
-                        tree: _ClosedTree, metadata: _ClosedTree, budget: _ReadBudget) -> None:
-        """Private operation views may retain this fully authenticated raw proof."""
+    def _retain_receipt_proof(self, approval: ValidationApproval, receipt: ValidationReceiptRecord,
+                              tree: _ClosedTree, metadata: _ClosedTree, budget: _ReadBudget) -> bool:
+        """Private views may take final closure ownership before any success.
+
+        The ordinary store closes immediately. An operation-local view may
+        retain the original scan proofs only if every successful return and
+        publication closes those same proofs within the original read budget.
+        """
+        return False
 
     def _read_receipt_directory(self, directory: Path, receipt_id: str, approval: ValidationApproval,
                                 budget: _ReadBudget) -> ValidationReceiptRecord:
@@ -860,7 +866,7 @@ class SkillValidationStore:
         if (payload.version_id != (planned.old_version_id if payload.role == "old" else planned.new_version_id) or
                 payload.target_projection_sha256 != version.projection_sha256):
             raise ValueError("Skill receipt changes its intended version")
-        tree.finish()
-        metadata.finish()
-        self._receipt_closed(approval, receipt, tree, metadata, budget)
+        if not self._retain_receipt_proof(approval, receipt, tree, metadata, budget):
+            tree.finish()
+            metadata.finish()
         return receipt
