@@ -23,14 +23,23 @@
     "pyright": {"receipt": "5fc34243-54ee-49bb-8ed0-49ee202f3f21", "errors": 0, "warnings": 0},
     "legacy_publication": {"receipt": "19db27ae-88fc-4f70-96be-bd2a9787e274", "passed": 7, "warnings": 1, "seconds": 722.16, "warning": "Existing pytest helper was already imported before assertion rewriting."},
     "source_inventory_regression": {"receipt": "560784ff-20e4-447f-8d2b-aef953d4ef28", "passed": 56, "seconds": 5.07},
-    "full_model_deployment": {"status": "pending"},
-    "docs": {"receipt": "afda43cd-7a42-4731-a67f-9669f2657836", "documents": 14, "errors": 0}
+    "full_model_deployment": {"receipt": "934b09f9-e387-4dee-abb9-7bef231c21c2", "tested_commit": "f0b9418",
+      "status": "failed", "passed": 2, "setup_errors": 2, "warnings": 1, "seconds": 1562.19,
+      "accepted_boundary": "Four actual scripted SDK roles and independent v2 decision/readback passed: 33 validation calls/495 synthetic known tokens and 2 learning calls/30 synthetic known tokens are accounted separately, application qualification none.",
+      "failure_boundary": "Model-version activation fails at _publish_alias -> _close_plans -> retained receipt metadata.finish -> original 128 MiB cumulative read gate. The attempted metadata read is 1206014 bytes; remaining allowance was not captured. Actual development SDK deployment, rollback/old-run resume and private export were not accepted.",
+      "warning": "Existing pytest helper was already imported before assertion rewriting.",
+      "timeout": false},
+    "docs_before_full_run": {"receipt": "afda43cd-7a42-4731-a67f-9669f2657836", "documents": 14, "errors": 0},
+    "docs": {"receipt": "1a00f736-b84c-4ea2-bd0a-32728c153249", "documents": 14, "errors": 0}
   },
-  "test_boundary": "Small receipt tests stub expensive plan/facts reconstruction while retaining production parsing, capture, closure and public operation boundaries. They cannot qualify a Skill or establish application effects. Full SDK deployment acceptance remains pending.",
+  "test_boundary": "Small receipt tests stub expensive plan/facts and selected registry/head reconstruction while retaining production receipt parsing, capture, closure and public operation boundaries. They cannot qualify a Skill or establish application effects. Latest full SDK run qualifies only scripted validation and independent decision; activation capacity prevents deployment/export acceptance. The full suite does not invoke research_cost_inventory, so actual model-version service cost inventory acceptance remains unknown.",
   "review": "Independent read-only review checked all successful, idempotent and publication paths, including lightweight heads after closure; no later receipt/plan semantic consumption remains.",
   "environment": {"new_dependencies": 0, "real_model_runs": 0, "application_runs": 0, "limits_changed": false, "templates_changed": false,
     "resource_accounting_after_quality_checks": "complete", "inaccessible_paths_after_quality_checks": [],
     "active_state_after_quality_checks": "none", "cleanup_available_after_quality_checks": true,
-    "managed_and_export_bytes_after_quality_checks": 419353866},
-  "remaining": ["Full scripted model-version deployment and portable export acceptance.", "Complete ResearchProfile, shared stage budget/deadline and fair learning comparison.", "Offline real-provider/local application adapters and real effect experiments."]
+    "managed_and_export_bytes_after_quality_checks": 419353866,
+    "resource_accounting_after_full_run": "complete", "inaccessible_paths_after_full_run": [],
+    "active_state_after_full_run": "none", "cleanup_available_after_full_run": true,
+    "managed_and_export_bytes_after_full_run": 419360738},
+  "remaining": ["Activation source-read capacity and full scripted deployment/portable export acceptance; original limits remain unchanged.", "Actual model-version service source-cost inventory acceptance.", "Complete ResearchProfile, shared stage budget/deadline and fair learning comparison.", "Offline real-provider/local application adapters and real effect experiments."]
 }
