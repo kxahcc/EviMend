@@ -236,4 +236,6 @@ run 内 `experience-bindings/approved.json` 保存主机批准，`experience-que
 
 瞬时目录闭合只在实际目录上规范化已观察到的 NTFS 内部目录位 0x10000000；卷、文件 ID、类型及其他属性仍保持精确核验，路径 guard 继续拒绝重解析点。真实目录替换、成员/字节漂移仍拒绝。工作上下文的原目录锚及持久 Plan/owner 身份不改，不倒填历史批准；实际失败、反例和整链重跑结果见 STATUS。
 
+来源历史成本通过显式程序入口 `VersionSkillService.research_cost_inventory()` 读取：先认证当前冻结任务/批准及 run 原件，再由 `research_accounting.py` 提取完整学习调用、事前验证矩阵/原行成本和发表/退回历史。相同调用或验证 run 跨来源只计一次，冲突原件拒绝；缺少预定角色或 usage 保持 unknown，人工学习为 not_run/null，退回种子也不抹掉模型子版本历史成本。`union_research_cost_inventories` 可只读合并多个完整清单；清单一致性校验不能替代外部批准和原闭包认证。该入口不调用模型、不写文件、不改变旧 session/report/清单或共享预算；部署实际成本、全流程计时与公平比较仍待接入。测试和实际结果见 DEVELOPMENT/STATUS。
+
 `backends.py` 和 `remote_service.py` 另提供 HTTPX 客户端及 FastAPI 模拟服务的程序接口。`tests/test_remote_contract.py` 使用进程内 `TestClient`，显式推进模拟工作者状态，检查请求幂等、响应丢失后的恢复、取消待确认、产物哈希及离线行为；不启动常驻服务、真实设备或应用构建。模拟服务只返回 `scope=synthetic` 和 `application_verification=not_run`。后续真实应用执行改走本机受管作业适配器；其 SDK/设备能力与完整工程尚未配置，不能把 HTTP 协议自检当作应用验证。

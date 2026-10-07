@@ -11,7 +11,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from deepagents.middleware.skills import SkillsMiddleware
 
@@ -389,6 +389,10 @@ def _inventory(workspace: CandidateWorkspace, profile: dict[str, Any]) -> dict[s
     return tree.raw
 
 
+if TYPE_CHECKING:
+    from .research_accounting import ResearchCostInventory
+
+
 class VersionSkillService(StaticSkillService):
     def __init__(self, workspace: CandidateWorkspace, task_directory: Path, profile: dict[str, Any], ledger: Any):
         self.workspace, self.task_directory, self.ledger = workspace, task_directory, ledger
@@ -442,6 +446,29 @@ class VersionSkillService(StaticSkillService):
 
     def middleware(self) -> FrozenVersionSkillsMiddleware:
         return FrozenVersionSkillsMiddleware(self)
+
+    def research_cost_inventory(self) -> ResearchCostInventory:
+        """Read retained source history after authenticating this frozen run.
+
+        This opt-in program API does not change legacy profiles or reports,
+        execute learning/deployment, or enforce a shared research budget.
+        """
+        from .research_accounting import (
+            inventory_from_authenticated_bundle,
+            union_research_cost_inventories,
+        )
+
+        self._validate()
+        profile = self.profile
+        approval = TaskVersionSkillBinding.model_validate_json(encode(profile["approval"]))
+        originals = _inventory(self.workspace, profile)
+        inventories = []
+        for grant in approval.grants:
+            prefix = grant.version_id + "/"
+            bundle = {path.removeprefix(prefix): raw for path, raw in originals.items() if path.startswith(prefix)}
+            inventories.append(inventory_from_authenticated_bundle(bundle,
+                task_id=self.workspace.task_id, run_id=self.workspace.run_id, purpose=approval.purpose))
+        return union_research_cost_inventories(tuple(inventories))
 
     def expected_section(self) -> str | None:
         self._validate()

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-07",
+  "scope": "opt_in_authenticated_version_source_history_accounting",
+  "base_commit": "bf0e0a6",
+  "initial_working_tree": "clean",
+  "changes": [
+    "VersionSkillService.research_cost_inventory authenticates the actual frozen task/profile and copied source bytes before pure history extraction. It adds no model calls or writes and does not change legacy profiles, manifests or reports.",
+    "Learning cost uses complete captured request/response/record atoms, including failed formats, repair calls and unknown usage. Compatible source prefixes share one operation/run/call charge; owner/source/call conflicts reject.",
+    "Validation cost uses original row atoms keyed task/run, with complete prospective plan-slot captures. Missing roles cannot disappear during roundtrip/union; malformed saved cost counters and token sums reject.",
+    "All retained model-version histories and publication/rollback events remain visible, even after selection returns to a manual ancestor. Manual learning is not_run/null; deployment, rollback execution, full elapsed time and total cost remain unknown.",
+    "Saved inventory identity checks consistency only; callers must still authenticate original closed sources and external approvals. No shared research-budget or learning-factor comparison enforcement is claimed."
+  ],
+  "checks": {
+    "source_cost_initial": {"receipt": "e939e4ea-21d2-41da-b8d8-f56ede57f356", "path": "tests/test_research_accounting.py", "passed": 56, "seconds": 4.83},
+    "source_cost_final": {"receipt": "1c832785-2c04-408a-9304-f3cdd903f2b2", "passed": 56, "seconds": 4.96},
+    "ruff_initial": {"receipt": "bd9dce34-2ff2-4602-9cec-8c052a6ab2cc", "errors": 4, "reason": "Three import-wrap violations and one wrong exception category; corrected without widening acceptance."},
+    "ruff": {"receipt": "7cf22430-8a4a-4432-9e06-4cf7843cd88b", "result": "passed"},
+    "pyright": {"receipt": "abba2d0f-ea2d-4b4e-bbc5-de13b610edb5", "errors": 0, "warnings": 0},
+    "docs": {"receipt": "a5493800-1221-4a81-a2ec-f2ef75c373a8", "documents": 14, "errors": 0}
+  },
+  "test_boundary": "Pure synthetic serialized model histories exercise extraction/union. One actual manual seed/publication/frozen-service test verifies unchanged bytes/profile, fresh copied-root reconstruction after the original store moves away, and copied-source drift rejection. This is not actual model-version service cost acceptance or an application effect experiment.",
+  "environment": {"new_dependencies": 0, "real_model_runs": 0, "application_runs": 0, "limits_changed": false, "templates_changed": false,
+    "resource_accounting_after_checks": "complete", "inaccessible_paths_after_checks": [], "active_state_after_checks": "none",
+    "cleanup_available_after_checks": true, "managed_and_export_bytes_after_checks": 419341898},
+  "remaining": ["Full model-version deployment chain acceptance after receipt/directory fixes.", "Persisted solver/deployment stage inputs and complete ResearchProfile integration.", "Shared stage budget/deadline and learning-factor comparison identity.", "Offline real-provider/local application adapter boundaries and real effect experiments."]
+}

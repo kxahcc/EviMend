@@ -186,6 +186,7 @@ Export 从显式评测清单保留任务源码、全部候选、账本和失败�
 | `tests/test_model_skill_sdk.py` | 预定共同过程池的实际 SDK 读取、后续输入可见性、原批准恢复及副本漂移拒绝；候选验证不授部署资格，具体通过范围见 STATUS |
 | `tests/test_model_skill_deployment.py` | 事前四角色合成验证、独立模型判定、发表/退回与实际 SDK 消费、反馈及私有导出的整链验收；固定响应不证明自主修复或迁移收益，实际通过范围见 STATUS |
 | `tests/test_research_profile.py` | 纯 ResearchProfile 成本/未知项/阶段身份与内容完整性契约；不启动模型、应用或部署 |
+| `tests/test_research_accounting.py` | 来源历史成本清单、完整调用/预定角色覆盖、未知及跨清单去重反例；真实人工种子冻结服务的只读/原库移走/副本漂移验收，不证明完整 ResearchProfile 或效果 |
 | `tests/test_managed_knowledge_workflow.py` | 固定/模拟 CLI 全流程及真实 Windows Job 验收的合成 fixture，核完整 Skill 可见性与同资源启停矩阵 |
 | `tests/test_model_provider.py`、`tests/test_provider_loop.py`、`tests/test_reporting.py`、`tests/test_offline_script.py`、`tests/test_offline_cli.py` | 模拟模型请求/响应、SDK 交接、最终摘要核验和受管脚本/命令入口；不调用真实模型 |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
@@ -249,6 +250,7 @@ Export 从显式评测清单保留任务源码、全部候选、账本和失败�
 | `reporting.py` | 从版本、诊断、模型/工具账本和检查重建最终摘要，核验补丁及可验证报告字段；不执行模型或应用 |
 | `metrics.py` | 按显式 task/variant/repeat 清单只读核验停止记录，汇总初始定位、全部候选及完整成本；应用指标未知 |
 | `research_profile.py` | 从已保存 report/completion/演进事实纯读重建跨阶段成本档案；统一已知下界、未知、去重身份与总量，缺失部署/应用证据保持 unknown，不读取账本或启动运行 |
+| `research_accounting.py` | 从已认证冻结闭包提取来源历史成本；完整学习调用、独立验证 run、预定角色及发表/退回事件跨清单去重。由 VersionSkillService 的显式只读入口接入，不修改旧清单或执行共享总预算 |
 | `evidence_io.py` | 不可变只读 SQLite 连接，拒绝缺文件、链接/硬链及未合并日志；不修复或新建账本 |
 | `provenance.py` | 运行源码/依赖锁及实际 Python/依赖版本观察、自洽哈希和恢复兼容检查；初始 Git 不用于填补历史或认证二进制 |
 | `exporting.py` | 显式矩阵的私有计划/证据包、完整字节清单及包内重聚合核验；保留原消息与全部尝试，不执行 Graph、不删源、不自动授权清理 |

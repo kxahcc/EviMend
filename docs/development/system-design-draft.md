@@ -459,9 +459,11 @@ SDK 模型边界已接入按可见授权回执组织的发送视图：先保留�
 | 检索与有条件经验迁移 | knowledge_retrieval.py、applicability_handoff.py、solver_visibility.py；test_applicability_handoff.py | 普通检索与三态共用知识/工具，依据来自当时已见原件；前提判断仍是模型推断 |
 | Skill 的实际消费 | static_skill_handoff.py、version_skills.py；test_model_skill_sdk.py、test_model_skill_deployment.py | 完整读取与后续输入可见性分别核验，旧任务只恢复原批准副本；选中目录不等于实际采用或逐步正确执行 |
 | 从失败提炼、验证与演进 | learning.py、skill_validation.py、skill_evolution.py；test_learning_source.py、test_model_skill_deployment.py、test_skill_evolution_receipts.py | 原响应/失败/全部调用保留，事前四角色验证、独立判定、发表与退回；有限合成资格不能授应用资格，自动学习收益未证明 |
-| 完整成本与公平比较 | research_profile.py、metrics.py、exporting.py；test_research_profile.py、test_model_skill_deployment.py | 从原件重建、缺项未知、导出可独立回核；完整跨阶段成本、共享总预算和学习因素比较须继续闭合 |
+| 完整成本与公平比较 | research_profile.py、research_accounting.py、metrics.py、exporting.py；test_research_profile.py、test_research_accounting.py、test_model_skill_deployment.py | 显式来源历史清单核算完整学习/验证并跨清单去重，缺项未知；完整跨阶段成本、共享总预算和学习因素比较须继续闭合 |
 
 来源身份、权限和成本可重算属于可信实验的基础。论文贡献仍须回答第 8.1 节的效果问题，按相同模型、知识和完整预算比较，包含增强失败和额外成本。真实模型接入前还须核云端请求/usage/重试、受管本地作业的取消/子进程停止/日志上限，以及完整工程和独立业务验收输入。自动采值和自动演进不作为强基础版 B0 的启动前提；其缺项须显式报告。
+
+显式 `VersionSkillService.research_cost_inventory()` 先认证当前任务、冻结批准及 run 原闭包，再由 `research_accounting.py` 生成来源历史成本清单。学习按 operation/run/call、完整 owner/source 与请求/响应身份去重；验证保留原行，按 task/run 去重，保存事前完整角色矩阵和缺项。每个学习来源的完整调用成员及每个 Plan 的完整角色成员随清单保存，回读/合并核对覆盖；已识别的未知调用、失败、格式修复和全部模型子版本历史保留，退回人工祖先不抹掉旧费用。人工学习 not_run/null；缺原件、usage 或角色保持未知。清单只核来源历史：部署/退回实际成本和完整总成本保持未知，不从事件数猜测金额或耗时。清单自身的一致性身份不能替代外部批准和闭包认证；旧 ResearchProfile、报告和清单代际保持原义，共同预算/截止时间与学习因素比较仍须接入。
 
 ### 8.3 一例任务如何体现增量
 
