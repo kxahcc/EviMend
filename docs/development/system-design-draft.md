@@ -1,6 +1,6 @@
 # 应用软件代码故障精准定位与自修复：开发设计草案
 
-状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-06。
+状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-07。
 职责：维护架构、核心算法及后端抽象。实现状态见 [STATUS](../STATUS.md)，字段与规则见 [模块规格](../design-contracts.md)，阶段见 [实施计划](../project-work-plan.md)。
 
 ## 1. 核心决策
@@ -412,7 +412,9 @@ SDK 模型边界已接入按可见授权回执组织的发送视图：先保留�
 
 旧任务恢复使用 run 内完整原件和原外部批准，不访问最新别名，不需要原学习库/版本库，也不触发新提炼；别名更新不改变旧选择。开发反馈回流必须核实际会话用途和所有来源权限/祖先谱系，candidate_validation、confirmation 不能改标开发材料。完整学习包、验证及求解原件随私有导出保留。自动调度提炼、审核/修订策略和完整学习因素比较仍须按实施计划验收，不能因有程序 API 就宣称已实现自主演进或提高修复率；当前真实资格恒为 none。
 
-演进历史反复引用同一前置计划时，私有 _EvolutionBudget / _PlanReadView 仅在本次 API 的同一预算和完整原批准内复用已经独立核验的 Plan，不把历史重演变成每份回执重复读取同一父链。每份 receipt 的全部原件、账本和聚合继续独立审读，不复用其验证结果；第一批 SkillValidationStore 的公共读写语义不变。成功读回、幂等返回或正式 mutation 前，_close_plans 绕过私有视图，从原存储重新核验全部涉及的 Plan、父版本及反馈来源，内容/批准或关闭读取漂移均拒绝。finally 清空操作内视图，下一次 API 全部重读，不依赖 size/mtime 或持久缓存。这是减少同操作重复核验的工程优化；没有性能与效果的新结论，容量/耗时实际证据只记 STATUS。
+演进历史反复引用相同来源时，私有 _EvolutionBudget / _PlanReadView 仅在本次 API 的同一预算和完整原批准内复用已经独立核验的 Plan 与 receipt。每份回执首次完整读取原件、账本并重聚合，保留 payload 和 metadata 的原始字节、FD/路径身份与完整目录成员证明；不可变结果只在本次操作中复用。成功读回、幂等返回或正式 mutation 前，_close_plans 绕过视图从原存储重核全部 Plan、父版本及反馈来源，再重新关闭每份回执保留的原始证明；全部读取计入同一预算，内容/批准或关闭读取漂移均拒绝。finally 清空操作内视图，下一次 API 全部重读；修改后恢复字节或 mtime 不能替换原身份，不依赖 size/mtime 或持久缓存。第一批 SkillValidationStore 公共读写语义不变。这是减少同操作重复核验的工程优化；没有性能与效果的新结论，容量/耗时实际证据只记 STATUS。
+
+瞬时目录闭合的私有锚只在实际目录上规范化已观察到的 NTFS 内部目录位 0x10000000；卷、文件 ID、类型及其他属性仍精确核验，路径 guard 继续拒绝重解析点。目录替换、成员或字节漂移仍拒绝。公共工作上下文目录锚及持久 Plan/owner 身份不改，历史批准保持原解释；反例和整链实测只见 STATUS，不从属性位兼容修复推出全链路已通过。
 
 一次成功只产生候选 Skill。候选须在独立的开发验证案例及适用边界反例上与旧版本比较，保留业务验收及全部成本；证据不足保持候选。晋升只表示在登记的验证范围内值得使用，不证明普遍有效或逐例不劣。
 
@@ -442,6 +444,24 @@ SDK 模型边界已接入按可见授权回执组织的发送视图：先保留�
 | 用具体反例修订判断 | 绑定候选版本、输入、实际结果和被违反的义务；区分编译、原故障、业务回归与环境失败 | 避免同一错误反复出现，减少无效重试 | 误分类失败，或把旧版本反例不当地推广到新版本 |
 
 前两项与反例关联共同支撑“修复义务贯穿全过程”；检查选择是可独立关闭的第二项增强。不是四个同时展开的独立研究课题。指标、比较组和接受规则统一在 [评测口径](../preparation/metrics-and-gates.md) 定义。
+
+#### 8.2.1 怎样逐项审查设计是否落实
+
+从下面的任务路径审查程序行为：先看原型入口，再核实际交接对象和反例。表中列的是审查入口与能力边界，测试是否取得当前提交的终态回执只由 [STATUS](../STATUS.md) 记录；固定响应经过真实 SDK 也不能证明模型自主判断正确。
+
+| 审查点 | 实现和测试入口 | 应判断的行为与剩余边界 |
+|---|---|---|
+| 故障到补丁、检查与重试 | agent.py、workspace.py、verification.py；test_agent_loop.py | 候选绑定实际源码、失败后修订、停止和恢复；应用构建与业务/回归判据尚未接入 |
+| 根因假设与业务义务 | contracts.py、diagnostics.py；test_causal_diagnosis.py | 日志/源码依据、假设和义务双向引用；程序认证来源与交接，不确认因果关系或业务语义 |
+| 按决策需要补证据 | decisions.py、policies.py；test_decisions.py、test_policies.py | 方向对应已登记问题、失败反例及条件结果，可关闭且保留通用路径；建议不执行探针或强制模型采纳 |
+| 有限条件及可信输入 | conditions.py、value_sources.py、agent.py；test_conditions.py、test_value_sources.py、test_condition_handoff.py | 同操作、单位和版本的有限计算及实际 SDK 交接；默认合成 registry 不含真实输入，自动 literal/运行采样不是现有能力 |
+| 工作上下文与实际发送 | working_context_plan.py、working_context_materials.py、working_context_projection.py；test_working_context_handoff.py | 焦点由可见回执推导，完整材料绑定实际发送；排序或压缩的修复收益仍未知 |
+| 检索与有条件经验迁移 | knowledge_retrieval.py、applicability_handoff.py、solver_visibility.py；test_applicability_handoff.py | 普通检索与三态共用知识/工具，依据来自当时已见原件；前提判断仍是模型推断 |
+| Skill 的实际消费 | static_skill_handoff.py、version_skills.py；test_model_skill_sdk.py、test_model_skill_deployment.py | 完整读取与后续输入可见性分别核验，旧任务只恢复原批准副本；选中目录不等于实际采用或逐步正确执行 |
+| 从失败提炼、验证与演进 | learning.py、skill_validation.py、skill_evolution.py；test_learning_source.py、test_model_skill_deployment.py、test_skill_evolution_receipts.py | 原响应/失败/全部调用保留，事前四角色验证、独立判定、发表与退回；有限合成资格不能授应用资格，自动学习收益未证明 |
+| 完整成本与公平比较 | research_profile.py、metrics.py、exporting.py；test_research_profile.py、test_model_skill_deployment.py | 从原件重建、缺项未知、导出可独立回核；完整跨阶段成本、共享总预算和学习因素比较须继续闭合 |
+
+来源身份、权限和成本可重算属于可信实验的基础。论文贡献仍须回答第 8.1 节的效果问题，按相同模型、知识和完整预算比较，包含增强失败和额外成本。真实模型接入前还须核云端请求/usage/重试、受管本地作业的取消/子进程停止/日志上限，以及完整工程和独立业务验收输入。自动采值和自动演进不作为强基础版 B0 的启动前提；其缺项须显式报告。
 
 ### 8.3 一例任务如何体现增量
 

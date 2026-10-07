@@ -16,7 +16,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from .contracts import require_identifiers
-from .feedback import _ClosedTree, _exists, _ReadBudget
+from .feedback import _ClosedTree, _closure_directory_anchor, _exists, _ReadBudget
 from .feedback_contracts import FeedbackLimits, _identity, _object, content_hash, encode
 from .metrics import _guard, _provenance_summary
 from .skill_evolution_contracts import (
@@ -29,6 +29,7 @@ from .skill_evolution_contracts import (
     ValidationPlanBody,
     ValidationPlanRecord,
     ValidationReceiptBody,
+    ValidationReceiptRecord,
     VersionApproval,
     parse_plan_payload,
     parse_receipt_payload,
@@ -66,7 +67,6 @@ from .skill_transition_contracts import (
     parse_transition_payload,
 )
 from .skill_validation import SkillValidationStore
-from .working_context_materials import _directory_anchor
 
 
 def _typed(kind: type[BaseModel], value: BaseModel) -> Any:
@@ -94,11 +94,16 @@ def _policy(raw: str | None) -> SyntheticValidationPolicy | SyntheticValidationP
 
 
 class _EvolutionBudget(_ReadBudget):
-    """One operation's approved plan snapshots, always closed before success."""
+    """One operation's approved sources, always closed before success."""
 
     def __init__(self, maximum: int):
         super().__init__(maximum)
         self.plans: dict[str, tuple[ValidationApproval, ValidationPlanRecord]] = {}
+        self.receipts: dict[str, tuple[ValidationApproval, ValidationReceiptRecord, _ClosedTree, _ClosedTree]] = {}
+
+    def clear(self) -> None:
+        self.plans.clear()
+        self.receipts.clear()
 
 
 class _PlanReadView(SkillValidationStore):
@@ -112,6 +117,27 @@ class _PlanReadView(SkillValidationStore):
         if budget is not self.budget:
             raise ValueError("plan read view cannot cross operation budgets")
         return self.owner._plan_once(plan_id, approval, self.budget)
+
+    def _read_receipt(self, receipt_id: str, approval: ValidationApproval,
+                      budget: _ReadBudget) -> ValidationReceiptRecord:
+        if budget is not self.budget:
+            raise ValueError("receipt read view cannot cross operation budgets")
+        _identity(receipt_id, "skill-receipt-")
+        approval = _typed(HostValidationPlanApproval, approval)
+        cached = self.budget.receipts.get(receipt_id)
+        if cached is not None:
+            if cached[0] != approval:
+                raise ValueError("same operation receipt changed its original approval")
+            return cached[1]
+        return super()._read_receipt(receipt_id, approval, budget)
+
+    def _receipt_closed(self, approval: ValidationApproval, receipt: ValidationReceiptRecord,
+                        tree: _ClosedTree, metadata: _ClosedTree, budget: _ReadBudget) -> None:
+        if budget is not self.budget or tree.budget is not budget or metadata.budget is not budget:
+            raise ValueError("receipt raw proof cannot cross operation budgets")
+        if receipt.receipt_id in self.budget.receipts:
+            raise ValueError("receipt view cannot replace its original raw proof")
+        self.budget.receipts[receipt.receipt_id] = approval, receipt, tree, metadata
 
 
 class SkillTransitionStore:
@@ -141,6 +167,12 @@ class SkillTransitionStore:
         for plan_id, (approval, original) in budget.plans.items():
             if self.validation._read_plan(plan_id, approval, budget) != original:
                 raise ValueError("approved plan sources changed before operation closure")
+        # Reaggregation is unnecessary once its complete input closure has been
+        # authenticated. Reclose the original raw proofs, not fresh snapshots:
+        # restored bytes still fail if any file or directory identity changed.
+        for _approval, _receipt, tree, metadata in budget.receipts.values():
+            tree.finish()
+            metadata.finish()
 
     def _namespace(self, name: str, *, create: bool = False) -> Path:
         result = self.root / name
@@ -187,7 +219,7 @@ class SkillTransitionStore:
         after, after_descriptor = reader._read(path)
         if raw != after or descriptor != after_descriptor:
             raise ValueError("evolution event changed during read")
-        if any(_directory_anchor(parent.lstat()) != identity for parent, identity in reader.directory_identities.items()):
+        if any(_closure_directory_anchor(parent.lstat()) != identity for parent, identity in reader.directory_identities.items()):
             raise ValueError("evolution ancestor changed during read")
         return value
 
@@ -442,7 +474,7 @@ class SkillTransitionStore:
         try:
             return self._decide(plan_id, approval, plan_approval, budget)
         finally:
-            budget.plans.clear()
+            budget.clear()
 
     def _decide(self, plan_id: str, approval: TransitionApproval,
                 plan_approval: ValidationApproval, budget: _EvolutionBudget) -> TransitionRecord:
@@ -486,7 +518,7 @@ class SkillTransitionStore:
             self._close_plans(budget)
             return value
         finally:
-            budget.plans.clear()
+            budget.clear()
 
     def _read_transition(self, transition_id: str, approval: TransitionApproval,
                          budget: _EvolutionBudget) -> TransitionRecord:
@@ -582,7 +614,7 @@ class SkillTransitionStore:
         try:
             return self._publish_alias(approval, version_approval, transition_approval, budget)
         finally:
-            budget.plans.clear()
+            budget.clear()
 
     def _publish_alias(self, approval: PublicationApproval, version_approval: VersionApproval,
                        transition_approval: TransitionApproval | None, budget: _EvolutionBudget) -> PublicationRecord:
@@ -630,7 +662,7 @@ class SkillTransitionStore:
             self._close_plans(budget)
             return value
         finally:
-            budget.plans.clear()
+            budget.clear()
 
     def _read_publication(self, publication_id: str, approval: PublicationApproval,
                           budget: _EvolutionBudget) -> PublicationRecord:
@@ -651,7 +683,7 @@ class SkillTransitionStore:
             self._close_plans(budget)
             return value
         finally:
-            budget.plans.clear()
+            budget.clear()
 
     def _freeze_alias(self, alias: str, approval: PublicationApproval, budget: _EvolutionBudget) -> SkillSelection:
         approval = _typed(HostPublicationApproval, approval)
@@ -675,7 +707,7 @@ class SkillTransitionStore:
             self._close_plans(budget)
             return value
         finally:
-            budget.plans.clear()
+            budget.clear()
 
     def _read_selection(self, selection: SkillSelection, publication_approval: PublicationApproval,
                         budget: _EvolutionBudget):
@@ -708,7 +740,7 @@ class SkillTransitionStore:
             if self._freeze_alias(selection.alias, publication_approval, budget) != selection:
                 raise ValueError("new deployment alias changed before current-selection closure")
         finally:
-            budget.plans.clear()
+            budget.clear()
 
     def _selected_model_head(self, selection: SkillSelection, approval: PublicationApproval, budget: _EvolutionBudget) -> None:
         publication = self._read_publication(selection.publication_id, approval, budget)
@@ -805,4 +837,4 @@ class SkillTransitionStore:
                 raise ValueError("selection export complete inventory exceeds capacity")
             return dict(sorted(files.items())), tuple(sorted(directories))
         finally:
-            budget.plans.clear()
+            budget.clear()

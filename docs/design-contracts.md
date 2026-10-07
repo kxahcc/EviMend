@@ -1,6 +1,6 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-06。
+状态：当前规格草案，部分契约已有隔离合成实现。最后维护：2026-10-07。
 职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选交接、模型账本、逐工具授权、动作恢复和主机终止摘要已接入固定响应与可配置 mock wire 的共享离线循环；应用接受门、模拟 HTTP 协议及策略分支已有合成实现。可信采值、算子适用性和因果关系的实际检验、云端模型、可信业务判据和本机应用执行仍待实现。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
@@ -530,7 +530,7 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 | HostPublicationApproval / publish_alias | scope=synthetic_sandbox；initialize_seed 仅准明确批准的原种子及空别名链；新 activate 必须引用候选当前 transition head，且其 synthetic_eligible 判定对应当前已选父版本和新修订，不能选旧合格前缀绕过后续损害/未知。正式发布前再次核当前判定；历史发表回读及完全相同的幂等返回仍按原事件认证。所有后续发表必须提供当前预期 publication 前驱，别名/split/逻辑 Skill 身份不能扩大或更换 |
 | rollback | 只准该别名此前已发表且属于当前版本父链的可读祖先；追加新发表事件并核当前预期前驱，不覆盖失败版本，不删历史成本 |
 | freeze_alias / FrozenSkillSelection / read_selection | 冻结当时原批准的别名 head、publication_id、version_id、投影摘要及 split；后续回读具体旧发表和完整版本，即使别名更新也保持原选择。不自动生成 KnowledgeSnapshot、SDK 资源或启动配置；Agent 另由下述版本消费入口认证原批准后生成任务资源 |
-| 来源/容量与追加发布 | 每次 API 的元数据、copy/closure 和递归回读共用 FeedbackLimits 预算；同预算+完整原批准内可由私有 _PlanReadView 复用已认证 Plan，不能跨 API。每份回执原件/账本/聚合仍独立审读；成功/idempotent 回读或正式 mutation 前，_close_plans 绕过视图重核全部 Plan、父版本和反馈源，关闭核验计入同一预算。来源首尾或批准漂移拒绝，finally 丢弃视图；前驱继续复核，发布后重读事件字节/FD。第一批公共 Store 不改。事件/链有容量门，超限不截断、不放宽；非文件系统锁，内部聚合/知识审计 I/O 和峰值内存不是同一全局计量 |
+| 来源/容量与追加发布 | 每次 API 的元数据、copy/closure 和递归回读共用 FeedbackLimits 预算；同预算+完整原批准内可由私有 _PlanReadView 复用已认证 Plan 和不可变 receipt，不能跨 API。每份回执首次完整审读原件/账本并重聚合，保留 payload/metadata 原字节、FD/路径身份及目录成员证明；成功/idempotent 回读或正式 mutation 前，_close_plans 绕过视图重核全部 Plan、父版本和反馈源，并重新关闭保留的全部回执证明，读取计入同一预算。来源首尾、批准或恢复字节后的身份漂移拒绝，finally 丢弃视图；前驱继续复核，发布后重读事件字节/FD。第一批公共 Store 不改。事件/链有容量门，超限不截断、不放宽；非文件系统锁，内部聚合/知识审计 I/O 和峰值内存不是同一全局计量 |
 
 版本消费另由 `version_skill_contracts.py` / `version_skills.py` 承担，与原 KnowledgeStore 和人工 StaticSkillPolicy 分开。TaskVersionSkillBinding 固定外部批准、task/run、源码/日志、完整 CaseSelection、用途和全部 VersionSkillGrant；输入对象另固定启停开关，恢复默认沿用原值，显式冲突在复制前拒绝。案例身份必须与实际 task schema 2 摘要相符，不能缺谱系便跳过学习/验证隔离。验证入口 HostValidationSkillInput 绑定原计划、精确案例/角色及共同池，允许尚未验证的候选参与预定验证，但不授部署权；部署入口 HostDerivedSkillInput 绑定具体 FrozenSkillSelection、版本及发表原批准，初次启动核当前发表及所选模型版本的最新 eligible 判定，回退选择也须核此资格；历史恢复不查最新头。
 
@@ -555,6 +555,8 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 `read_source` / `read_draft` 必须另传原外部学习批准，以副本完整原件重新构造日志/diff 输入、请求、账本及草案前缀，再核全操作成本；原学习库或反馈库移走不触发调用。来源包不提供 invoke/reserve，不重新绑定复制根、不取得新预算。清单外文件/目录、改写、缺失、链接、未合并数据库日志和读取中变化拒绝；发布前预留完整暂存及最终回读预算，失败不放宽门槛。其容量仍是单 API 原件读取/关闭的范围，不宣称全内部聚合 I/O、峰值内存或跨操作总限额。移植包为后续模型来源版本提供证据，不授予验证、发表或部署资格；实际验收只记 STATUS。
 
 新增模型提炼产物使用独立 LearningDraft，完整 ExperienceContent 只成为 model_inference、validation_scopes 为空的 pending_host_review；不改人工 ExperienceCandidate 或 SkillVersion 的 schema 1。原响应、全部提炼/修复调用、权限及全部冻结知识条目的声明学习谱系随草案关联，格式错误与工具型响应不删除、不免计费用。草案仅在无 reserved/dispatched 的稳定调用前缀上生成，unknown 可以保留且总 Token 未知；后续读取重算原前缀，不用当前总费用改写旧草案。缺 usage 或未知发送使总 Token 未知，已知和为下界；实际费用始终未知而非零。模型自报 host_curated、验证通过或额外权限拒绝，来源 candidate_validation/confirmation 不回流，草案不自动入库、晋升或扩大工具能力。父 Skill 版本来源已由独立版本入口固定审核；旧 KnowledgeStore 入库仍未接入，当前草案为新经验，不能靠 parent 字段暗示已修订/部署某版本。
+
+瞬时目录闭合仅对实际目录的 NTFS 内部目录位 0x10000000 规范化；卷、文件 ID、类型及其他属性精确核验，guard 仍拒绝重解析点，目录替换及成员/字节漂移仍拒绝。公共工作上下文目录锚和持久 Plan/owner 身份不改，历史批准保持原解释；实际反例及整链结果见 STATUS。
 
 #### 3.1.4 必须验证的反例
 

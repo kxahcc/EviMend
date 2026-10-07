@@ -81,6 +81,22 @@ def _exists(path: Path) -> bool:
     return True
 
 
+def _closure_directory_anchor(info: os.stat_result) -> tuple[int, int, int, int]:
+    """Normalize only the NTFS on-disk directory bit for ephemeral closure.
+
+    NTFS defines its directory attribute as 0x10000000, while WinNT exposes
+    FILE_ATTRIBUTE_DIRECTORY as 0x10. A captured empty directory was observed
+    changing only that high bit. Keep every other flag and identity component;
+    path guards still reject reparse points. Persistent identities use the
+    original working_context_materials anchor without this normalization.
+    Sources: linux/fs/ntfs3/ntfs.h and Microsoft's File Attribute Constants.
+    """
+    device, inode, kind, attributes = _directory_anchor(info)
+    if stat.S_ISDIR(info.st_mode):
+        attributes &= ~0x10000000
+    return device, inode, kind, attributes
+
+
 class _ReadBudget:
     """One API operation shares this counter across every copy/closure phase."""
 
@@ -141,7 +157,7 @@ class _ClosedTree:
 
     def _parents(self, path: Path) -> None:
         for parent in (path, *path.parents):
-            anchor = _directory_anchor(parent.lstat())
+            anchor = _closure_directory_anchor(parent.lstat())
             previous = self.directory_identities.setdefault(parent, anchor)
             if previous != anchor:
                 raise ValueError("feedback ancestor identity changed")
@@ -242,8 +258,10 @@ class _ClosedTree:
                 raise ValueError("feedback tree membership changed during closure")
         for directory, identity in self.directory_identities.items():
             _guard(directory)
-            if _directory_anchor(directory.lstat()) != identity:
-                raise ValueError("feedback ancestor changed during closure")
+            observed = _closure_directory_anchor(directory.lstat())
+            if observed != identity:
+                raise ValueError(f"feedback ancestor changed during closure: {directory}; "
+                                 f"expected={identity}, observed={observed}")
         # After the last byte reread, close every descriptor identity once more.
         for path, (identity, descriptor) in self.receipts.items():
             _guard(path)
@@ -463,7 +481,7 @@ class FeedbackStore:
         if (after != raw or after_descriptor != descriptor or
                 {item.name for item in directory.iterdir()} != {"capsule.json", "payload"}):
             raise ValueError("feedback capsule changed during readback")
-        if any(_directory_anchor(parent.lstat()) != identity
+        if any(_closure_directory_anchor(parent.lstat()) != identity
                for parent, identity in metadata.directory_identities.items()):
             raise ValueError("feedback capsule ancestor changed during readback")
         return capsule
@@ -544,7 +562,7 @@ class FeedbackStore:
         after, after_descriptor = reader._read(path)
         if after != raw or after_descriptor != descriptor:
             raise ValueError("feedback candidate changed during readback")
-        if any(_directory_anchor(parent.lstat()) != identity
+        if any(_closure_directory_anchor(parent.lstat()) != identity
                for parent, identity in reader.directory_identities.items()):
             raise ValueError("feedback candidate ancestor changed during readback")
         return candidate

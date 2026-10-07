@@ -15,7 +15,14 @@ from uuid import uuid4
 
 from .evidence_io import local_evidence_path
 from .exporting import _TASK_ENTRIES, _WORK_ENTRIES
-from .feedback import FeedbackStore, _ClosedTree, _copy, _exists, _ReadBudget
+from .feedback import (
+    FeedbackStore,
+    _ClosedTree,
+    _closure_directory_anchor,
+    _copy,
+    _exists,
+    _ReadBudget,
+)
 from .feedback_contracts import (
     FeedbackFile,
     FeedbackLimits,
@@ -84,7 +91,7 @@ def _raw(reader: _ClosedTree, path: Path) -> bytes:
     original, descriptor = reader._read(path)
     repeated, closing = reader._read(path)
     if (original != repeated or descriptor != closing or
-            any(_directory_anchor(parent.lstat()) != identity
+            any(_closure_directory_anchor(parent.lstat()) != identity
                 for parent, identity in reader.directory_identities.items())):
         raise ValueError("Skill immutable record changed during read")
     return original
@@ -819,14 +826,18 @@ class SkillValidationStore:
         _identity(receipt_id, "skill-receipt-")
         return self._read_receipt_directory(self._folder("receipts") / receipt_id, receipt_id, approval, budget)
 
+    def _receipt_closed(self, approval: ValidationApproval, receipt: ValidationReceiptRecord,
+                        tree: _ClosedTree, metadata: _ClosedTree, budget: _ReadBudget) -> None:
+        """Private operation views may retain this fully authenticated raw proof."""
+
     def _read_receipt_directory(self, directory: Path, receipt_id: str, approval: ValidationApproval,
                                 budget: _ReadBudget) -> ValidationReceiptRecord:
         _guard(directory)
         if {item.name for item in directory.iterdir()} != {"receipt.json", "payload"}:
             raise ValueError("Skill receipt has extra or missing originals")
         metadata = _ClosedTree(directory, self.limits, budget)
-        metadata._parents(directory)
-        raw, descriptor = metadata._read(directory / "receipt.json")
+        raw = metadata.capture_file("receipt.json")
+        metadata.members[metadata.root] = ("payload", "receipt.json")
         receipt = parse_receipt(encode(_object(raw.decode("utf-8"))))
         if receipt.receipt_id != receipt_id or encode(receipt).encode("utf-8") != raw:
             raise ValueError("Skill receipt canonical bytes or filename changed")
@@ -850,10 +861,6 @@ class SkillValidationStore:
                 payload.target_projection_sha256 != version.projection_sha256):
             raise ValueError("Skill receipt changes its intended version")
         tree.finish()
-        after, after_descriptor = metadata._read(directory / "receipt.json")
-        if (after != raw or after_descriptor != descriptor or
-                any(_directory_anchor(parent.lstat()) != identity
-                    for parent, identity in metadata.directory_identities.items()) or
-                {item.name for item in directory.iterdir()} != {"receipt.json", "payload"}):
-            raise ValueError("Skill receipt changed during readback")
+        metadata.finish()
+        self._receipt_closed(approval, receipt, tree, metadata, budget)
         return receipt
