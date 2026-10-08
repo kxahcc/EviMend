@@ -25,6 +25,7 @@ from .decisions import DecisionRequest, DecisionStore
 from .diagnostics import AnalysisStore
 from .evidence_io import open_readonly_database
 from .model_calls import ModelCallStore, canonical, sha256
+from .progress import emit_progress
 from .workspace import CandidateWorkspace
 
 TOOL_ACTIONS: dict[str, tuple[str, str]] = {
@@ -118,6 +119,8 @@ class ToolActionStore:
                 message = ToolMessage.model_validate_json(row["message_json"])
                 if message.tool_call_id != tool_call_id or message.name != tool_name:
                     raise ValueError("tool receipt belongs to another call")
+                emit_progress("tool_replayed", action_id=action_id, tool_name=tool_name, state="completed",
+                    authorization="allowed" if row["rejection"] is None else "rejected", tool_status=message.status)
                 return message
             count = connection.execute("SELECT COUNT(*) FROM tool_actions").fetchone()[0]
             if count >= max_tool_calls:
@@ -126,12 +129,16 @@ class ToolActionStore:
                                (action_id, request_sha256, model_call_id, tool_name,
                                 proposal.model_dump_json() if proposal is not None else None,
                                 rejection, "dispatched"))
+        emit_progress("tool_dispatched", action_id=action_id, tool_name=tool_name, state="dispatched",
+                      authorization="allowed" if rejection is None else "rejected")
         if rejection is not None:
             message = ToolMessage(content=f"rejected: {rejection}", tool_call_id=tool_call_id,
                                   name=tool_name, status="error")
         else:
             message = handler()
         self.complete(action_id, message)
+        emit_progress("tool_completed", action_id=action_id, tool_name=tool_name, state="completed",
+                      authorization="allowed" if rejection is None else "rejected", tool_status=message.status)
         return message
 
     def complete(self, action_id: str, message: ToolMessage) -> None:

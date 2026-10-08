@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .contracts import IDENTIFIER, require_hash
 from .evidence_io import open_readonly_database
+from .progress import emit_progress
 
 
 def canonical(value: object) -> str:
@@ -521,17 +522,28 @@ def invoke_accounted(store: ModelCallStore, intent: AnyModelCallIntent, provider
     """One logical call. A dispatched call is never silently sent again on resume."""
     state = store.reserve(intent, max_calls=max_calls, max_known_tokens=max_known_tokens).state
     if state == "completed":
-        return store.replay(intent)
+        result = store.replay(intent)
+        emit_progress("model_replayed", call_id=intent.call_id, state="completed")
+        return result
     if state != "reserved":
         raise ModelCallUncertain("provider result may exist; reconcile or use a new accounted call")
+    emit_progress("model_reserved", call_id=intent.call_id, state="reserved")
     if preflight is not None:
         preflight()
     store.dispatch(intent.call_id)
+    emit_progress("model_dispatched", call_id=intent.call_id, state="dispatched")
     try:
         message = provider()
         if not isinstance(message, AIMessage):
             raise TypeError("provider did not return an AIMessage")
     except Exception as exc:
         store.mark_unknown(intent.call_id, type(exc).__name__)
+        emit_progress("model_unknown", call_id=intent.call_id, state="unknown")
         raise
-    return message, store.complete(intent, message)
+    observation = store.complete(intent, message)
+    usage = observation.usage
+    emit_progress("model_completed", call_id=intent.call_id, state="completed",
+        usage_status=observation.usage_status, input_tokens=None if usage is None else usage.input_tokens,
+        output_tokens=None if usage is None else usage.output_tokens,
+        total_tokens=None if usage is None else usage.total_tokens)
+    return message, observation

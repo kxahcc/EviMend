@@ -7,7 +7,7 @@
 
 **做一个面向 HarmonyOS 应用的故障定位与自修复 Agent：给它故障日志、应用源码和允许的测试入口，它自动找原因、修改代码、运行检查；失败后根据反馈继续修，最后交出补丁和验证报告。**
 
-当前产品形态是命令行程序，competition 处理单个故障；已有离线聚合入口按显式清单汇总记录，真实应用批量调度与聚合在实测接入阶段完成。人负责准备任务、运行条件和可信的业务验收要求；系统负责每个任务内的分析、改代码和有界重试。首先把这条链路做好，展示界面以后视交付需要添加。
+当前产品形态是命令行 Agent，competition 处理单个故障。面向用户的入口设计采用 Strix 式直接传参：`dfx --target 任务快照 --config 配置` 启动，`--resume NAME` 恢复，`status/logs/stop/report NAME` 追踪会话；实际安装及验收状态见 STATUS。任务快照同时含源码与故障日志，完整应用和四项检查命令由配置固定。现阶段不把任意原工程自动认定为已审核任务。已有离线聚合入口按显式清单汇总记录，真实应用批量调度与聚合在实测接入阶段完成。人负责准备任务、运行条件和可信的业务验收要求；系统负责分析、改代码和有界重试。
 
 用户最终拿到三类结果：
 
@@ -104,7 +104,7 @@ Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行；研究增
 
 本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；离线证据可通过受管 Export 保留到 runs/exports。日常只启动一个受管任务。真实应用阶段先盘点设备、SDK/构建缓存的占用，再为其建立同样受管的安装、运行和清理入口；当前方案没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-管理入口 scripts/local.ps1 提供 Prepare、Status、Clean、Stop、Init、合成/测试/质量/离线 Agent/competition/只读聚合的受限 Run，以及私有证据 Export。任务先建立 Windows Job 的 CPU、提交内存和进程数限制再启动；输出经有上限的管道收集。项目 Python、uv、虚拟环境与缓存集中在 .dfx-local，managed 与 exports 共同受磁盘预算约束。competition 工作目录固定为 `.dfx-local/work/competition-<ID>`，控制台只输出简短状态、候选数、模型调用数和报告路径。[本机配置](configs/local-runtime.json) 的位置标记为 local，`allow_model_experiments` 与 `allow_application_experiments` 仍为 false；本批不解锁真实云端或 HarmonyOS 执行，也不安装工具链。完整目录、限制边界和清理协议见 [开发设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+面向用户的 `dfx` 前端负责启动、进度和会话操作，`env` 管理安装、占用和按计划清理。Windows 当前部署形式是完整项目目录、项目专属环境和标准 console entry；初始入口为 setup.cmd，安装后的仓库快捷入口为 dfx.cmd，不改全局 PATH。内部 scripts/local.ps1 继续承担 Prepare、Status、Clean、Stop、Init、受限 Run 和私有 Export，仍依赖已安装 PowerShell 7/.NET；这次没有移植保护后端，也没有完成独立 wheel 或跨平台部署。任务先建立 Windows Job 限制再启动；项目环境与缓存集中在 .dfx-local，managed 与 exports 共同受磁盘预算约束。competition 工作目录固定，进度侧录只显示实际活动，不代替最终报告或接受证据。[本机配置](configs/local-runtime.json) 的真实模型/应用开关仍为 false；使用和安装状态见 [Agent 说明](src/dfx_agent/README.md) 与 STATUS，完整限制边界见 [设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
 每次新运行保存执行源码指纹、依赖锁和实际 Python/依赖版本。恢复先核对兼容性，报告和聚合只读取当时保存的事实；旧记录的缺失版本保持未知。competition 还须保留原完整工程、原配置、run 原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原主机批准，不以新资源或新批准替换旧记录；已完成记录回放，未知发送不重做。Git 的初始观察与续跑身份分开，日常改文档不会改变执行源码的兼容身份。完整约束见 [模块规格](docs/design-contracts.md)。
 
@@ -154,6 +154,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
 | `src/dfx_agent/` | Python 证据与修复 Agent、候选工作区、SDK 闭环、云端请求和本机检查通道、竞赛交付及受控策略；实际验收见 STATUS，模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 competition / repair / resume / aggregate / export / verify-export 入口 |
+| `dfx.cmd`、`setup.cmd` | 安装后的标准命令快捷入口及首次受管安装入口；内部依赖既有 PowerShell 7 后端，实际安装验收状态见 STATUS |
 | `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init、受限合成/测试/质量/离线 Agent/competition/聚合及私有 Export/Verify 入口；实际云端和应用实验开关仍关闭 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
 | `scripts/local_bootstrap.ps1`、`scripts/local_test.ps1`、`scripts/local_quality.ps1` | Job 内的固定依赖安装、pytest 和文档/Ruff/Pyright 检查，不接受任意 shell 命令 |
@@ -197,6 +198,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_model_provider.py`、`tests/test_provider_loop.py`、`tests/test_reporting.py`、`tests/test_offline_script.py`、`tests/test_offline_cli.py` | 模拟模型请求/响应、SDK 交接、最终摘要核验和受管脚本/命令入口；不调用真实模型 |
 | `tests/test_cloud_provider.py`、`tests/test_local_execution.py`、`tests/test_competition.py` | MockTransport 云端调用、短时本机程序及统一竞赛入口的边界、恢复和输出软件验收；不调用真实 API 或 HarmonyOS，实际结果见 STATUS |
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
+| `tests/test_product_cli.py`、`tests/test_progress.py` | 用户参数、输出/分页、停止归属、中断及有界侧录的拟验收用例；未执行时不得视作通过，实际结果见 STATUS |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
 | `tests/test_context_compaction.py`、`tests/test_compaction_loop.py` | 主机压缩的完整工具组、冻结来源、独立费用、格式失败、未知结果、恢复及实际 SDK 交接的合成验收 |
 | `tests/test_readonly_evidence.py`、`tests/test_metrics.py`、`tests/test_metrics_cli.py` | 不可变账本、完整分母/未知项/重复运行、配置漂移及受管聚合入口的合成验收 |
@@ -224,6 +226,8 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 
 | 文件 | 职责与边界 |
 |---|---|
+| `product_cli.py` | 标准 dfx console entry、会话操作、有限输出和活动反馈；委托原受管后端，不直接运行求解器或放行真实实验 |
+| `progress.py` | 主机操作边界的容量有限事件侧录和只读分页；不包含私有正文、不重构历史时间，不充作接受/科研账本 |
 | `task.py` | 显式案例目录契约、日志/ZIP 成员与场景脚本哈希核对、分析快照和身份摘要；不生成完整运行工程 |
 | `logs.py` | 编码、错误字段与栈帧解析；不推理业务根因 |
 | `sources.py` | 源码路径匹配、歧义和邻近片段；不是 ArkTS 数据流分析器 |

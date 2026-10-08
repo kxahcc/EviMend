@@ -5,9 +5,40 @@
 
 当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 保留固定响应和模拟模型协议，把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。新增 `competition` 统一主机配置、云端请求适配器、完整工程的本机检查、正式通用领域 Skill 和竞赛交付。统一入口的软件验收证据和未通过项见 [STATUS](../../docs/STATUS.md)。本批只用 MockTransport 与短时合成程序，不运行真实云端或 HarmonyOS 实验；合成 `offline_checked` 或 `synthetic_checked` 不能解释为应用修复成功。公开脱敏、真实环境接纳及修复效果仍待验证。
 
-### 受管竞赛入口与输出
+### 标准用户命令与部署
 
-从仓库根目录使用同一个管理入口启动 mock_demo 或恢复原运行：
+**以下是产品入口的源码用法；安装和验收状态以 STATUS 为准。** 受管安装必须先通过资源盘点，再实际同步依赖锁并生成 dfx.exe。Windows 当前需要已安装的 PowerShell 7（pwsh）、完整项目目录和项目环境；不是单独 wheel、纯 Python 或跨平台部署。内部管理/工作脚本仍保留，用户无需手写它们的长参数。本机不改全局 PATH、pip 或注册表。
+
+首次安装或清除项目环境后，从项目根目录执行 `setup.cmd`；已有环境且所有构建依赖已缓存时可用 `setup.cmd -OfflineSync`。实际 Init 核 uv/Python、执行 lock/sync、检查 SDK 和已安装 dfx 的 help/version 后才记录环境身份。资源不完整、构建包未缓存或同步失败时必须先处理具体原因，不能改 environment.json 冒充安装。
+
+安装成功后的日常命令如下。PowerShell 在项目目录使用 `.\dfx`，已激活项目虚拟环境时也可使用裸 `dfx`：
+
+```text
+.\dfx --demo --name trial01
+.\dfx --target reviewed/task01 --config configs/task01.json --name task01
+.\dfx --resume task01
+.\dfx status task01
+.\dfx logs task01 --follow
+.\dfx stop task01
+.\dfx report task01
+.\dfx env status
+.\dfx env clean --scope cache
+.\dfx env clean --scope cache --apply --plan-id PREVIEW_PLAN_ID
+```
+
+`--target` 是已经审核的任务快照目录，含 task.json、source、crash.log 和清单；不是直接传任意原工程即可实验。输入位于部署项目中且不得来自原始 data_B、archive 或指令目录；完整工程、验证命令和业务判据通过 --config 绑定。真实配置尚未接纳时只运行 --demo。省略 --name 时自动生成会话名；工作目录和批准路径自动派生。`--resume NAME` 消费该新运行保存的原位置/profile，并继续原准入和预算检查，不自动替换配置。旧运行没有新位置文件时沿下面兼容入口显式提供参数；源码/依赖变更仍可能使恢复被拒绝，不能通过新前端绕过。
+
+`--workspace` 可显式指定完整部署目录；没有时从当前目录向上寻找，或读取 DFX_PROJECT_ROOT。`--config` 包含 provider/model、应用检查和预算，凭据只通过其中指定的环境名读取，不放命令参数。普通命令不会自动修改真实实验开关。
+
+运行中显示实际模型派发/回执、工具授权/结果保存、原版和候选的 build/target/behavior/regression 阶段、源码绑定观察以及最终报告。工具结果保存不是业务通过，阶段退出成功不等于修复被接受；定位推断及完整补丁通过 result.md 查看。默认文本逐条反馈；`--output-format json` 只输出一个最终结果/观察，`stream-json` 每个事件一行，可用于其他界面。`logs NAME --after N --follow --output-format stream-json` 接续序号；查看日志时 Ctrl+C 只退出查看，运行时 Ctrl+C 请求停止本次 manager。缺身份或停止未确认保持 unknown，不停止其他任务。
+
+events.jsonl 是容量有限的操作侧录：不输出模型正文、源码、日志正文、工具参数或凭据，不展示虚构百分比/ETA。到限、损坏或缺失会声明 truncated/unknown/unavailable；原账本和最终接受仍独立。CLI status/report 是运行视图，不能代替原件核验或效果指标；当前摘要读取拒绝超过 32 MiB 的完整报告，拒绝展示不更改其原始结果或应用接受。查看旧运行不补造实时事件时间；私有 delivery.zip 保存打包时的事件快照，打包成功后的完成事件仍可能仅在 work 中。
+
+退出码：0 为管理/查看完成，或 Agent 获得应用接受；2 为 Agent 已结束但未获得应用接受（含 demo 合成通过）；1 为错误或管理状态未知；130 为中断。因此 demo 正常完成时退出 2，report 的退出 0 不表示其 accepted=true。
+
+### 兼容管理入口与竞赛输出
+
+以下底层入口保留用于开发检查、显式旧记录恢复和兼容；需要 PowerShell 7，从仓库根目录执行：
 
 ```powershell
 .\scripts\local.ps1 Run -Task competition -CompetitionConfigPath configs/competition-demo.json -CompetitionWorkId demo01
@@ -27,6 +58,8 @@
 | `result.md` | 面向审阅者的定位、修复、验证和限制说明；控制台 report_path 指向此文件 |
 | `delivery.zip` | 未脱敏的私有交付原件及字节/哈希清单，供保留和审阅；字节核验不等于评测重聚合、根因认证或修复成功证明 |
 | `agent-report.json`、账本及 Graph 检查点 | SDK 运行轨迹与恢复依据；agent-report 不是最终竞赛接受报告 |
+| `events.jsonl` | 新运行的有限实时操作观察；不充作接受、成本或历史时间证据 |
+| `product-config.json`、`product-launch.json` | 新前端恢复时定位原配置和任务；真正准入仍由原固定事实与外部批准决定 |
 
 `configs/competition-demo.json` 是受管软件演示配置；`configs/competition-cloud.template.json` 说明后续真实提供方与工程接纳字段，包含待填写值，不能直接作为当前实验配置。本机策略 `configs/local-runtime.json` 的 `allow_model_experiments` 和 `allow_application_experiments` 均保持 false，本批不得通过环境变量或配置修改解锁真实云端、HarmonyOS 构建或设备运行。
 

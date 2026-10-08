@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .contracts import require_hash, require_path
 from .evidence_io import local_evidence_path
+from .progress import emit_progress
 from .task import digest, snapshot_digest
 from .verification import _atomic_json
 from .workspace import CandidateWorkspace, _manifest
@@ -528,9 +529,12 @@ class LocalApplicationExecutor:
             "subtree_stopped": False, "process_started": False, "stdout": None, "stderr": None}
         record_path = receipt_root / f"{role}-{stage}.json"
         _atomic_json(record_path, receipt)
+        emit_progress("check_stage_prepared", stage=stage, role=role, process_started=False)
         if self._stopped(lease) or time.monotonic() >= deadline:
             receipt.update(reason="stop_requested" if self._stopped(lease) else "check_timeout", finished_at=_now())
             _atomic_json(record_path, receipt)
+            emit_progress("check_stage_completed", stage=stage, role=role, status=receipt["status"],
+                          reason=receipt["reason"], process_started=False)
             return receipt
         paths = [receipt_root / f"{role}-{stage}.{stream}.txt" for stream in ("stdout", "stderr")]
         exceeded = threading.Event()
@@ -572,6 +576,7 @@ class LocalApplicationExecutor:
             tree = _ProcessTree(process)
             receipt["process_started"] = True
             _atomic_json(record_path, receipt)
+            emit_progress("check_stage_started", stage=stage, role=role, process_started=True)
             expires = min(deadline, time.monotonic() + command.timeout_seconds)
             reason = "exited"
             while process.poll() is None:
@@ -621,6 +626,8 @@ class LocalApplicationExecutor:
                     receipt[label] = {"path": path.relative_to(receipt_root).as_posix(), "size_bytes": size,
                                       "sha256": digest(_checked(path).read_bytes())}
             _atomic_json(record_path, receipt)
+            emit_progress("check_stage_completed", stage=stage, role=role, status=receipt["status"],
+                          reason=receipt["reason"], process_started=receipt["process_started"])
         return receipt
 
     def _overlay(self, project: Path, candidate: Path, workspace: CandidateWorkspace) -> str:
@@ -673,6 +680,8 @@ class LocalApplicationExecutor:
         finally:
             _atomic_json(receipt_root / f"{result['role']}-{result['stage']}.json", result)
             _atomic_json(path, record)
+            emit_progress("check_source_bound", stage=result["stage"], role=result["role"],
+                          source_binding_verified=result["source_binding_verified"])
 
     def check(self, *, key: str, source: Path) -> tuple[CheckStatus, str]:
         require_hash(key)

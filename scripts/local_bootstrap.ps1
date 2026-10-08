@@ -21,6 +21,12 @@ if ($config.schema_version -ne 1 -or $config.uv_version -cne '0.12.9' -or
 $uvPath = Join-Path $root 'tools/uv.exe'
 $statePath = Join-Path $root 'state/bootstrap.json'
 $tmp = Join-Path $root 'tmp'
+$offlineSync = $env:DFX_BOOTSTRAP_OFFLINE_SYNC -eq '1'
+$pythonExe = Join-Path $root 'env/Scripts/python.exe'
+if ($offlineSync -and (-not [IO.File]::Exists($uvPath) -or -not [IO.File]::Exists($statePath) -or
+    -not [IO.File]::Exists($pythonExe))) {
+    throw 'Offline sync requires the existing project uv and Python; no bootstrap download is allowed'
+}
 [IO.Directory]::CreateDirectory((Join-Path $root 'tools')) | Out-Null
 [IO.Directory]::CreateDirectory((Join-Path $root 'state')) | Out-Null
 [IO.Directory]::CreateDirectory($tmp) | Out-Null
@@ -88,6 +94,7 @@ $env:UV_TOOL_BIN_DIR = Join-Path $root 'tools/bin'
 $env:UV_MANAGED_PYTHON = '1'
 $env:UV_PYTHON_NO_REGISTRY = '1'
 $env:UV_NO_CONFIG = '1'
+if ($offlineSync) { $env:UV_PYTHON_DOWNLOADS = 'never' }
 $env:UV_CONCURRENT_DOWNLOADS = [string][int]$policy.limits.max_download_concurrency
 $env:UV_CONCURRENT_BUILDS = [string][int]$policy.limits.max_build_concurrency
 $env:PYTHONPYCACHEPREFIX = Join-Path $root 'cache/pycache'
@@ -104,17 +111,30 @@ Push-Location $repo
 try {
     & $uvPath --version
     if ($LASTEXITCODE -ne 0) { throw 'Project uv executable failed' }
-    & $uvPath python install $config.python_version --no-progress
-    if ($LASTEXITCODE -ne 0) { throw 'Managed Python install failed' }
-    & $uvPath lock --no-progress
-    if ($LASTEXITCODE -ne 0) { throw 'Dependency lock failed' }
-    & $uvPath sync --locked --python $config.python_version --no-progress
+    if ($offlineSync) {
+        & $pythonExe -c 'import sys; print(sys.version); raise SystemExit(0 if sys.version_info[:3] == (3, 13, 5) else 1)'
+        if ($LASTEXITCODE -ne 0) { throw 'Existing managed Python version does not match bootstrap configuration' }
+        & $uvPath lock --offline --no-progress
+        if ($LASTEXITCODE -ne 0) { throw 'Offline dependency lock failed; missing cached build requirements must be admitted separately' }
+        & $uvPath sync --offline --locked --python $pythonExe --no-progress
+    } else {
+        & $uvPath python install $config.python_version --no-progress
+        if ($LASTEXITCODE -ne 0) { throw 'Managed Python install failed' }
+        & $uvPath lock --no-progress
+        if ($LASTEXITCODE -ne 0) { throw 'Dependency lock failed' }
+        & $uvPath sync --locked --python $config.python_version --no-progress
+    }
     if ($LASTEXITCODE -ne 0) { throw 'Locked dependency sync failed' }
 } finally { Pop-Location }
-$pythonExe = Join-Path $root 'env/Scripts/python.exe'
 if (-not [IO.File]::Exists($pythonExe)) { throw 'Managed environment Python missing after sync' }
 & $pythonExe -c 'import sys; print(sys.version); import deepagents, pydantic, langgraph'
 if ($LASTEXITCODE -ne 0) { throw 'Managed SDK import failed' }
+$productExe = Join-Path $root 'env/Scripts/dfx.exe'
+if (-not [IO.File]::Exists($productExe)) { throw 'Installed product console command is missing after sync' }
+& $productExe --version
+if ($LASTEXITCODE -ne 0) { throw 'Installed product console version command failed' }
+& $productExe --help
+if ($LASTEXITCODE -ne 0) { throw 'Installed product console help command failed' }
 [pscustomobject]@{ schema_version = 1; uv_version = $config.uv_version
     python_version = $config.python_version
     uv_exe_sha256 = (Get-FileHash -LiteralPath $uvPath -Algorithm SHA256).Hash

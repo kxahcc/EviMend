@@ -5,6 +5,16 @@
 
 ## 1. 数据契约与不可破坏的条件
 
+### 用户入口与运行观察
+
+`product_cli` 是标准命令前端，`--target` 明确指已经审核的 analysis_source_v1 任务快照，包含源码和故障日志；完整运行工程、固定验证命令、云端 profile 与预算另由 --config 指定。`--demo` 只创建合成演示，`--resume NAME` 只定位新运行保存的原输入，不接受替换 profile 或预算。product-config.json 与 product-launch.json 是定位元数据，真正准入继续核原 competition-config、session、源码、账本及外部批准；位置文件不授予调用或执行权。旧运行没有新位置文件时不能凭空恢复自动定位，可继续沿原显式参数入口并遵守兼容门。
+
+用户管理命令为 status、logs、stop、report；env 提供受管安装、盘点和按计划清理。普通输出为文本活动，json 只输出一个终态/观察对象，stream-json 每个观察一行；logs --follow 只允许 text/stream-json，可用 --after 序号接续。退出 0 表示请求操作完成或应用被接受，2 表示 Agent 已结束但没有接受应用修复（含合成通过），1 表示错误/未确认管理状态，130 表示中断。report 的退出 0 只表示查看完成，其 accepted 字段仍独立。前端不会把实际执行成功、工具回执成功或合成通过升级为应用接受。
+
+events.jsonl 的每条记录包含 schema_version、sequence、observed_at、run_id、event 和固定白名单的计数/状态/主机标识。时间是写入时的 UTC 主机观察，不是独立时间证明或模型内部活动。新工作区创建后才写；恢复拒绝前不落侧录。没有历史侧录、末行不完整、损坏或容量耗尽时返回 unavailable/unknown/truncated，不改原文件或补造事件。侧录写失败不得把已完成调用改成失败或触发重发；它不参与模型输入、应用接受或科研成本汇总。delivery 包只保存打包时已有事件，打包成功后的 run_finished 可仅位于原 work 中。
+
+状态视图读取侧录，不对活动 SQLite 使用 immutable=1 的停止证据接口。终态展示是有限字段的保存视图，不替代独立原件回核。Stop 须把业务会话 ID 对应到当前 manager GUID/PID，后端再次校验进程身份；专属 stop-GUID 文件使延迟请求不会终止后续任务。前端反馈故障保持 unknown，禁止用其他任务的活动凭据弥补缺失身份。
+
 离线原型与首批领域对象分别校验，不能把 evidence_ready 报告直接前作 Diagnosis。领域记录 schema_version=1 已包含下述因果字段；有些可空，以容纳尚未查明的内容。诊断提交本身不产生根因确认；应用打包与验收对象仍有独立契约。
 
 ### 1.1 版本与来源

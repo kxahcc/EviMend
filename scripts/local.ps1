@@ -18,6 +18,8 @@ param(
     [string]$ExportId,
     [switch]$Verify,
     [switch]$Resume,
+    [string]$ExpectedRunId,
+    [switch]$OfflineSync,
     [ValidateSet('idle', 'child', 'noisy', 'memory')][string]$Scenario = 'idle',
     [ValidateRange(1, 120)][int]$Seconds = 3,
     [ValidateRange(1, 1800)][int]$TimeoutSeconds = 1800
@@ -25,6 +27,8 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$OutputEncoding = [Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $script:Repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd([IO.Path]::DirectorySeparatorChar)
 $script:PolicyPath = Join-Path $script:Repo 'configs/local-runtime.json'
 $script:Policy = Get-Content -LiteralPath $script:PolicyPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -47,6 +51,13 @@ $script:ActivePath = Join-Path $script:StatePath 'active.json'
 $script:StopPath = Join-Path $script:StatePath 'stop-request.json'
 $script:Comparison = [StringComparison]::OrdinalIgnoreCase
 $script:InaccessibleManagedPaths = [Collections.Generic.List[string]]::new()
+
+if ($PSBoundParameters.ContainsKey('ExpectedRunId')) {
+    if ($Action -ne 'Stop' -or $ExpectedRunId -cnotmatch '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$') {
+        throw 'ExpectedRunId requires Stop and an exact lowercase manager GUID'
+    }
+}
+if ($OfflineSync -and $Action -ne 'Init') { throw 'OfflineSync requires Init' }
 
 function Test-Within([string]$Path, [string]$Parent) {
     $full = [IO.Path]::GetFullPath($Path)
@@ -349,6 +360,18 @@ function Get-VerifiedManager($Marker) {
     return $process
 }
 
+function Test-RunStop([string]$RunId, [string]$ScopedPath) {
+    foreach ($path in @($ScopedPath, $script:StopPath)) {
+        Assert-PathChain $path
+        if ([IO.File]::Exists($path)) {
+            $request = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($request.run_id -cne $RunId) { throw 'Stop request has mismatched run ID' }
+            return $true
+        }
+    }
+    return $false
+}
+
 function Get-RunLimits() {
     $limits = $script:Policy.limits
     if ($limits.max_concurrent_runs -ne 1 -or $limits.max_active_processes -lt 1 -or
@@ -474,10 +497,18 @@ if ($Action -eq 'Stop') {
         exit 0
     }
     $marker = Get-Content -LiteralPath $script:ActivePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($ExpectedRunId -and $marker.run_id -cne $ExpectedRunId) {
+        throw 'Active run differs from ExpectedRunId; refusing Stop'
+    }
+    # A delayed exact-run request must not cancel the next manager via the shared channel.
+    $requestPath = if ($ExpectedRunId) {
+        Join-Path $script:StatePath ('stop-' + $ExpectedRunId + '.json')
+    } else { $script:StopPath }
+    Assert-PathChain $requestPath
     $manager = Get-VerifiedManager $marker
     if ($null -ne $manager) {
         [pscustomobject]@{ schema_version = 1; run_id = $marker.run_id; requested_at = [DateTimeOffset]::UtcNow.ToString('o') } |
-            ConvertTo-Json | Set-Content -LiteralPath $script:StopPath -Encoding UTF8
+            ConvertTo-Json | Set-Content -LiteralPath $requestPath -Encoding UTF8
         $deadline = [Diagnostics.Stopwatch]::StartNew()
         while ($deadline.Elapsed.TotalSeconds -lt [int]$script:Policy.limits.stop_grace_seconds) {
             Start-Sleep -Milliseconds 200
@@ -502,7 +533,10 @@ if ($Action -eq 'Stop') {
             }
         }
         Remove-Item -LiteralPath $script:ActivePath -Force
-        if ([IO.File]::Exists($script:StopPath)) { Remove-Item -LiteralPath $script:StopPath -Force }
+        if ([IO.File]::Exists($requestPath)) { Remove-Item -LiteralPath $requestPath -Force }
+    }
+    if ($ExpectedRunId -and [IO.File]::Exists($requestPath)) {
+        Remove-Item -LiteralPath $requestPath -Force
     }
     [pscustomobject]@{ stopped = $true; active_run = $false; run_id = $marker.run_id
         remote_jobs_unknown = [IO.File]::Exists((Join-Path $script:StatePath 'remote-jobs.json')) } | ConvertTo-Json
@@ -556,8 +590,10 @@ try {
         $savedExportApply = $env:DFX_EXPORT_APPLY; $savedExportPlanId = $env:DFX_EXPORT_PLAN_ID
         $savedExportVerify = $env:DFX_EXPORT_VERIFY; $savedExportPackage = $env:DFX_EXPORT_PACKAGE
         $savedExportRunId = $env:DFX_EXPORT_RUN_ID
+        $savedOfflineSync = $env:DFX_BOOTSTRAP_OFFLINE_SYNC
         $job = $null; $markerCreated = $false
         $runId = [Guid]::NewGuid().ToString()
+        $runStopPath = Join-Path $script:StatePath ('stop-' + $runId + '.json')
         $activePendingPath = Join-Path $script:StatePath ('active-' + $runId + '.new')
         $taskKind = if ($Action -eq 'Init') { 'bootstrap' } elseif ($Action -eq 'Export') { 'export' } elseif ($Task -ne 'synthetic') { $Task } else { $Scenario }
         $logPath = Join-Path $script:Root ("artifacts/$runId.log")
@@ -565,6 +601,7 @@ try {
         $outcome = 'failed'; $reason = $null; $childPid = 0
         try {
             $env:TEMP = Join-Path $script:Root 'tmp'; $env:TMP = $env:TEMP
+            $env:DFX_BOOTSTRAP_OFFLINE_SYNC = if ($Action -eq 'Init' -and $OfflineSync) { '1' } else { '0' }
             if (-not ('DfxLocal.BoundedJob' -as [type])) {
                 Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local_job.cs') -Raw -Encoding UTF8) -ErrorAction Stop
             }
@@ -667,21 +704,18 @@ try {
                 manager_executable = $exe; child_pid = $childPid
                 child_start_utc_ticks = $child.StartTime.ToUniversalTime().Ticks
                 task = $taskKind; job_name = $jobName; effective_limits = $effective; started_at = [DateTimeOffset]::UtcNow.ToString('o')
+                competition_work_id = if ($taskKind -eq 'competition') { $CompetitionWorkId } else { $null }
             } | ConvertTo-Json -Depth 7
             Assert-PathChain $activePendingPath
             [IO.File]::WriteAllText($activePendingPath, $activeJson, [Text.UTF8Encoding]::new($false))
             [IO.File]::Move($activePendingPath, $script:ActivePath)
             $markerCreated = $true
-            if ([IO.File]::Exists($script:StopPath)) {
-                $request = Get-Content -LiteralPath $script:StopPath -Raw -Encoding UTF8 | ConvertFrom-Json
-                if ($request.run_id -cne $runId) { throw 'Stop request has mismatched run ID' }
+            if (Test-RunStop $runId $runStopPath) {
                 $outcome = 'canceled'; $reason = 'stop_requested'; $job.Terminate()
             } else { $job.Resume() }
             $elapsed = [Diagnostics.Stopwatch]::StartNew()
             while (-not $job.HasExited()) {
-                if ([IO.File]::Exists($script:StopPath)) {
-                    $request = Get-Content -LiteralPath $script:StopPath -Raw -Encoding UTF8 | ConvertFrom-Json
-                    if ($request.run_id -cne $runId) { throw 'Stop request has mismatched run ID' }
+                if (Test-RunStop $runId $runStopPath) {
                     $outcome = 'canceled'; $reason = 'stop_requested'; $job.Terminate(); break
                 }
                 if ($job.LogExceeded) {
@@ -734,6 +768,7 @@ try {
             $env:DFX_EXPORT_APPLY = $savedExportApply; $env:DFX_EXPORT_PLAN_ID = $savedExportPlanId
             $env:DFX_EXPORT_VERIFY = $savedExportVerify; $env:DFX_EXPORT_PACKAGE = $savedExportPackage
             $env:DFX_EXPORT_RUN_ID = $savedExportRunId
+            $env:DFX_BOOTSTRAP_OFFLINE_SYNC = $savedOfflineSync
             $logTruncated = $null -ne $job -and $job.LogExceeded
             if ($logTruncated -and $reason -notin @('stop_requested', 'timeout')) {
                 $outcome = 'failed'; $reason = 'log_limit'
@@ -747,6 +782,7 @@ try {
                 $logTruncated = $true
             }
             [pscustomobject]@{ schema_version = 1; run_id = $runId; task = $taskKind
+                competition_work_id = if ($taskKind -eq 'competition') { $CompetitionWorkId } else { $null }
                 status = $outcome; reason = $reason
                 child_pid = $childPid; log_path = $logPath; log_truncated = $logTruncated
                 finished_at = [DateTimeOffset]::UtcNow.ToString('o') } |
@@ -758,6 +794,11 @@ try {
             if ([IO.File]::Exists($script:StopPath)) {
                 $request = Get-Content -LiteralPath $script:StopPath -Raw -Encoding UTF8 | ConvertFrom-Json
                 if ($request.run_id -ceq $runId) { Remove-Item -LiteralPath $script:StopPath -Force }
+            }
+            if ([IO.File]::Exists($runStopPath)) {
+                Assert-PathChain $runStopPath
+                $request = Get-Content -LiteralPath $runStopPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($request.run_id -ceq $runId) { Remove-Item -LiteralPath $runStopPath -Force }
             }
         }
         Get-Content -LiteralPath $recordPath -Raw -Encoding UTF8

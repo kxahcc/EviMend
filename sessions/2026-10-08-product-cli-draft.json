@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-08",
+  "objective": "Simplify operation with a Strix-style standard CLI and bounded live activity, preserving the existing managed repair engine.",
+  "status": "source_draft_validation_blocked",
+  "reviewed_base": "404aaa4",
+  "planned_delivery": "Windows full-project-directory deployment with installed dfx console entry; PowerShell 7 and existing Job backend remain internal dependencies.",
+  "sources_consulted": [
+    {"url": "https://docs.strix.ai/usage/cli", "consulted_on": "2026-10-08", "purpose": "Explicit target arguments, headless interface and exit-code reference; no code execution or cloning."},
+    {"url": "https://raw.githubusercontent.com/usestrix/strix/main/strix/interface/cli.py", "consulted_on": "2026-10-08", "purpose": "Inspect startup panel, saved activity feedback and final summary; no copied implementation."}
+  ],
+  "source_changes": [
+    "product_cli standard arguments, management commands, bounded backend output, three display formats and exact manager stopping",
+    "project packaging declaration plus setup.cmd and dfx.cmd; installation and lock synchronization remain pending",
+    "progress JSONL observations at committed model/tool and actual check boundaries, with capacity/unknown states and no private body content",
+    "saved product configuration/launch locations for resume, retaining original evidence and approval admission",
+    "manager GUID-scoped stop requests and competition business ID; explicit offline managed synchronization",
+    "existing owner documents updated without altering submission templates or adding a second task ledger"
+  ],
+  "static_review": {
+    "method": "Read-only independent review and manual diff review; not executed software checks.",
+    "corrected_draft_issues": [
+      "Separate launch name from management session argument",
+      "Stop the original manager after a Ctrl+C before lease publication",
+      "Produce JSON logs and drain saved event pages",
+      "Use installed PowerShell 7 rather than incompatible Windows PowerShell 5.1",
+      "Validate displayed report fields and distinguish operational views from evidence authentication",
+      "Provide setup entry and an explicit missing-installed-command message"
+    ]
+  },
+  "managed_attempts": [
+    {
+      "operation": "Init -OfflineSync -TimeoutSeconds 180",
+      "receipt": "d7103fee-423d-426e-be9f-1f6ee677536b",
+      "outcome": "failed_before_worker_creation",
+      "child_pid": 0,
+      "reason": "Managed resource accounting is incomplete because a managed path is not readable"
+    },
+    {
+      "operation": "Run -Task docs -TimeoutSeconds 60",
+      "receipt": "698bc505-e1a1-499a-8b7d-d6ae01681e5f",
+      "outcome": "failed_before_worker_creation",
+      "child_pid": 0,
+      "reason": "Managed resource accounting is incomplete because a managed path is not readable"
+    }
+  ],
+  "resource_observation": {
+    "scope": "Read-only Status inside and outside the tool sandbox after rejected Init",
+    "owner_valid": true,
+    "active_state": "none",
+    "resource_accounting": "incomplete",
+    "cleanup_available": false,
+    "inaccessible_paths": [
+      ".dfx-local/tmp/pytest-031b01d69cd34079887b400cb17f1b2c",
+      ".dfx-local/tmp/pytest-dc6796292b2a4fe1ae52c628444c4cc4"
+    ],
+    "cause": "unknown; direct directory enumeration and ACL reading were also denied",
+    "limits_changed": false,
+    "permissions_changed": false,
+    "directories_removed_or_moved": false
+  },
+  "verification": {
+    "tests_written": ["tests/test_product_cli.py", "tests/test_progress.py"],
+    "tests_executed": false,
+    "documentation_check_executed": false,
+    "ruff_executed": false,
+    "pyright_executed": false,
+    "dependency_lock_updated": false,
+    "installed_console_verified": false,
+    "real_model_calls": 0,
+    "harmonyos_runs": 0,
+    "git_diff_check": "passed for the then-current working changes; LF/CRLF notices are not functional validation"
+  },
+  "next": "Restore owned temporary-directory readability without bypassing accounting; perform actual managed installation/lock synchronization, then CLI/progress tests and existing recovery/process/execution regression plus installed demo-to-resume smoke. Only then release the product CLI."
+}

@@ -32,6 +32,7 @@ from .model_provider import (
     ProviderSettings,
 )
 from .policies import PolicyFeatures
+from .progress import emit_progress, progress_scope
 from .static_skills import StaticSkillPolicy
 from .task import digest, prepare_task, verify_task
 from .verification import _atomic_json
@@ -324,6 +325,8 @@ def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecut
         f"模型调用：{solver['model_calls']}；已知 Token：{solver['known_tokens']}；缺用量调用：{solver['missing_usage_calls']}", "",
         "完整定位、修复义务、决策、阶段回执和未决项见 competition-report.json；SDK原始轨迹见 agent-report.json。"]
     (work / "result.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    emit_progress("report_saved", status=outcome, accepted=accepted, verification_level=level,
+                  candidate_count=len(attempts), model_calls=solver["model_calls"])
     return facts
 
 
@@ -438,6 +441,13 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
         os.environ[config.provider.credential_env] = "dfx-synthetic-credential-never-real"
     def startup(workspace: CandidateWorkspace) -> None:
         _atomic_json(workspace.root / "competition-config.json", frozen)
+        # Position metadata simplifies resume; the original competition/session/
+        # approval checks remain the execution authority.
+        profile = workspace.root / "product-config.json"
+        _atomic_json(profile, config.model_dump(mode="json"))
+        _atomic_json(workspace.root / "product-launch.json", {"schema_version": 1,
+            "run_id": run_id, "task": str(task), "config_sha256": digest(profile.read_bytes())})
+        emit_progress("run_started")
 
     try:
         solver = run_provider_agent(task, work, run_id, adapter, executor, resume=resume,
@@ -456,6 +466,7 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
                 os.environ[config.provider.credential_env] = saved_key
     report = _report(work, solver, executor, config, previous_report=previous_report)
     private_delivery(work, task, policy["limits"]["max_export_package_bytes"])
+    emit_progress("run_finished", status=report["status"], accepted=report["accepted"])
     return {"schema_version": 1, "status": report["status"], "accepted": report["accepted"],
         "application_verification": report["application_verification"], "report_path": str(work / "result.md"),
         "candidate_count": len(report["attempts"]), "model_calls": solver["model_calls"]}
@@ -464,7 +475,8 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
 def run_competition(task: Path, work: Path, run_id: str, config_path: Path,
                     project_root: Path, *, resume: bool = False) -> dict[str, Any]:
     try:
-        return _run_competition(task, work, run_id, config_path, project_root, resume=resume)
+        with progress_scope(work, run_id):
+            return _run_competition(task, work, run_id, config_path, project_root, resume=resume)
     except (OSError, ValueError, KeyError, TypeError) as exc:
         if resume:
             raise ResumeAdmissionRejected("competition resume input or saved evidence is unavailable or incompatible") from exc
