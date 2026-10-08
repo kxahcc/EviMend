@@ -23,7 +23,7 @@
 
 | 产物 | 用途与边界 |
 |---|---|
-| `competition-report.json` | 竞赛结构化结果：定位推断、全部候选/补丁与检查、失败反馈/修订、停止原因、成本、来源及未知指标 |
+| `competition-report.json` | schema 2 竞赛结构化结果：定位推断、全部候选/补丁与检查、独立的实际检查层级/结果和任务接受、失败反馈/修订、停止原因、成本、固定终态观察计时、来源及未知指标 |
 | `result.md` | 面向审阅者的定位、修复、验证和限制说明；控制台 report_path 指向此文件 |
 | `delivery.zip` | 未脱敏的私有交付原件及字节/哈希清单，供保留和审阅；字节核验不等于评测重聚合、根因认证或修复成功证明 |
 | `agent-report.json`、账本及 Graph 检查点 | SDK 运行轨迹与恢复依据；agent-report 不是最终竞赛接受报告 |
@@ -36,7 +36,7 @@ CloudProviderConfig 只保存 HTTPS endpoint 与凭据环境名；endpoint 不�
 
 四份正式过程为 `resources/skills/bounds.json`、`lifecycle.json`、`recursion.json`、`dynamic_pattern.json`，分别针对边界、生命周期、递归进展和动态模式。每份 ExperienceContent 保存 trigger、premises/unknown_question、procedure/branches、preserves、counterexamples 和 exit_conditions；提供完整诊断修复过程，不含 data_B 实际答案或任务身份，也不声称收益。competition 以主机批准冻结其原字节、知识快照与静态选择，复用 search_experience、三态交接及 read_skill，不自动学习或晋升。
 
-`-Resume` 必须沿用相同工作 ID、任务和配置，保留原完整工程、work 内全部原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原批准。恢复消费 run 内原知识和静态资源，不能重建缺失工程、重新生成批准或把新资源加入旧运行。执行源码/依赖身份、配置、工程、映射、协议和批准有漂移时拒绝；恢复准入拒绝返回 3 并保留原终态。已完成模型/检查调用只回放结果，已发出但结果未知的调用停止并不重发；完整恢复的实际通过范围见 STATUS。
+`-Resume` 必须沿用相同工作 ID、任务和配置，保留原完整工程、work 内全部原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原批准。恢复消费 run 内原知识和静态资源，不能重建缺失工程、重新生成批准或把新资源加入旧运行。执行源码/依赖身份、配置、工程、映射、协议和批准有漂移时拒绝；恢复准入拒绝返回 3 并保留原终态。已完成模型/检查调用只回放结果，已发出但结果未知的调用停止并不重发。无待执行工作的完成恢复即使用满额度也保留原结果和终态观察计时；仍有待执行工作时不能重置原预算/截止时间。旧报告没有可信完成时间且无新进展时耗时保持未知，不能把空闲和恢复时间算成旧修复耗时；首次报告观察区间也不等于定位/修复阶段耗时。字段与旧代回读边界见[规格第 1.3.1 节](../../docs/design-contracts.md#131-案例接纳与协议冻结)，实际通过范围见 STATUS。
 
 Stop 终止当前受管 Job，Status 查看状态。Clean 默认只预览，示例仅预览缓存；预览 work 可用 `Clean -Scope work`，保留条件、PlanId 和显式丢弃要求沿用 [本机管理协议](../../docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。需要恢复时须保留原工程、任务、work 与 state 原批准；mock_demo 的原工程和任务位于 `.dfx-local/tmp/`，不能先清掉再续跑。交付包不会自动授权清理，也不能代替恢复原件。
 

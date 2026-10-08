@@ -125,6 +125,11 @@ def test_timeout_before_first_model_call(tmp_path: Path) -> None:
                              FixedTextExecutor("src/main.ets", "value=good\n"), max_seconds=0.000001)
     assert report["status"] == "budget_exhausted"
     assert report["stopped_reason"] == "wall_time"
+    resumed = run_fixed_agent(task, tmp_path / "run", "run1", [response(1)],
+                              FixedTextExecutor("src/main.ets", "value=good\n"),
+                              max_seconds=0.000001, resume=True)
+    assert resumed["status"] == "budget_exhausted"
+    assert resumed["stopped_reason"] == "wall_time" and resumed["model_calls"] == 0
 
 
 def test_invalid_tool_arguments_require_a_new_model_call(tmp_path: Path) -> None:
@@ -142,13 +147,45 @@ def test_invalid_tool_arguments_require_a_new_model_call(tmp_path: Path) -> None
 def test_resume_cannot_reset_model_budget(tmp_path: Path) -> None:
     task = task_snapshot(tmp_path)
     executor = FixedTextExecutor("src/main.ets", "value=good\n")
-    first = run_fixed_agent(task, tmp_path / "run", "run1", [response(1)], executor, max_calls=1)
+    scripted = [response(1, "list_source"), response(2)]
+    first = run_fixed_agent(task, tmp_path / "run", "run1", scripted, executor, max_calls=1)
+    assert first["status"] == "budget_exhausted"
     assert first["model_calls"] == 1
-    second = run_fixed_agent(task, tmp_path / "run", "run1", [response(1)], executor,
+    second = run_fixed_agent(task, tmp_path / "run", "run1", scripted, executor,
                              resume=True, max_calls=1)
     assert second["status"] == "budget_exhausted"
     assert second["model_calls"] == 1
     assert second["model_calls_this_turn"] == 0
+
+
+@pytest.mark.parametrize(("max_calls", "max_known_tokens"), [(6, 1000), (30, 90), (6, 90)])
+def test_completed_resume_preserves_pass_at_exhausted_budget(
+        tmp_path: Path, max_calls: int, max_known_tokens: int) -> None:
+    task = task_snapshot(tmp_path)
+    work = tmp_path / "run"
+    good = candidate_id(task, tmp_path / "derive", "good")
+    scripted = [
+        response(1, "read_log"),
+        response(2, "record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "bad value"}),
+        response(3, "edit_source", {"path": "src/main.ets", "old": "bad", "new": "good"}),
+        response(4, "register_candidate", {"diagnosis_id": "diagnosis-1"}),
+        response(5, "run_check", {"candidate_id": good}), response(6),
+    ]
+    executor = FixedTextExecutor("src/main.ets", "value=good\n")
+    first = run_fixed_agent(task, work, "run1", scripted, executor,
+                            max_calls=max_calls, max_known_tokens=max_known_tokens)
+    assert first["status"] == "offline_checked"
+    session_bytes = (work / "session.json").read_bytes()
+    check_requests = list(executor.requests)
+    second = run_fixed_agent(task, work, "run1", scripted, executor, resume=True,
+                             max_calls=max_calls, max_known_tokens=max_known_tokens)
+    assert second["status"] == first["status"]
+    assert second["stopped_reason"] is None
+    assert second["model_calls"] == 6 and second["known_tokens"] == 90
+    assert second["model_calls_this_turn"] == second["known_tokens_this_turn"] == 0
+    assert second["checks"] == first["checks"] and second["candidates"] == first["candidates"]
+    assert executor.requests == check_requests
+    assert (work / "session.json").read_bytes() == session_bytes
 
 
 def test_resume_rejects_changed_check_protocol(tmp_path: Path) -> None:
@@ -166,6 +203,11 @@ def test_known_token_budget_stops_next_call(tmp_path: Path) -> None:
                              FixedTextExecutor("src/main.ets", "value=good\n"), max_known_tokens=15)
     assert report["status"] == "budget_exhausted"
     assert report["model_calls"] == 1 and report["known_tokens"] == 15
+    resumed = run_fixed_agent(task, tmp_path / "run", "run1", [response(1, "list_source"), response(2)],
+                              FixedTextExecutor("src/main.ets", "value=good\n"),
+                              max_known_tokens=15, resume=True)
+    assert resumed["status"] == "budget_exhausted" and resumed["stopped_reason"] == "model_budget"
+    assert resumed["model_calls"] == 1 and resumed["known_tokens_this_turn"] == 0
 
 
 def test_pending_check_reconciles_with_same_key(tmp_path: Path) -> None:

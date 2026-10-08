@@ -853,9 +853,9 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
             if resume and (pending_model_call or pending_graph):
                 graph.invoke(None, config)
             elif resume and previous_count:
-                # A completed graph is a read/reconcile operation, not a new conversation.
-                if model.calls >= max_calls or model.known_tokens >= max_known_tokens:
-                    raise ModelLimit("model_budget")
+                # Completed reconciliation needs no remaining budget. Pending work above
+                # still uses the original ledger limits and deadline at execution boundaries.
+                pass
             else:
                 graph.invoke({"messages": [{"role": "user", "content": build_task_message(
                     task_id=workspace.task_id, run_id=run_id,

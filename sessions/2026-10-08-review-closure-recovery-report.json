@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-08",
+  "batch": "review closure: completed recovery and truthful competition reporting",
+  "scope": "Three reviewed defects and their local receipt boundaries; fixed/mock SDK and short synthetic subprocesses only.",
+  "changes": [
+    "Completed checkpoints reconcile without demanding unused call/known-Token allowance; pending work keeps the original ledger and deadline.",
+    "Execution schema 2 and competition report schema 2 separate verification level/result from final product acceptance; application-mode classification is tested with host receipt fixtures, not an application experiment.",
+    "Completed stages are persisted before source postchecks. Source-binding failure retains process evidence and inconclusive status, and cannot certify reproduction or acceptance.",
+    "Legacy execution originals remain unchanged; old Stop observations with execution evidence or ambiguity remain inconclusive, not incorrectly not_run.",
+    "Equal terminal report facts retain the original timing; new progress refreshes observation, and legacy missing terminal time remains unknown. Timing is session start to host report observation, not independent localization/repair time.",
+    "Updated behavior contracts and existing user instructions without changing competition submission templates."
+  ],
+  "validation": [
+    {"task": "tests/test_agent_loop.py", "passed": 15, "seconds": 28.76, "receipt": "541034b2-3412-493a-9dae-7db527dd83db"},
+    {"task": "tests/test_local_execution.py unchanged diagnostic repeat", "passed": 38, "skipped": 1, "seconds": 21.42, "receipt": "d3c19d43-771a-4aa0-8e25-0affb657fd9c"},
+    {"task": "tests/test_competition.py", "passed": 14, "seconds": 140.34, "receipt": "2d609bf1-f19b-48fc-8e65-c43b05789164"},
+    {"task": "managed Ruff", "result": "All checks passed", "receipt": "4199ec59-6521-423e-b8f5-06cffb860958"},
+    {"task": "managed Pyright", "errors": 0, "warnings": 0, "receipt": "f2456fd4-14df-4c1f-9f77-20cbc73258c2"},
+    {"task": "managed documentation check", "documents": 14, "errors": 0, "optional_notes": 0, "receipt": "ff4feef5-a3fb-4b7b-aec8-57d9f621c624"}
+  ],
+  "validation_scope_note": "The fixed-controller suite preceded the additional stage source-binding receipt fix; the final integrated competition suite verifies the same budget-recovery path after that fix. Receipts fingerprint the actual working source, including the pending managed-startup change scheduled for the next batch; they are not evidence of an exact intermediate Git commit. Counts are selected suites, not the full repository; repeating the local suite does not create additional independent cases.",
+  "failures_retained": [
+    {"receipt": "e435de9d-f1a2-49a5-8a8c-b2df1dc548f6", "passed": 37, "failed": 1, "skipped": 1, "seconds": 20.17,
+      "reason": "Existing CandidateWorkspace directory rename raised WinError 5 before the tested overlay logic. Unchanged repeat passed; root cause is unknown. Observed source/target path lengths were 199/216; no ACL repair, path shortening, internal retry or resource-limit change was made."}
+  ],
+  "independent_review": "Read-only reviewer found the source-postcheck evidence-loss and old-Stop classification boundaries during implementation; both were fixed and reviewed again with no remaining blocking finding in this scope. Static review is separate from executed test evidence.",
+  "environment": "Reused the project Python/locked dependencies and managed Run. No installation, download, global environment change, resource-limit change, model weights or HarmonyOS tooling. Existing synthetic test temporary directories were removed by the managed test lifecycle; original data and evidence were not cleaned.",
+  "real_model_calls": 0,
+  "harmonyos_application_runs": 0,
+  "limitations": ["No actual provider compatibility or application repair effect is established", "Source and report hashes prove internal consistency, not signatures or independent semantic/time authority", "The unchanged-repeat directory rename failure has no established cause", "Managed startup counterexamples are the separate next closure batch"],
+  "next": "Independently execute managed startup delay/failure/Stop counterexamples, then prepare existing P2 real input and environment conditions."
+}

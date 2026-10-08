@@ -34,8 +34,10 @@ if settings.get("sleep_stage") == stage:
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     Path("grandchild.pid").write_text(str(child.pid))
     time.sleep(30)
-if settings.get("mutate_stage") == stage:
-    Path(settings["source"]).write_text("value=bad\\n")
+value_before = Path(settings["source"]).read_text()
+role = "baseline" if "bad" in value_before else "candidate"
+if settings.get("mutate_stage") == stage and settings.get("mutate_role", role) == role:
+    Path(settings["source"]).write_text(settings.get("mutate_value", "value=bad\\n"))
 if stage == "target" and "bad" in Path(settings["source"]).read_text():
     print("SyntheticTargetFault", flush=True)
     sys.exit(9)
@@ -306,3 +308,80 @@ def test_links_and_mapping_aliases_rejected(tmp_path: Path, managed: Path) -> No
         assert external.read_bytes() == b"outside resource"
     finally:
         link.unlink()
+
+
+@pytest.mark.parametrize("mode,state,status,stages,expected", [
+    ("synthetic", "done", "pass", [{"reason": "exited", "process_started": True}], "not_run"),
+    ("application", "done", "pass", [{"reason": "exited", "process_started": True}], "pass"),
+    ("application", "done", "fail", [{"reason": "exited", "process_started": True}], "fail"),
+    ("application", "done", "inconclusive", [{"reason": "timeout", "process_started": True}], "inconclusive"),
+    ("application", "done", "inconclusive", [{"reason": "stop_requested", "process_started": True}], "inconclusive"),
+    ("application", "done", "inconclusive", [{"reason": "stop_requested", "process_started": False}], "not_run"),
+    ("application", "done", "inconclusive", [{"reason": "check_timeout", "process_started": False}], "not_run"),
+    ("application", "done", "inconclusive", [], "not_run"),
+    ("application", "pending", "inconclusive", [], "inconclusive"),
+    ("application", "done", "fail", [{"reason": "exited"}], "fail"),
+    ("application", "done", "inconclusive", [{"reason": "launch_or_stop_unknown"}], "inconclusive"),
+    ("application", "done", "inconclusive", [{"reason": "stop_requested", "exit_code": -1}], "inconclusive"),
+    ("application", "done", "inconclusive", [{"reason": "stop_requested", "stdout": {"size_bytes": 0}}], "inconclusive"),
+    ("application", "done", "inconclusive", [{"reason": "stop_requested"}], "inconclusive"),
+    ("application", "done", "inconclusive", [{"reason": "before_launch"}], "not_run"),
+    ("application", "done", "inconclusive", [{"reason": "check_timeout"}], "not_run"),
+])
+def test_application_receipt_state_is_execution_not_solver_acceptance(mode: str, state: str, status: str,
+        stages: list[dict[str, Any]], expected: str) -> None:
+    # Literal host receipt fixtures, never an application-mode experiment.
+    record = {"schema_version": 1, "mode": mode, "state": state, "status": status,
+              "stages": stages, "accepted": False, "application_verification": "not_run"}
+    assert local.application_check_state(record) == expected
+
+
+def test_legacy_execution_receipt_is_read_without_rewriting(tmp_path: Path, managed: Path,
+                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace, source, _, executor = fixture(tmp_path, managed)
+    receipt_key = key("legacy-read")
+    assert executor.check(key=receipt_key, source=source)[0] == "pass"
+    folder = local.local_evidence_path(workspace.root / "local-execution" / receipt_key)
+    receipt_path = folder / "execution.json"
+    original = json.loads(receipt_path.read_bytes())
+    original["schema_version"] = 1
+    original.pop("verification_level")
+    receipt_path.write_text(json.dumps(original), encoding="utf-8")
+    before = receipt_path.read_bytes()
+    monkeypatch.setattr(local.subprocess, "Popen", lambda *_a, **_kw: pytest.fail("legacy read relaunched"))
+    read = executor.evidence(receipt_key)
+    assert read["schema_version"] == 1 and read["verification_level"] == "offline_synthetic"
+    assert read["application_verification"] == "not_run" and read["accepted"] is False
+    assert receipt_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("role,stage", [("baseline", "build"), ("baseline", "target"),
+                                       ("candidate", "build"), ("candidate", "target"), ("candidate", "behavior")])
+def test_executed_source_drift_keeps_stage_receipts_without_accepting(tmp_path: Path, managed: Path,
+        monkeypatch: pytest.MonkeyPatch, role: str, stage: str) -> None:
+    workspace, source, _, executor = fixture(tmp_path, managed, settings={"mutate_role": role,
+        "mutate_stage": stage, "mutate_value": "value=bad changed\n"})
+    receipt_key = key("source-drift-" + role + "-" + stage)
+    status, detail = executor.check(key=receipt_key, source=source)
+    assert status == "inconclusive" and "changed the bound execution source" in detail
+    evidence = executor.evidence(receipt_key)
+    saved_stages = evidence["baseline"]["stages"] if role == "baseline" else evidence["stages"]
+    changed = saved_stages[-1]
+    assert changed["stage"] == stage and changed["role"] == role
+    assert changed["process_started"] is True and changed["source_binding_verified"] is False
+    assert changed["stdout"] is not None and changed["finished_at"] is not None
+    assert evidence["baseline"]["fault_reproduced"] is (role == "candidate")
+    assert evidence["accepted"] is False and evidence["application_verification"] == "not_run"
+    # Exercise the application classifier using these authenticated synthetic
+    # stage facts, without changing the runtime mode or launching an app.
+    assert local.application_check_state({**evidence, "mode": "application"}) == "inconclusive"
+    monkeypatch.setattr(local.subprocess, "Popen", lambda *_a, **_kw: pytest.fail("source drift check relaunched"))
+    assert executor.check(key=receipt_key, source=source) == (status, detail)
+    folder = local.local_evidence_path(workspace.root / "local-execution" / receipt_key)
+    path = folder / "execution.json"
+    altered = json.loads(path.read_bytes())
+    altered_stage = altered["baseline"]["stages"][-1] if role == "baseline" else altered["stages"][-1]
+    altered_stage["source_binding_verified"] = True
+    path.write_text(json.dumps(altered), encoding="utf-8")
+    with pytest.raises(ValueError, match="stage receipt changed"):
+        executor.evidence(receipt_key)

@@ -180,8 +180,78 @@ class _DemoModel:
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}})
 
 
+def _previous_report(work: Path, task: dict[str, Any], run_id: str) -> dict[str, Any] | None:
+    """Read the original report before writable resume; hashes are not signatures."""
+    path = work / "competition-report.json"
+    if not path.exists():
+        return None
+    value = json.loads(_checked(path).read_bytes())
+    original = {key: item for key, item in value.items() if key != "report_sha256"}
+    if (value.get("schema_version") not in (1, 2) or value.get("scope") != "competition_task" or
+            value.get("task_id") != task["task_id"] or value.get("run_id") != run_id or
+            value.get("source_snapshot_sha256") != task["source_snapshot_sha256"] or
+            value.get("report_sha256") != digest(canonical(original).encode())):
+        raise ResumeAdmissionRejected("competition report source or integrity differs")
+    if value["schema_version"] == 2:
+        start = datetime.fromisoformat(json.loads(_checked(work / "session.json").read_bytes())["started_at"])
+        _validate_report_timing(value, start)
+    return value
+
+
+def _terminal_facts(facts: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in facts.items() if key not in {"timing", "report_sha256"}}
+
+
+def _progress_facts(facts: dict[str, Any]) -> dict[str, Any]:
+    """Comparable legacy watermarks; derived execution labels are not progress."""
+    return {key: facts[key] for key in ("task_id", "run_id", "source_snapshot_sha256", "method",
+                                      "execution_provenance", "cost")} | {
+        "attempts": [{key: attempt[key] for key in ("candidate", "patch_path", "patch_sha256", "check")}
+                     for attempt in facts["attempts"]]}
+
+
+def _validate_report_timing(facts: dict[str, Any], start: datetime) -> dict[str, Any]:
+    timing = facts["timing"]
+    if (start.tzinfo is None or timing.get("terminal_facts_sha256") !=
+            digest(canonical(_terminal_facts(facts)).encode())):
+        raise ResumeAdmissionRejected("competition terminal timing source differs")
+    if timing.get("finished_at") is not None:
+        finish = datetime.fromisoformat(timing["finished_at"])
+        if finish.tzinfo is None:
+            raise ResumeAdmissionRejected("competition terminal timing has no timezone")
+        measured = (finish - start).total_seconds() * 1000
+        if measured < 0 or timing.get("agent_wall_ms") != measured:
+            raise ResumeAdmissionRejected("competition terminal timing differs")
+    elif timing.get("agent_wall_ms") is not None or timing.get("reason") != "legacy_terminal_time_unknown":
+        raise ResumeAdmissionRejected("competition unknown terminal timing differs")
+    return timing
+
+
+def _report_timing(work: Path, facts: dict[str, Any], previous: dict[str, Any] | None,
+                   observed_at: datetime) -> dict[str, Any]:
+    start = datetime.fromisoformat(json.loads(_checked(work / "session.json").read_bytes())["started_at"])
+    if start.tzinfo is None or observed_at.tzinfo is None:
+        raise ValueError("competition timing requires timezone-aware host observations")
+    terminal_sha = digest(canonical(_terminal_facts(facts)).encode())
+    if previous is not None:
+        if previous["schema_version"] == 2:
+            timing = _validate_report_timing(previous, start)
+            if timing["terminal_facts_sha256"] == terminal_sha:
+                return timing
+        elif _progress_facts(previous) == _progress_facts(facts):
+            return {"agent_wall_ms": None, "finished_at": None, "terminal_facts_sha256": terminal_sha,
+                "authority": "host_report_observation", "scope": "session_start_to_reported_terminal",
+                "reason": "legacy_terminal_time_unknown"}
+    elapsed = (observed_at - start).total_seconds() * 1000
+    if elapsed < 0:
+        raise ValueError("competition finish predates its original session")
+    return {"agent_wall_ms": elapsed, "finished_at": observed_at.isoformat(), "terminal_facts_sha256": terminal_sha,
+            "authority": "host_report_observation", "scope": "session_start_to_reported_terminal", "reason": None}
+
+
 def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecutor,
-            config: CompetitionConfig) -> dict[str, Any]:
+            config: CompetitionConfig, *, previous_report: dict[str, Any] | None = None,
+            observed_at: datetime | None = None) -> dict[str, Any]:
     completion = solver["completion"]
     attempts = []
     for artifact in completion["candidate_artifacts"]:
@@ -191,28 +261,31 @@ def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecut
                          "patch_sha256": artifact["patch_sha256"], "check": result, "execution": evidence})
     latest = attempts[-1] if attempts else None
     first_check = attempts[0]["check"] if attempts else None
-    accepted = bool(latest and latest["execution"] and latest["execution"]["accepted"] and
+    application_state = (latest["execution"]["application_verification"]
+                         if latest and latest["execution"] else "not_run")
+    level = (latest["execution"]["verification_level"] if latest and latest["execution"] else
+             latest["check"]["level"] if latest and latest["check"] else "not_run")
+    accepted = bool(latest and latest["execution"] and application_state == "pass" and latest["execution"]["accepted"] and
                     latest["candidate"]["diagnosis_id"] and completion["localization"]["candidate_linked"])
     software_pass = bool(latest and latest["check"] and latest["check"]["status"] == "pass")
-    outcome = "application_verified" if accepted else "synthetic_checked" if software_pass else "unresolved"
+    outcome = ("application_verified" if accepted else "synthetic_checked"
+               if software_pass and level == "offline_synthetic" else "unresolved")
     # A later failed or unknown candidate must never inherit an older pass.
     if solver["stopped_reason"] or solver["uncertain_model_calls"] or solver["uncertain_tool_calls"]:
         accepted = False
         outcome = "unresolved"
     session = completion["execution_provenance"]
     actions = solver["actions"]
-    intent_start = json.loads((work / "session.json").read_text(encoding="utf-8"))["started_at"]
-    start = datetime.fromisoformat(intent_start)
     diagnosis = completion["localization"]
-    facts = {"schema_version": 1, "scope": "competition_task", "task_id": solver["task_id"], "run_id": solver["run_id"],
-        "status": outcome, "accepted": accepted, "application_verification": "pass" if accepted else "not_run",
+    facts = {"schema_version": 2, "scope": "competition_task", "task_id": solver["task_id"], "run_id": solver["run_id"],
+        "status": outcome, "accepted": accepted, "application_verification": application_state, "verification_level": level,
         "root_cause_authority": "model_inference", "localization": diagnosis, "attempts": attempts,
         "obligations": {path.stem: json.loads(path.read_text(encoding="utf-8"))
                         for path in sorted((work / "obligations").glob("*.json"))},
         "decisions": solver["decisions"], "stopped_reason": solver["stopped_reason"],
         "adapter_error_reason": solver["adapter_error_reason"], "method": config.model_dump(mode="json", exclude={"execution"}),
         "source_snapshot_sha256": solver["source_snapshot_sha256"], "execution_provenance": session,
-        "cost": completion["cost"], "timing": {"agent_wall_ms": (datetime.now(UTC) - start).total_seconds() * 1000},
+        "cost": completion["cost"],
         "metrics": {"candidate_count": len(attempts), "repair_rounds": len(attempts), "agent_chain_length": len(actions),
             "first_attempt_pass": (first_check["status"] == "pass" if first_check and
                                    first_check["status"] in ("pass", "fail") else None),
@@ -223,9 +296,11 @@ def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecut
             ("Synthetic model usage is fixture data, not measured cloud consumption." if config.model_mode == "mock_demo"
              else "Provider-reported usage is recorded; missing usage and monetary cost remain unknown."),
             "Curated skills and obligation links are guidance; application effect and comparative gains require experiments."]}
+    facts["timing"] = _report_timing(work, facts, previous_report, observed_at or datetime.now(UTC))
     facts["report_sha256"] = digest(canonical(facts).encode())
     _atomic_json(work / "competition-report.json", facts)
-    lines = ["# 故障修复结果", "", f"状态：{outcome}；应用接受：{accepted}", "",
+    lines = ["# 故障修复结果", "", f"状态：{outcome}；应用接受：{accepted}",
+        f"检查层级：{level}；实际应用检查：{application_state}", "",
         "定位依据和根因解释由模型提出；准确率需独立标签评测。", ""]
     for label in ("initial", "latest"):
         localized = diagnosis[label]
@@ -342,8 +417,10 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
         saved = json.loads(_checked(work / "session.json").read_bytes())
         approval = TaskKnowledgeBinding.model_validate_json(_checked(approval_path).read_bytes())
         preflight_resume(task, work, run_id, knowledge_approval=approval)
+        previous_report = _previous_report(work, frozen["task"], run_id)
         entry_ids = tuple(saved["static_skill_profile"]["entry_ids"])
     else:
+        previous_report = None
         if approval_path.exists():
             raise ValueError("competition approval already exists; choose a new work ID")
         knowledge, entry_ids = prepare_domain_knowledge(repo / "resources/skills", library, task, run_id)
@@ -377,7 +454,7 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
                 os.environ.pop(config.provider.credential_env, None)
             else:
                 os.environ[config.provider.credential_env] = saved_key
-    report = _report(work, solver, executor, config)
+    report = _report(work, solver, executor, config, previous_report=previous_report)
     private_delivery(work, task, policy["limits"]["max_export_package_bytes"])
     return {"schema_version": 1, "status": report["status"], "accepted": report["accepted"],
         "application_verification": report["application_verification"], "report_path": str(work / "result.md"),

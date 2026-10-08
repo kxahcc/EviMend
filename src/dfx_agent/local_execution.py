@@ -32,6 +32,26 @@ STAGES = ("build", "target", "behavior", "regression")
 CheckStatus = Literal["pass", "fail", "inconclusive"]
 
 
+def application_check_state(record: dict[str, Any]) -> str:
+    """Derive execution scope/result without depending on solver acceptance.
+
+    Legacy stage receipts lack process_started. Their exited/timeout evidence
+    can prove an attempt; ambiguous launches remain inconclusive, not not_run.
+    """
+    if record.get("mode") != "application":
+        return "not_run"
+    if record.get("state") == "pending":
+        return "inconclusive"
+    stages = [*(record.get("baseline") or {}).get("stages", []), *record.get("stages", [])]
+    attempted = any(stage.get("process_started") is True or stage.get("exit_code") is not None or
+                    stage.get("stdout") is not None or stage.get("stderr") is not None or
+                    (stage.get("process_started") is not False and stage.get("reason") == "stop_requested") or
+                    stage.get("reason") not in {"before_launch", "check_timeout", "stop_requested"} for stage in stages)
+    if not attempted:
+        return "not_run"
+    return record["status"]
+
+
 class LocalCommand(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     argv: list[str] = Field(min_length=1, max_length=128)
@@ -505,7 +525,7 @@ class LocalApplicationExecutor:
         receipt: dict[str, Any] = {"stage": stage, "role": role, "argv_sha256": digest(
             json.dumps(command.argv, separators=(",", ":")).encode()), "started_at": _now(),
             "finished_at": None, "status": "inconclusive", "reason": "before_launch", "exit_code": None,
-            "subtree_stopped": False, "stdout": None, "stderr": None}
+            "subtree_stopped": False, "process_started": False, "stdout": None, "stderr": None}
         record_path = receipt_root / f"{role}-{stage}.json"
         _atomic_json(record_path, receipt)
         if self._stopped(lease) or time.monotonic() >= deadline:
@@ -550,6 +570,8 @@ class LocalApplicationExecutor:
                 thread.start()
                 threads.append(thread)
             tree = _ProcessTree(process)
+            receipt["process_started"] = True
+            _atomic_json(record_path, receipt)
             expires = min(deadline, time.monotonic() + command.timeout_seconds)
             reason = "exited"
             while process.poll() is None:
@@ -637,6 +659,21 @@ class LocalApplicationExecutor:
             if path.exists():
                 raise ValueError("command restored a deleted candidate source")
 
+    def _record_source_binding(self, result: dict[str, Any], project: Path, manifest: list[dict[str, str]],
+                               removed: set[str], receipt_root: Path, record: dict[str, Any], path: Path) -> None:
+        """Keep completed process evidence even when its source postcheck fails."""
+        _atomic_json(path, record)
+        try:
+            self._assert_source_binding(project, manifest, removed)
+        except (OSError, ValueError):
+            result["source_binding_verified"] = False
+            raise
+        else:
+            result["source_binding_verified"] = True
+        finally:
+            _atomic_json(receipt_root / f"{result['role']}-{result['stage']}.json", result)
+            _atomic_json(path, record)
+
     def check(self, *, key: str, source: Path) -> tuple[CheckStatus, str]:
         require_hash(key)
         workspace, root = self._bound()
@@ -667,8 +704,9 @@ class LocalApplicationExecutor:
         if _inventory(root / "project-base", self.config.max_project_bytes) != self.project_manifest:
             raise ValueError("frozen full project changed")
         receipt_root.mkdir()
-        record: dict[str, Any] = {**identity, "schema_version": 1, "state": "pending", "started_at": _now(),
+        record: dict[str, Any] = {**identity, "schema_version": 2, "state": "pending", "started_at": _now(),
             "finished_at": None, "status": "inconclusive", "detail": "check pending", "baseline": None, "stages": [],
+            "verification_level": "application_execution" if self.config.mode == "application" else "offline_synthetic",
             "application_verification": "not_run", "application_success": False, "accepted": False}
         _atomic_json(path, record)
         deadline = time.monotonic() + self.config.max_check_seconds
@@ -694,14 +732,15 @@ class LocalApplicationExecutor:
             record["execution_source_sha256"] = digest(json.dumps(_inventory(project, self.config.max_project_bytes),
                 sort_keys=True, separators=(",", ":")).encode())
             baseline_stages: list[dict[str, Any]] = []
+            record["baseline"] = {"fault_reproduced": False, "stages": baseline_stages}
             build = self._stage("build", "baseline", base, receipt_root, lease, deadline)
-            self._assert_source_binding(base, base_manifest, set())
             baseline_stages.append(build)
+            self._record_source_binding(build, base, base_manifest, set(), receipt_root, record, path)
             reproduced = False
             if build["status"] == "pass":
                 target = self._stage("target", "baseline", base, receipt_root, lease, deadline)
-                self._assert_source_binding(base, base_manifest, set())
                 baseline_stages.append(target)
+                self._record_source_binding(target, base, base_manifest, set(), receipt_root, record, path)
                 marker = self.config.baseline_fault_pattern
                 captured = "".join((receipt_root / result["path"]).read_text(encoding="utf-8", errors="replace")
                     for result in (target["stdout"], target["stderr"]) if result is not None)
@@ -712,9 +751,8 @@ class LocalApplicationExecutor:
             if reproduced:
                 for stage in STAGES:
                     result = self._stage(stage, "candidate", project, receipt_root, lease, deadline)
-                    self._assert_source_binding(project, candidate_manifest, removed)
                     record["stages"].append(result)
-                    _atomic_json(path, record)
+                    self._record_source_binding(result, project, candidate_manifest, removed, receipt_root, record, path)
                     if result["status"] != "pass":
                         detail = f"candidate {stage}: {result['reason']}, exit_code={result['exit_code']}"
                         output = result["stderr"]
@@ -747,6 +785,7 @@ class LocalApplicationExecutor:
         # Exceptions not explicitly reconciled (including interruption) retain
         # the pending intent and may only be read as unknown on recovery.
         record.update(state="done", finished_at=_now())
+        record["application_verification"] = application_check_state(record)
         _atomic_json(path, record)
         return record["status"], record["detail"]
 
@@ -765,9 +804,14 @@ class LocalApplicationExecutor:
             raise ValueError("local execution candidate evidence changed")
         if record.get("state") == "pending":
             return {**record, "status": "inconclusive", "detail": "local check outcome is unknown; no relaunch",
-                    "application_verification": "not_run", "application_success": False, "accepted": False}
+                    "verification_level": "application_execution" if self.config.mode == "application" else "offline_synthetic",
+                    "application_verification": application_check_state(record),
+                    "application_success": False, "accepted": False}
         if record.get("state") != "done" or record.get("status") not in ("pass", "fail", "inconclusive"):
             raise ValueError("invalid local execution evidence state")
+        schema = record.get("schema_version")
+        if schema not in (1, 2):
+            raise ValueError("unsupported local execution evidence schema")
         results = [*(record.get("baseline") or {}).get("stages", []), *record["stages"]]
         captured: dict[tuple[str, str], str] = {}
         for result in results:
@@ -778,6 +822,11 @@ class LocalApplicationExecutor:
             expected_status = ("pass" if result["exit_code"] == 0 else "fail") if result["reason"] == "exited" else "inconclusive"
             if result["status"] != expected_status or (result["reason"] == "exited" and not result["subtree_stopped"]):
                 raise ValueError("local stage status disagrees with process outcome")
+            if schema == 2 and (type(result.get("process_started")) is not bool or
+                    (result["reason"] == "exited" and result["process_started"] is not True)):
+                raise ValueError("local stage execution observation changed")
+            if schema == 2 and type(result.get("source_binding_verified")) is not bool:
+                raise ValueError("local stage source binding observation is missing")
             stage_path = folder / f"{result['role']}-{result['stage']}.json"
             if json.loads(_checked(stage_path).read_text(encoding="utf-8")) != result:
                 raise ValueError("local stage receipt changed")
@@ -797,6 +846,7 @@ class LocalApplicationExecutor:
             base_results = baseline["stages"]
             reproduced = (len(base_results) == 2 and [result["stage"] for result in base_results] == ["build", "target"] and
                 all(result["role"] == "baseline" for result in base_results) and base_results[0]["status"] == "pass" and
+                (schema == 1 or all(result["source_binding_verified"] for result in base_results)) and
                 base_results[1]["reason"] == "exited" and base_results[1]["subtree_stopped"] and
                 base_results[1]["exit_code"] in self.config.baseline_target_exit_codes and
                 (self.config.baseline_fault_pattern is None or self.config.baseline_fault_pattern in captured.get(("baseline", "target"), "")))
@@ -804,11 +854,18 @@ class LocalApplicationExecutor:
                 raise ValueError("baseline fault reproduction disagrees with fixed protocol")
         passed = (record["status"] == "pass" and (record.get("baseline") or {}).get("fault_reproduced") is True and
                   [result["stage"] for result in record["stages"]] == list(STAGES) and
+                  (schema == 1 or all(result["source_binding_verified"] for result in record["stages"])) and
                   all(result["role"] == "candidate" and result["status"] == "pass" and result["subtree_stopped"] for result in record["stages"]))
         if record["status"] == "pass" and not passed:
             raise ValueError("local execution pass is missing required evidence")
         application = passed and self.config.mode == "application"
+        level = "application_execution" if self.config.mode == "application" else "offline_synthetic"
+        application_state = application_check_state(record)
+        saved_state = ("pass" if application else "not_run") if schema == 1 else application_state
         if (record["application_success"] is not application or record["accepted"] is not application or
-                record["application_verification"] != ("pass" if application else "not_run")):
+                record["application_verification"] != saved_state or
+                (schema == 2 and record.get("verification_level") != level)):
             raise ValueError("local execution evidence overstates application verification")
-        return record
+        # Do not rewrite legacy originals; expose the outcome derived from
+        # their authenticated stages separately from the saved schema-1 label.
+        return {**record, "verification_level": level, "application_verification": application_state}
