@@ -24,6 +24,26 @@ _EXPORT_SAFE_REASONS = {
 }
 
 
+def _competition_receipt(result: dict) -> dict:
+    """Keep the console receipt separate from full private Agent evidence."""
+    fields = ("schema_version", "status", "accepted", "application_verification", "report_path",
+              "candidate_count", "model_calls")
+    receipt = {key: result[key] for key in fields}
+    if (type(receipt["schema_version"]) is not int or receipt["schema_version"] < 1 or
+            type(receipt["accepted"]) is not bool or
+            any(type(receipt[key]) is not int or receipt[key] < 0 for key in ("candidate_count", "model_calls")) or
+            any(type(receipt[key]) is not str or not receipt[key] or len(receipt[key]) > 128 or
+                any(ord(character) < 32 for character in receipt[key])
+                for key in ("status", "application_verification")) or
+            type(receipt["report_path"]) is not str or not receipt["report_path"] or
+            len(receipt["report_path"]) > 2048 or
+            any(ord(character) < 32 for character in receipt["report_path"])):
+        raise ValueError("invalid competition console receipt")
+    if len(json.dumps(receipt, ensure_ascii=True, indent=2)) > 4096:
+        raise ValueError("competition console receipt exceeds bound")
+    return receipt
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -60,6 +80,13 @@ def main() -> None:
         offline.add_argument("--run-id", required=True)
         offline.add_argument("--fixed-script", "--script", dest="fixed_script", required=True, type=Path)
         offline.add_argument("--project-root", type=Path, help="Explicit managed project authority for knowledge scripts")
+    competition = sub.add_parser("competition", help="Managed competition task with explicit frozen run configuration")
+    competition.add_argument("--task", required=True, type=Path)
+    competition.add_argument("--work", required=True, type=Path)
+    competition.add_argument("--run-id", required=True)
+    competition.add_argument("--config", required=True, type=Path)
+    competition.add_argument("--project-root", required=True, type=Path)
+    competition.add_argument("--resume", action="store_true")
     args = None
     resume_rejection_type = None
     try:
@@ -111,6 +138,15 @@ def main() -> None:
                 result["output"] = result["package_path"]
             if len(json.dumps(result, ensure_ascii=True, indent=2)) > 4096:
                 parser.error("Export receipt exceeds the bounded console response")
+        elif args.command == "competition":
+            if os.environ.get("DFX_MANAGED_COMPETITION") != "local-v1":
+                raise ValueError("competition requires the managed local entry point")
+            from .agent import ResumeAdmissionRejected
+            from .competition import run_competition
+
+            resume_rejection_type = ResumeAdmissionRejected
+            result = _competition_receipt(run_competition(
+                args.task, args.work, args.run_id, args.config, args.project_root, resume=args.resume))
         else:
             from .agent import (
                 ResumeAdmissionRejected,
@@ -174,6 +210,11 @@ def main() -> None:
             args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(result, ensure_ascii=True, indent=2))
     except Exception as exc:
+        if args is not None and args.command == "competition":
+            if args.resume and resume_rejection_type is not None and isinstance(exc, resume_rejection_type):
+                parser.exit(3, "Resume rejected before execution: competition configuration or saved evidence rejected; "
+                            "private input details omitted from the console\n")
+            parser.error("Competition entry rejected; private input details omitted from the console")
         if args is not None and args.command == "resume" and resume_rejection_type is not None and isinstance(exc, resume_rejection_type):
             parser.exit(3, "Resume rejected before execution: " + str(exc) + "\n")
         if args is not None and args.command in ("export", "verify-export"):

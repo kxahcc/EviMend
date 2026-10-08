@@ -1,9 +1,46 @@
-# 离线证据与修复 Agent 使用说明
+# 竞赛与离线修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-06。
+状态：当前使用说明。最后维护：2026-10-08。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
-当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 支持固定响应和模拟模型协议，已把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。策略提供四类规则提示、候选引用、合成失败反例及“直接修/先查证”建议；不会自行运行诊断探针。当前没有真实云端传输、可构建应用、设备或业务判据；合成 `offline_checked` 只表示测试替身通过，不能解释为应用修复成功。导出是未脱敏的本机私有包，正式应用汇总、执行版本来源和公开脱敏/提交仍待接入，实际验收见 STATUS。
+当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 保留固定响应和模拟模型协议，把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。新增 `competition` 统一主机配置、云端请求适配器、完整工程的本机检查、正式通用领域 Skill 和竞赛交付。统一入口的软件验收证据和未通过项见 [STATUS](../../docs/STATUS.md)。本批只用 MockTransport 与短时合成程序，不运行真实云端或 HarmonyOS 实验；合成 `offline_checked` 或 `synthetic_checked` 不能解释为应用修复成功。公开脱敏、真实环境接纳及修复效果仍待验证。
+
+### 受管竞赛入口与输出
+
+从仓库根目录使用同一个管理入口启动 mock_demo 或恢复原运行：
+
+```powershell
+.\scripts\local.ps1 Run -Task competition -CompetitionConfigPath configs/competition-demo.json -CompetitionWorkId demo01
+.\scripts\local.ps1 Run -Task competition -CompetitionConfigPath configs/competition-demo.json -CompetitionWorkId demo01 -Resume
+.\scripts\local.ps1 Status
+.\scripts\local.ps1 Stop
+.\scripts\local.ps1 Clean -Scope cache
+```
+
+`mock_demo` 自建合成任务和完整玩具工程，不传 `-CompetitionTaskPath`。它用脚本响应走同一 CloudChatCompletionsAdapter/SDK 调用通道，并由短时本机程序提供失败后修订和四项检查的合成反馈。演示中的定位、补丁、usage 和检查都不是真实模型或应用效果；即使合成检查通过，仍保持 `accepted=false`、`application_verification=not_run`。实际软件验收结果只见 STATUS。
+
+工作目录固定为 `.dfx-local/work/competition-<ID>/`，新运行不能覆盖旧目录。控制台只打印 schema、status、accepted、application_verification、候选数、模型调用数和报告路径等简短概要，不打印原始输入、模型请求或凭据。输出职责如下：
+
+| 产物 | 用途与边界 |
+|---|---|
+| `competition-report.json` | 竞赛结构化结果：定位推断、全部候选/补丁与检查、失败反馈/修订、停止原因、成本、来源及未知指标 |
+| `result.md` | 面向审阅者的定位、修复、验证和限制说明；控制台 report_path 指向此文件 |
+| `delivery.zip` | 未脱敏的私有交付原件及字节/哈希清单，供保留和审阅；字节核验不等于评测重聚合、根因认证或修复成功证明 |
+| `agent-report.json`、账本及 Graph 检查点 | SDK 运行轨迹与恢复依据；agent-report 不是最终竞赛接受报告 |
+
+`configs/competition-demo.json` 是受管软件演示配置；`configs/competition-cloud.template.json` 说明后续真实提供方与工程接纳字段，包含待填写值，不能直接作为当前实验配置。本机策略 `configs/local-runtime.json` 的 `allow_model_experiments` 和 `allow_application_experiments` 均保持 false，本批不得通过环境变量或配置修改解锁真实云端、HarmonyOS 构建或设备运行。
+
+真实模式须由主机先审阅任务快照、完整工程及业务判据，再固定配置 `execution` 中的 `project_root`、`source_mapping` 和 `commands`。分析快照排除了运行资源，不能拿它充当完整工程。映射为空时按相同相对路径绑定；非空映射须覆盖分析基线的全部源码，原字节必须匹配。四个固定命令键为 `build`、`target`、`behavior`、`regression`；原版先完成构建和指定故障复现，候选再完成这四项检查。实际应用协议须固定故障标记及各命令 oracle 哈希；模型不能改写 oracle、工程路径、命令或接受条件。环境和业务协议的接纳不等于已通过应用验证。
+
+CloudProviderConfig 只保存 HTTPS endpoint 与凭据环境名；endpoint 不允许 userinfo、query 或 fragment，凭据在准入及发送时从环境读取，不保存到 profile、请求体、异常或日志。本机应用子进程排除模型凭据环境变量。Cloud 适配器共用原严格序列化/解析器，显式网络准入后只发一次请求，禁用自动重试、重定向和环境代理并限制响应大小；本批所有调用仍使用 MockTransport。发送前预留保守输入估计与最坏输出 Token，超时受剩余任务时间约束，未知 usage 后停止新发送；这一估计不是供应商 Tokenizer 的精确硬上限，型号兼容性仍待实测。
+
+四份正式过程为 `resources/skills/bounds.json`、`lifecycle.json`、`recursion.json`、`dynamic_pattern.json`，分别针对边界、生命周期、递归进展和动态模式。每份 ExperienceContent 保存 trigger、premises/unknown_question、procedure/branches、preserves、counterexamples 和 exit_conditions；提供完整诊断修复过程，不含 data_B 实际答案或任务身份，也不声称收益。competition 以主机批准冻结其原字节、知识快照与静态选择，复用 search_experience、三态交接及 read_skill，不自动学习或晋升。
+
+`-Resume` 必须沿用相同工作 ID、任务和配置，保留原完整工程、work 内全部原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原批准。恢复消费 run 内原知识和静态资源，不能重建缺失工程、重新生成批准或把新资源加入旧运行。执行源码/依赖身份、配置、工程、映射、协议和批准有漂移时拒绝；恢复准入拒绝返回 3 并保留原终态。已完成模型/检查调用只回放结果，已发出但结果未知的调用停止并不重发；完整恢复的实际通过范围见 STATUS。
+
+Stop 终止当前受管 Job，Status 查看状态。Clean 默认只预览，示例仅预览缓存；预览 work 可用 `Clean -Scope work`，保留条件、PlanId 和显式丢弃要求沿用 [本机管理协议](../../docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。需要恢复时须保留原工程、任务、work 与 state 原批准；mock_demo 的原工程和任务位于 `.dfx-local/tmp/`，不能先清掉再续跑。交付包不会自动授权清理，也不能代替恢复原件。
+
+### 既有离线证据与脚本入口
 
 从项目根目录查看受管状态并运行合成自检：
 
@@ -71,7 +108,7 @@ ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字
 }
 ```
 
-两种格式均可选 `policy_features`（rule_guidance、obligation_tracking、decision_checks 三个布尔开关，缺省全关）和 `limits`（max_calls、max_known_tokens、max_seconds、max_candidates、max_tool_calls，正数，未指定时沿用循环默认值）。文件最多 1 MiB，拒绝链接、额外字段、重复 JSON 键和非有限数值。配置不接受密钥、端点或真实网络模式；responses 与 expected 都不进入模型任务上下文，expected 只供合成执行器。模拟恢复按已完成调用数对齐响应流；完成请求回放不消费新响应，已发出但未知的请求不重发。已正常结束的 Graph 再 resume 只核对/汇总，不开启新模型对话；已用尽预算仍明确报告耗尽。修改模型配置或循环限额不能继续原会话。
+两种格式均可选 `policy_features`（rule_guidance、obligation_tracking、decision_checks 三个布尔开关，缺省全关）和 `limits`（max_calls、max_known_tokens、max_seconds、max_candidates、max_tool_calls，正数，未指定时沿用循环默认值）。文件最多 1 MiB，拒绝链接、额外字段、重复 JSON 键和非有限数值。既有离线脚本配置不接受密钥、端点或真实网络模式；responses 与 expected 都不进入模型任务上下文，expected 只供合成执行器。模拟恢复按已完成调用数对齐响应流；完成请求回放不消费新响应，已发出但未知的请求不重发。已正常结束的 Graph 再 resume 只核对/汇总，不开启新模型对话；已用尽预算仍明确报告耗尽。修改模型配置或循环限额不能继续原会话。
 
 schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 
@@ -98,7 +135,7 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 
 失败后 `link_failed_check` 返回反馈及 feedback_id，再决策时成对传该 feedback_id 与原 candidate_id；主机重新核对已保存失败检查、候选源码哈希和原观察。`decisions/<ID>.json` 保存建议及上下文摘要；`inspect_analysis(decision_id=...)` 可回读，默认列出决策和反馈 ID。`register_candidate` 可选成对传 decision_id/direction_id，核对同诊断、所选提议方向及声明义务；建议不强迫模型采用某一修法。失败与义务的关联仍是推断，只建议重审相关方向。
 
-`agent-report.json` 的无知识 schema 7/completion 4 绑定 session 10 中保存的 execution_provenance；主机明确批准知识时使用 11/8/5，另保存 knowledge_profile 和 knowledge_facts。显式三态启停策略使用 12/9/6，另保存 applicability_profile、applicability_facts 和 solver-inputs 中的实际发送记录；显式静态启停使用 13/10/7，另保存 static_skill_profile/static_skill_facts，分别记录完整读取与后续实际可见性。批准版本程序入口使用 14/11/8 和 version_skill_profile/version_skill_facts，原代保持原形状。记录候选、离线检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 与 9/6/3 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。working_context_plans 记录可见动作水位、组织视图/实际发送哈希、选择范围与保留成本；context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null，accepted 始终 false。
+`agent-report.json` 是 SDK 轨迹与摘要。其无知识 schema 7/completion 4 绑定 session 10 中保存的 execution_provenance；主机明确批准知识时使用 11/8/5，另保存 knowledge_profile 和 knowledge_facts。显式三态启停策略使用 12/9/6，另保存 applicability_profile、applicability_facts 和 solver-inputs 中的实际发送记录；显式静态启停使用 13/10/7，另保存 static_skill_profile/static_skill_facts，分别记录完整读取与后续实际可见性。批准版本程序入口使用 14/11/8 和 version_skill_profile/version_skill_facts，原代保持原形状。记录候选、检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 与 9/6/3 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。working_context_plans 记录可见动作水位、组织视图/实际发送哈希、选择范围与保留成本；context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null。该 SDK 摘要的 accepted 保持 false；competition 的接受状态另由完整应用检查事实生成在 competition-report 中，不能拿 agent-report 的合成摘要作竞赛成功判定。
 
 `reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。知识运行必须另传主机实际 `task_directory=task`，不从模型字段取外部路径；build_completion 同样要求它。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，保留完整核验依据使用受管私有 Export。
 
@@ -135,7 +172,7 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 3. `read_capsule(capsule_id, approval=...)` 从原件重建，无需原任务、run 或知识库；损坏、缺失和不合格来源拒绝，读取不创建资源或修复数据库。
 4. 主机提供完整 SolverProjection（host_curated、validation_scopes 为空），用 HostCandidateApproval 绑定 capsule 与投影身份，再调用 `propose_candidate(..., feedback_approval=...)`。`read_candidate` 需要重传这两份外部批准并核原 capsule。
 
-人工候选始终 pending_host_review、application_qualification=none；前提、未知问题、步骤、保留行为、反例和退出条件完整保存。原修复成本与新候选提议分开，失败和未知不剔除、不补零；该人工接口未调用学习模型，not_run/null 不能写成自动总结或零成本学习。FeedbackLimits 约束单次 API 的原件复制/关闭核验累计读量、文件数和容量；元数据、原件及各回读阶段共用预算，不覆盖聚合内部全部 I/O。旧 KnowledgeStore 条目不变，此接口不自动入库、晋升或修改在跑任务。人工候选完整原件可由下文独立 Skill 版本/验证及沙盒演进消费；独立模拟提炼见下一节，真实模型云端接入仍待完成；模型来源版本经独立程序入口提供，完整整链验收见 STATUS，边界见 [模块规格第 3.1.2 节](../../docs/design-contracts.md#312-经验检索和适用性交接)。
+人工候选始终 pending_host_review、application_qualification=none；前提、未知问题、步骤、保留行为、反例和退出条件完整保存。原修复成本与新候选提议分开，失败和未知不剔除、不补零；该人工接口未调用学习模型，not_run/null 不能写成自动总结或零成本学习。FeedbackLimits 约束单次 API 的原件复制/关闭核验累计读量、文件数和容量；元数据、原件及各回读阶段共用预算，不覆盖聚合内部全部 I/O。旧 KnowledgeStore 条目不变，此接口不自动入库、晋升或修改在跑任务。人工候选完整原件可由下文独立 Skill 版本/验证及沙盒演进消费；独立提炼仍仅使用模拟程序入口，不因竞赛求解的 Cloud 软件通道而获得真实实验授权。模型来源版本经独立程序入口提供，完整整链验收见 STATUS，边界见 [模块规格第 3.1.2 节](../../docs/design-contracts.md#312-经验检索和适用性交接)。
 
 ### 独立模型提炼与待审核草案：仅模拟程序接口
 
@@ -179,7 +216,7 @@ Verify 仍须使用当前已初始化的受管环境，核对其 owner、依赖�
 
 合成输入自检位于 `tests/test_offline_evidence.py`，显式案例身份与哈希拒绝反例位于 `tests/test_case_identity.py`；领域对象和候选目录反例位于 `tests/test_contracts.py`、`tests/test_workspace.py`，固定响应闭环、HTTP 模拟协议、策略分支、接受契约、模型请求账本、逐工具授权/恢复、因果记录和修复决策交接分别位于 `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`、`tests/test_decisions.py`。这些检查不读取或运行 data_B 中的应用，不调用真实模型或设备。当前设计与待实现功能见 [技术设计](../../docs/development/system-design-draft.md) 和 [模块契约](../../docs/design-contracts.md)。
 
-模型账本的程序接口是 `ModelCallIntent`、`ModelCallStore` 和 `invoke_accounted`：调用前持久登记并占用次数，发出后若丢失响应则保留未知状态，同一 ID 不重发；收到的 `AIMessage` 保存为可恢复响应，格式错误与 Token usage 分开记账。records 按登记顺序、任务/运行和可选用途只读列出记录；usage_summary 始终计算全部用途。固定响应模型根据实际传给 SDK 的消息、工具定义和参数生成哈希；模拟请求模型以 PreparedRequest 的唯一规范化发送体固定消息/工具/参数、整个 body 和 profile 指纹，发送前再次核对。原始 usage 保留，合格计数另行归一化；格式错误的整个响应不执行工具，已知 Token 超限阻止下一次调用而非承诺实际硬限额。完成响应在 Graph 未落检查点时可回放；请求已发出但无响应时报告 model_result_unknown 并停止。当前只允许 MockTransport，真实提供方兼容性、摘要忠实度和真实计费仍须验证。
+模型账本的程序接口是 `ModelCallIntent`、`ModelCallStore` 和 `invoke_accounted`：调用前持久登记并占用次数，发出后若丢失响应则保留未知状态，同一 ID 不重发；收到的 `AIMessage` 保存为可恢复响应，格式错误与 Token usage 分开记账。records 按登记顺序、任务/运行和可选用途只读列出记录；usage_summary 始终计算全部用途。固定响应模型根据实际传给 SDK 的消息、工具定义和参数生成哈希；模拟请求模型以 PreparedRequest 的唯一规范化发送体固定消息/工具/参数、整个 body 和 profile 指纹，发送前再次核对。原始 usage 保留，合格计数另行归一化；格式错误的整个响应不执行工具，已知 Token 超限阻止下一次调用而非承诺实际硬限额。完成响应在 Graph 未落检查点时可回放；请求已发出但无响应时报告 model_result_unknown 并停止。软件验收仅使用 MockTransport；CloudChatCompletionsAdapter 的真实调用仍由显式网络许可和实验开关控制。真实提供方兼容性、摘要忠实度和真实计费仍须验证。
 
 两种离线模型共享 context_profile：关闭 SDK 自动摘要和人类消息/工具结果卸载，避免它们写入冻结原版或绕过调用恢复。默认不压缩，序列化消息超限以 context_limit 停止，格式不支持以 context_format_unsupported 停止；字节限额定义在 models.py，与云端 Token 窗口不同。可选主机压缩由 context_compaction.py 的 CompactionPolicy 配置，保留原 Graph 全历史、system、启动任务和近期完整工具组，只替换模型发送视图中的较早闭合前缀。首版重新摘要全部前缀；摘要输入、输出或必须保留的尾部过大仍停止，不支持无限历史。
 
@@ -201,7 +238,7 @@ DecisionRequest 可增加 condition_result_ids 与完整 condition_scope，主�
 
 `knowledge.py` 提供独立主机存储接口，没有 CLI、SDK 工具或自动学习。主机先审查完整 `SolverProjection` 文档和来源用途，准备 `HostMaterialManifest`；`HostMaterialRegistry(source_root, manifest)` 在只读构造时捕获批准原字节。然后在预建的受管目录中建立 `KnowledgeStore(root)`，以只含材料 ID 的 `ExperienceDraft` 调用 `admit_entry`，以明确条目和 `PermissionScope` 调用 `freeze_snapshot`。`read_entry`、`read_snapshot`、`read_projection(snapshot_sha256, entry_id)` 核验并回读具体内容，不新建文件、不读取最新别名、不补缺失材料。后续 SDK 调用还须绑定真实任务范围及主机选定快照。
 
-store 内 `materials/` 保存原批准字节，`entries/` 保存内容及来源权限，`snapshots/` 绑定精确条目、投影、权限与检索声明；本批 Skill 列表为空。单记录、批准来源总量和一次引用集合的上限由 `knowledge_contracts.py` 定义，超限不截断；叶文件、祖先、读取时变化及闭合收尾均核验，采用串行主机读写协议。历史只接受主机合成描述，报告/产物哈希不等于实际报告认证，应用资格恒为无；历史范围和未知/失败会保留在指导中，原任务/候选/oracle 描述仅供审计。哈希不能判断自然语言是否含答案，完整指导须主机审核。原来源更新需新 registry，新条目或快照不会改写旧内容。字段、准入及未来协议迁移见 [规格第 3.1.2 节](../../docs/design-contracts.md#312-经验检索和适用性交接)。合成反例通过 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_knowledge_contracts.py` 与相同入口的 `tests/test_knowledge_store.py` 执行。
+store 内 `materials/` 保存原批准字节，`entries/` 保存内容及来源权限，`snapshots/` 绑定精确条目、投影、权限与检索声明；快照的 skill_files 字段保持空，正式通用过程由 resources/skills JSON 经批准知识和 static_skills 编译接入，不在该字段另建资源清单。单记录、批准来源总量和一次引用集合的上限由 `knowledge_contracts.py` 定义，超限不截断；叶文件、祖先、读取时变化及闭合收尾均核验，采用串行主机读写协议。历史只接受主机合成描述，报告/产物哈希不等于实际报告认证，应用资格恒为无；历史范围和未知/失败会保留在指导中，原任务/候选/oracle 描述仅供审计。哈希不能判断自然语言是否含答案，完整指导须主机审核。原来源更新需新 registry，新条目或快照不会改写旧内容。字段、准入及未来协议迁移见 [规格第 3.1.2 节](../../docs/design-contracts.md#312-经验检索和适用性交接)。合成反例通过 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_knowledge_contracts.py` 与相同入口的 `tests/test_knowledge_store.py` 执行。
 
 检索入口为 `KnowledgeRetriever(store)`：主机先 `build_index(snapshot_sha256, scope)`，再提供 `MemoryQuery(snapshot_sha256=..., scope=..., tags=(...), text=..., offset=..., limit=...)`。`query(query)` 返回规范 `RetrievalRecord` 且不写文件；需要保留时用 `record(query)` 显式发布。`read_record(record_id)` 从原快照和索引重算全文；`read_projection(record_id, entry_id)` 只返回该查询页实际命中的完整指导。它们核验保存查询的范围，尚不认证调用者的真实任务权限。
 
@@ -217,7 +254,7 @@ run 内 `experience-bindings/approved.json` 保存主机批准，`experience-que
 
 完整知识、冻结材料及输出共同受 `applicability_contracts.py` 的容量约束，不同根之间采用保守计数；捕获和审计读取另有累计字节/次数门，闭合收尾也计入。发布前先完成原件关闭核验，冻结上下文还按下一次审计的实际路径预检预算；回读从原诊断材料重验引用、位置和版本，重写哈希不能绕过准入。`prepare_context` 前段复用的当前任务核验仍由外层 Job 保护，尚无完整累计 I/O 计量；不得把这些边界当实际性能或 Token 指标。合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_applicability_contracts.py` 和同入口的 `tests/test_applicability.py`。SDK 入口显式传入 applicability_policy=ApplicabilityPolicy(enabled=True/False)，两组固定相同三项三态工具、完整知识和总预算；不传该参数保持普通经验运行。session/report/completion 使用 12/9/6，冻结实际 solver-inputs 请求；模型不能指定当前焦点或父调用。准备工具必须已见查询；已见诊断和假设时冻结 context 并提供 review_proposal_schema，否则返回 unknown 与普通指导，审查要求已见完整 context，兄弟工具后产生记录及摘要里的 ID 不取得可见权限。缺焦点回普通指导与 unknown，关闭组只提供普通指导。报告保留完整 context/review 和实际调用来源，恢复先只读核原件及原配置，导出能从包内重核。独立内层对象仍保留其显式主机输入边界，SDK 外层新增 actual_solver_input 认证，语义仍为推断。受管软件自检见 test_solver_visibility.py、test_applicability_handoff.py、test_applicability_sdk.py、test_applicability_provider.py 和 test_applicability_reporting.py；三态与静态策略已通过 schema 5/6 显式知识配置接入固定/模拟脚本及受管 CLI，自动模型学习仍待接入。
 
-`acceptance.py` 当前只供独立程序调用：准备者冻结与候选无关的共同协议，可信打包器绑定完整运行源码，执行端按检查 ID 回传原版和候选的结果，接受门对缺失、模拟、版本错配和行为失败返回 `not_verified`。这些适配器及业务 oracle 尚未接入；该模块的合成 `verified_under_protocol` 测试值不是本项目已修复应用的成绩。
+`acceptance.py` 当前只供独立程序调用：准备者冻结与候选无关的共同协议，可信打包器绑定完整运行源码，执行端按检查 ID 回传原版和候选的结果，接受门对缺失、模拟、版本错配和行为失败返回 `not_verified`。该独立契约接口不负责本机执行；competition 使用 local_execution.py 的完整工程绑定与四项固定命令，真实环境及业务 oracle 仍须主机接纳。该模块的合成 `verified_under_protocol` 测试值不是本项目已修复应用的成绩，软件通道的实际验收见 STATUS。
 
 `static_skills.py` 从 run 内批准的人工条目生成完整过程及冻结清单，read_run_static_skills 只读重核；Agent 程序入口 run_fixed_agent/run_provider_agent 显式接收 static_skill_policy=StaticSkillPolicy(enabled=..., entry_ids=...)，同时必须提供启动知识和显式 ApplicabilityPolicy。两组注册相同 read_skill，共用原预算；关闭只去目录注入，保留相同全文结果和普通检索，工具描述说明怎样从批准投影摘要取得同一 ID。报告从完整原件和账本区分读取/实际可见性，清单 5 固定共同静态资源，私有导出保留全部正文/回执/实际输入。恢复仅接原 knowledge_approval 及相同策略，从 run 原件核验，无需外部库；可写恢复前核原生缓存，静态 saver 使用严格 serializer。字段与容量见[规格第 3.1.3 节](../../docs/design-contracts.md#313-skill-版本验证与演进)。受管软件自检包括 test_static_skills.py、test_static_skill_handoff.py、test_static_skill_sdk.py、test_static_skill_resume_cache.py 和 test_static_skill_reporting.py，均使用同一 local.ps1 Run -Task test -TestPath 入口。固定/模拟脚本 schema 5/6 与受管 CLI 已消费明确知识批准及静态选择，不要手工向旧 run 加资源。独立版本验证入口见下文，合成可见性不代表修复或学习收益。
 
@@ -238,4 +275,4 @@ run 内 `experience-bindings/approved.json` 保存主机批准，`experience-que
 
 来源历史成本通过显式程序入口 `VersionSkillService.research_cost_inventory()` 读取：先认证当前冻结任务/批准及 run 原件，再由 `research_accounting.py` 提取完整学习调用、事前验证矩阵/原行成本和发表/退回历史。相同调用或验证 run 跨来源只计一次，冲突原件拒绝；缺少预定角色或 usage 保持 unknown，人工学习为 not_run/null，退回种子也不抹掉模型子版本历史成本。`union_research_cost_inventories` 可只读合并多个完整清单；清单一致性校验不能替代外部批准和原闭包认证。该入口不调用模型、不写文件、不改变旧 session/report/清单或共享预算；部署实际成本、全流程计时与公平比较仍待接入。测试和实际结果见 DEVELOPMENT/STATUS。
 
-`backends.py` 和 `remote_service.py` 另提供 HTTPX 客户端及 FastAPI 模拟服务的程序接口。`tests/test_remote_contract.py` 使用进程内 `TestClient`，显式推进模拟工作者状态，检查请求幂等、响应丢失后的恢复、取消待确认、产物哈希及离线行为；不启动常驻服务、真实设备或应用构建。模拟服务只返回 `scope=synthetic` 和 `application_verification=not_run`。后续真实应用执行改走本机受管作业适配器；其 SDK/设备能力与完整工程尚未配置，不能把 HTTP 协议自检当作应用验证。
+`backends.py` 和 `remote_service.py` 另提供 HTTPX 客户端及 FastAPI 模拟服务的程序接口。`tests/test_remote_contract.py` 使用进程内 `TestClient`，显式推进模拟工作者状态，检查请求幂等、响应丢失后的恢复、取消待确认、产物哈希及离线行为；不启动常驻服务、真实设备或应用构建。模拟服务只返回 `scope=synthetic` 和 `application_verification=not_run`。当前本机执行软件通道由 local_execution.py 和 competition 承担；真实 HarmonyOS 工程、SDK、设备及业务协议尚未接纳和验证，不能把 HTTP 协议或 mock_demo 自检当作应用验证。

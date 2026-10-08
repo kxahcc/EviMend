@@ -1,6 +1,6 @@
 # 应用软件代码故障精准定位与自修复：开发设计草案
 
-状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-07。
+状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-08。
 职责：维护架构、核心算法及后端抽象。实现状态见 [STATUS](../STATUS.md)，字段与规则见 [模块规格](../design-contracts.md)，阶段见 [实施计划](../project-work-plan.md)。
 
 ## 1. 核心决策
@@ -21,7 +21,7 @@
 
 目标交付是支持单任务与批处理的代码故障定位与自修复 Agent，命令行是启动入口。输入为日志、源码和允许的执行入口，输出为根因位置、可应用补丁、验证记录和资源报告。模型负责选择动作，执行框架负责调度与保存状态，我们实现修复策略及验收适配。
 
-**首版采用 Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite；应用构建、设备回放和评测在用户本机通过受管作业进程执行。** 项目专属 Python、SDK 依赖和 SQLite 检查点已由 uv.lock 锁定；固定响应、模拟模型请求与 HTTP 模拟作业协议已接入，真实云端传输、工具链作业适配和应用验收控制仍待实现。基础模型拟由本机 Agent 调用云端大模型 API，不部署本地权重；具体提供方和型号仍待选定，不假定有远程应用执行主机。
+**首版采用 Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite；应用构建、设备回放和评测在用户本机通过受管作业进程执行。** 项目专属 Python、SDK 依赖和 SQLite 检查点已由 uv.lock 锁定；固定响应、模拟模型请求与 HTTP 模拟作业协议继续保留。云端 Chat Completions 传输、本机完整工程检查和统一竞赛入口已编码，软件验收只使用 MockTransport 和短时模拟工程，结果统一见 STATUS。真实模型与应用实验开关仍关闭，HarmonyOS 工具链、设备及独立业务判据尚未接通。基础模型由本机 Agent 调用云端大模型 API，不部署本地权重；具体提供方和型号仍待选定，不假定有远程应用执行主机。
 
 #### 选型依据与替代方案
 
@@ -48,13 +48,13 @@
 | 编排 | deepagents 的 create_deep_agent，底层 LangChain/LangGraph | 复用工具循环和上下文管理；领域工具/中间件负责动作校验、预算与验收，不再嵌套第二套循环 |
 | 状态恢复 | langgraph-checkpoint-sqlite；首版单本地主进程写入 | run_id 对应独立 thread_id，保存最小状态和产物引用；SQLite 位于本地磁盘 |
 | 数据校验 | Pydantic 2；关键外部字段严格校验，JSON Schema 导出 | 诊断、义务、动作、补丁和验证对象；GraphState 用可序列化 TypedDict/dict，不存 SDK 会话或进程句柄 |
-| 模型 | langchain-core + 显式请求适配器；现阶段 HTTPX MockTransport | AccountedProviderModel 经同一账本对实际发送体记账；真实提供方确定后核对专用/通用适配包或显式传输，禁止绕过记账及隐藏重试 |
+| 模型 | langchain-core + ChatCompletionsAdapter / CloudChatCompletionsAdapter；HTTPX 显式传输 | AccountedProviderModel 经同一账本对实际发送体记账；Mock 与云端 profile 分开冻结，真实提供方兼容性与计费仍待实测，禁止绕过记账及隐藏重试 |
 | 检索与修改 | SDK 文件工具及后端；Python、ripgrep、Git 补充 | 复用读写/搜索能力；我们管理任务工作目录、候选 diff、版本绑定与回退；不自行开发通用编辑器 |
 | 本地轨迹 | SQLite 持久状态 + JSONL 事件导出 + 文件产物哈希 | 模型请求、工具结果、动作和成本可追踪；JSONL 是导出/审阅轨迹，不另做相互竞争的状态真值 |
 | 配置与 Skills | 现有冻结配置、Pydantic 元数据、静态 RuleCard 与 SQLite 经验索引；批准人工条目的完整静态 Skill 正文和独立沙盒演进 | consult_rule 读取规则卡；普通经验检索由主机批准 run 内快照后向 SDK 提供完整指导，静态目录和完整读取已接受管程序/CLI 入口。复用 SDK Skills 扩展，独立版本/验证/判定及沙盒别名核验来源与权限，版本启动经独立程序入口认证原批准，验收见 STATUS；不加载 data_B 构造说明，不以经验代替业务验收 |
 | 命令行 | 沿用 argparse | 单例、批量、恢复和报告入口；先不另引 Typer 或 Web UI |
-| 应用作业 | 本机受管子进程 + SQLite 作业记录；HTTPX/FastAPI 只保留既有模拟原型 | 统一提交、查询、取消、能力和产物语义；真实运行不启动常驻 HTTP 服务 |
-| 应用执行 | 本机已盘点并按项目版本匹配的 HarmonyOS SDK、Hvigor、ohpm、hdc 及可用设备/模拟器，Hypium 仅在案例需要时接入 | 完整工程、签名、目标操作、功能和回归判据；安装位置、版本和容量先核对，不自动升级为最新版 |
+| 应用作业 | LocalApplicationExecutor + 命名 Windows Job + 文件意图/阶段回执；HTTPX/FastAPI 保留既有模拟原型 | 完整工程与候选分别冻结，主机固定四类检查命令，未知结果不重启；未接设备恢复或常驻服务 |
+| 应用执行 | 本机受管命令通道已实现；HarmonyOS SDK、Hvigor、ohpm、hdc 及设备/模拟器按项目需要准备 | 当前只运行短时模拟程序；实际工具链、签名、设备和独立业务判据须先盘点及验收，Hypium 按案例需要接入 |
 | 开发质量 | pytest、Ruff、Pyright | 单元/契约/状态恢复检查和静态质量；模型与应用实验单独运行 |
 
 Deep Agents 依赖 LangChain Agent 和 LangGraph；模型入口沿用 langchain-core。真实提供方可采用经核验的适配包，也可复用显式序列化边界，选择服从实际协议与记账要求。[ChatOpenAI](https://docs.langchain.com/oss/python/integrations/chat/openai) 与 [ChatAnthropic](https://docs.langchain.com/oss/python/integrations/chat/anthropic) 提供工具调用及 usage 接口；第三方 OpenAI-compatible 服务不能默认视为完全兼容，必须核对动作、推理相关协议字段与成本字段。当前没有新增提供方依赖。
@@ -65,15 +65,17 @@ SDK 维护模型消息和工具循环；工具边界转换为我们自己的 Act
 
 只由一层负责语义重试和预算，关闭或显式计入 SDK 的自动重试；不允许 SDK、图节点和控制器各重试一轮却只记录一次。`ModelCallStore` 已接入固定响应及模拟请求模型，覆盖调用前登记、Graph 落盘前的完整响应回放、未知发送停止、格式错误和 usage 分类。`PreparedRequest` 以唯一规范化 JSON 发送体固定消息、工具、参数及 profile 哈希；实际发送前重核，不能只给发送前另一份对象留指纹。SDK 的中性 `tool_choice=None` 由模型入口省略，其余不支持字段明确拒绝。
 
-当前 Chat Completions 边界只允许进程内 MockTransport 和固定无网络端点，不接收密钥；配置固定模型标识、输出上限、温度与超时。文本、工具调用和显式 reasoning_content 有限支持；附件、流式响应、未声明选项或不完整工具调用不静默降级。混合有效/无效工具调用的整个响应停止，不执行其中有效子集。原始 usage 保存，合法计数另做归一化；缺失/错误用量保持未知，已知 Token 预算只阻止下一次发送，不能保证当前响应或真实计费硬上限。该协议参考 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，查阅日期 2026-10-02；这不是已选择 DeepSeek 或已验证其真实兼容性。
+Chat Completions 有两个独立冻结的传输 profile。`ChatCompletionsAdapter` 保留 exact MockTransport、固定 model.invalid 端点及无凭据的旧路径；`CloudChatCompletionsAdapter` 使用主机配置的规范 HTTPS 端点和凭据环境变量名，构造、prepare、validate 及只读 profile 恢复均不读取密钥或建立网络客户端。发送前按剩余时间及输入估计与完整输出额度准入，再从环境读取密钥；真实 HTTP 只在主机网络许可内单次 POST，关闭自动重试、重定向和环境代理。凭据值不进入配置、profile、请求/响应原件或错误报告，并从应用检查子进程环境排除。软件验收以同一云端适配器注入 MockTransport，真实实验仍禁用。
 
-真实适配时，求解、格式修复、上下文压缩及 SDK 重试均须穿过同一计数边界；提供方底层隐式重试必须关闭或逐次计入。原始响应中可获得的 usage/请求标识保留，适配器不支持的字段保持未知，不静默删除后称计费完整。确认的格式、usage、上下文和工具能力写入模型配置；具体模型账号和型号不是框架选择的前提。
+两个 profile 共用有限文字/工具协议：文本、原生工具调用和显式 reasoning_content 有限支持；SDK SkillsMiddleware 的纯文本 system blocks 按原顺序拼接，附件、流式响应、未声明选项或不完整工具调用不静默降级。混合有效/无效工具调用的整个响应停止，不执行其中有效子集。原始 usage 保存，合法计数另做归一化；缺失/错误用量保持未知，云端路径有未知 usage 时停止新发送。输入 Token 预留使用规范请求 UTF-8 字节和消息开销估计，不是提供方 tokenizer 的精确计数；估计准入、输出设置及 max_known_tokens 都不能证明实际总 Token 或计费硬上限。该协议参考 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，查阅日期 2026-10-02；这不是已选择 DeepSeek 或已验证其真实兼容性。
+
+求解、格式修复、上下文压缩及 SDK 重试均须穿过同一计数边界；当前云端 HTTP 传输的自动重试为零。原始响应中可获得的 usage/消息标识保留，适配器不支持的字段保持未知，不静默删除后称计费完整。提供方的格式、usage、上下文和工具兼容性仍须实测后核定；具体模型账号和型号不是框架选择的前提。
 
 上下文策略保持显式有界：通过 HarnessProfile 关闭 SummarizationMiddleware，并通过公开同类中间件替换关闭 FilesystemMiddleware 的人类消息/工具结果卸载；保留必需文件中间件及原工具排除。默认不压缩，超过序列化消息字节上限以 context_limit 停止。可选 CompactionPolicy 在调用边界按字节触发，保留 system、启动任务和近期完整工具组，把较早的闭合前缀归纳成带来源范围的模型推断；Graph 原历史始终保留。摘要无工具、不共享求解模型的工具绑定，以 context_compaction 用途进入同一预算和恢复账本；冻结来源、摘要及实际发送视图只写受管 work/compactions。摘要完成但 Graph 未保存可回放，未知结果不重发，格式失败仍计费。参数由 context_compaction.py 定义，发送视图硬限额由 models.py 定义；context_profile 和模型配置在 session 冻结，基础/增强一致。首版重新摘要完整历史前缀，摘要输入或必须保留的尾部超限时明确停止；尚无滚动摘要或无限历史能力，字节限额也不代表云端 Token 窗口。依据 2026-10-02 对锁定 SDK 0.7.18 本机源代码的检查，默认摘要调用带重试的模型并写 backend，默认大工具结果也会卸载，因此保留关闭策略。详细约束见模块规格第 1.2.2 节。
 
 #### 持久化不能替代外部操作一致性
 
-检查点恢复可能重新执行未完成节点。补丁应用、本机作业提交、模型调用分别是独立动作边界，先登记稳定 action_id，再执行并保存结果。本机作业用幂等键找回原 job_id，恢复时核对进程身份、设备状态和产物；补丁节点核对候选目录内容，不重复累积修改。模型账本保留完整响应以跨越“提供方返回、Graph 尚未保存消息”的窗口；若发送后本地未保存响应，同 ID 不再发送，结果/费用为 unknown。进程崩溃而模型服务已处理请求的窗口无法普遍保证 exactly-once，不能直接当作未花费。
+检查点恢复可能重新执行未完成节点。补丁应用、本机检查、模型调用分别是独立动作边界，先登记稳定 action_id，再执行并保存结果。LocalApplicationExecutor 以同一幂等键回读原文件意图和完整阶段回执；已完成结果只回放，未完成意图保持 inconclusive，不重启命令。当前恢复还要求配置中的原完整工程存在且未漂移，不从缺失工程重建输入；设备状态恢复尚未接入。补丁节点核对候选目录内容，不重复累积修改。模型账本保留完整响应以跨越“提供方返回、Graph 尚未保存消息”的窗口；若发送后本地未保存响应，同 ID 不再发送，结果/费用为 unknown。进程崩溃而模型服务已处理请求的窗口无法普遍保证 exactly-once，不能直接当作未花费。
 
 首版按任务串行执行会改变源码或设备状态的动作，一台设备同一时刻只有一个运行任务。SQLite 检查点与领域事件记录不承诺跨库原子提交；恢复时根据 action_id、版本和产物对账。恢复测试要覆盖“外部操作成功但本地尚未写完记录”的窗口。图重放是调试能力，不代表再次执行的模型结果相同，也不是可复用的独立评测成绩。
 
@@ -106,11 +108,11 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 
 | 模块 | 负责什么 | 复用边界 |
 |---|---|---|
-| contracts.py | 证据、因果诊断、修复义务、候选与动作对象；来源/版本/行号、绑定端点和双向引用检查 | 结构化交接与授权已接入固定响应工具边界；因果检验及应用控制器集成待实现 |
+| contracts.py | 证据、因果诊断、修复义务、候选与动作对象；来源/版本/行号、绑定端点和双向引用检查 | 结构化交接与授权已接 SDK 工具边界；因果真实性仍待独立检验 |
 | diagnostics.py | 按引用读取源码/日志事实、核对候选失败检查、接纳模型提案并原子保存诊断包 | 模型关系与义务保持推断；schema 与原记录按需回读，不自动计算条件或确认根因 |
-| decisions.py | 把修复方向绑定已登记诊断/义务/区分问题、实际合成失败及同范围有限条件结果，保存建议及候选方向引用 | 不执行探针；条件关联和推断义务只提示相关方向重审，不硬拒绝候选或证明业务效果 |
+| decisions.py | 把修复方向绑定已登记诊断/义务/区分问题、实际失败检查及同范围有限条件结果，保存建议及候选方向引用 | 失败 scope 随检查来源核验；不执行探针，推断义务只提示方向重审，不硬拒绝候选或证明业务效果 |
 | conditions.py | 对主机固定合成输入计算首批有限条件，核对绑定/单位/操作点/实际版本，保存不可改写结果并在回读时重算 | 已接入固定响应 SDK；不求值表达式、不自动提取运行值或修改诊断，fixture 不是执行证据 |
-| models.py | 固定响应和 mock wire 模型经统一账本接入 SDK；可选独立摘要调用与求解视图、总预算和分用途恢复 | 真实传输待接入；不借 SDK 隐式摘要或重试绕开费用与原本保护 |
+| models.py / model_provider.py | 固定响应、mock wire 与云端 Chat Completions 经统一账本接 SDK；显式准入、单发、usage 和只读 profile 恢复 | 真实兼容性及费用未实测；不借 SDK 隐式摘要或重试绕开预算，Token 估计不作精确硬限额 |
 | context_compaction.py | 完整工具组切分、冻结来源、摘要身份、实际发送视图及只读核验 | 保留 Graph 历史；摘要是模型推断，有限输入超限停止，不保证归纳忠实度或修复效果 |
 | working_context.py / working_context_plan.py / working_context_materials.py / working_context_projection.py | 注册记录闭包；可见回执推导焦点、完整组组织；run 内原字节去重与有界求解投影，冻结历史材料并绑定实际发送 | 原 Graph 不变；投影保留领域原文，通用压缩另有开关。历史原字节与完整闭包由 Store 核验；静态 Skill 目录/完整读取和受管配置已接 Agent，版本会话经独立入口消费冻结选择，验收见 STATUS；结构核验不证明语义或效果 |
 | feedback_contracts.py / feedback.py | 已结束开发运行的独立来源闭包、权限和成本核验，完整待审核人工经验候选 | 人工提议，合成范围不授应用资格；独立 Skill 版本可绑定人工候选完整原件 |
@@ -124,19 +126,20 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 | provenance.py | 运行源码/项目输入/实际 Python 与 distribution 元数据冻结、来源自洽核验和续跑兼容门 | Git 只保存初始观察；不升级旧会话、不复制主机环境或认证已加载二进制，真实工具链与设备版本仍待接入 |
 | metrics.py / evidence_io.py | 显式任务/组/repeat 矩阵、停止记录的只读重算、不可变账本及离线成本汇总 | 合成结果不代表应用成绩；缺证据保留未知，版本、工具和协议错配拒绝 |
 | exporting.py | 显式矩阵的本机私有证据包、预览/Apply 计划、全部源树字节清单和包内重聚合 | 不执行模型、工具或 Graph 反序列化，不删源；不证明公开脱敏、应用效果或整树清理覆盖，验收证据见 STATUS |
-| model_calls.py | 稳定调用意图、SQLite 请求/响应/usage 账本、格式分类和不确定窗口的合成契约 | 固定响应模型已使用；尚未接入真实提供方，原始响应仅用于本机恢复及显式私有证据导出 |
+| model_calls.py | 稳定调用意图、SQLite 请求/响应/usage 账本、格式分类和不确定窗口 | 固定响应、mock 和云端适配共用，未知不重发；原始响应只用于本机恢复及显式私有交付，真实提供方未实测 |
 | agent.py | 已有 Deep Agents 固定响应循环、受控工具、策略开关和恢复入口 | 基础/增强共享通用工具与逐调用授权；不提供真实应用成功终止 |
 | task_strategy.py | 显式修复任务策略与主机身份上下文，接入 SDK system_prompt 和启动消息 | 强基线包含日志、上游定位、保行为修法和反馈；增强仅按开关追加，不声称自主推理已有效 |
 | source_search.py | 跨文件单行字面检索、有限分页、版本与原始坐标 | 只搜已核验原本/冻结候选；不搜草稿、不解释数据流，不通过文本存在确认根因或运行值 |
 | actions.py | SDK 工具中间件、已记账模型响应绑定、引用/能力/预算授权及持久工具结果 | 同步固定响应路径已有合成验证；未知结果不重发，真实设备动作与异步路径待接入 |
 | workspace.py | 已有分析快照的独立草稿、原子文本编辑、完整 diff 冻结、候选版本复核与回退 | 不直接修改 data_B；完整运行工程和外部补丁应用待后续接入 |
-| policies.py | 已有四类规则提示、候选义务与合成反馈关联、同修法直接修和有区分力才查证的可关闭建议；真实业务反馈策略待接入 | 本项目主要增量实现位置 |
+| policies.py / domain_skills.py | 四类规则提示和正式通用 Skill、候选义务与分 scope 失败关联、同修法直接修和有区分力才查证的可关闭建议 | 主机整理的指导保持未验证范围，真实业务语义和方法效果未知 |
 | acceptance.py | 候选无关的共同协议、候选运行版本绑定、执行记录和保守接受门 | 已做隔离合成契约；真实 oracle、打包证明及执行适配待接入 |
-| verification.py | 已有候选绑定的合成检查意图；共同应用验收仍待实际接入 | 后续统一调用本地检查和 ExecutionBackend，接受门在 acceptance.py |
-| backends.py | 已有版本绑定 HTTP 模拟客户端、意图、提交/查询/取消及产物校验 | 复用请求和状态语义；本机真实执行适配器待实现 |
+| verification.py | 候选绑定的检查意图、幂等回读及 CheckResult 实际执行级别 | 同一 run_check 接口调用固定文本或受管本机检查；竞赛接受由 competition 汇总，acceptance.py 的正式对象协议仍独立 |
+| local_execution.py / competition.py | 完整工程冻结及候选覆盖、受管四阶段检查、统一竞赛入口和最终接受报告 | Mock 与短时模拟程序验收；真实实验关闭，设备恢复和正式效果评测另验 |
+| backends.py | 已有版本绑定 HTTP 模拟客户端、意图、提交/查询/取消及产物校验 | 保留通用模拟协议；本机竞赛路径使用 LocalApplicationExecutor |
 | remote_service.py | 已有 SQLite 持久化的模拟 FastAPI 服务和显式测试工作者 | 保留合成反例测试，不作为本机真实运行服务 |
 
-首版复用 SDK 的模型/工具循环和检查点；当前为保证候选登记门，关闭可绕过它的 SDK 文件写入、删除、shell 和任务委派工具，也关闭无对应项目动作的默认待办工具。全部项目工具经同步中间件授权后串行执行，结果先写动作账本再交给 Graph；同一响应提出多个动作也共享总工具预算。完整 inspect_context、本机应用结果读取与业务 finish 仍待补充。多次编辑只是候选工作区修改，首次执行该代码前必须完成候选登记，后续修改形成新候选。所有比较组必须有同等源码检索、修改和已配置检查能力；检查接口应覆盖任务所需通用逻辑与应用协议，不局限于四类规则样例。
+首版复用 SDK 的模型/工具循环和检查点；当前为保证候选登记门，关闭可绕过它的 SDK 文件写入、删除、shell 和任务委派工具，也关闭无对应项目动作的默认待办工具。全部项目工具经同步中间件授权后串行执行，结果先写动作账本再交给 Graph；同一响应提出多个动作也共享总工具预算。run_check 已接主机固定本机检查，失败回执可进入义务与决策修订；最终接受由 competition-report.json 重核最新候选及本机回执，旧 agent-report.json 继续承担 SDK 轨迹和保守摘要。完整 inspect_context 与设备业务控制仍待扩展。多次编辑只是候选工作区修改，首次执行该代码前必须完成候选登记，后续修改形成新候选。所有比较组必须有同等源码检索、修改和已配置检查能力；检查接口覆盖主机声明的构建、目标、行为和回归，不局限于四类规则样例。
 
 任务指引要求从异常用点追查赋值、分配、参数、调用者、分支/回调顺序和消费者，再提交原始行的根因假设与最小保行为修法。直接修复无需强行制造多个假设或条件检查；未知输入允许有说明的尽力候选。失败后依据实际反馈分别修订代码、重审上游原因或报告环境/结果未知，而不是无限重试。指引是一项共享任务能力；规则、义务和决策相关检查是可关闭的增量。检索工具按路径和行稳定分页，明确编码跳过与片段截断，主机核验源码哈希，并使用相同 read_source 能力和工具预算。具体字段及续跑冻结见模块规格第 1.2.4 节；现有脚本自检不证明模型话自主执行这些步骤。
 
@@ -276,7 +279,7 @@ Agent 不只输出一句原因，还维护一份紧凑的任务工作记录：�
 
 验证结果统一使用 pass / fail / not_run / blocked / inconclusive。任务终止状态使用 verified_under_protocol / unresolved / blocked / budget_exhausted；verified_under_protocol 只表示通过指定协议覆盖的检查，不表示未来永不出错。该状态还要求原始版本在相同目标协议下确实触发故障；原故障未复现时，不能仅凭补丁版本不崩溃宣称修复成功。
 
-P0 的 `ActionProposal` 与主机授权函数已接入固定响应 Agent 的同步工具调用，动作结果账本支持完成回放和未知结果停止。`AcceptanceProtocol`、候选运行版本绑定、执行结果接纳和接受门仍只在合成记录上测试；独立准备者、可信打包器及真实执行适配器尚不存在。当前模拟 HTTP `ExecutionRequest` 只有执行层次，没有 check_id/场景 ID；正式应用适配必须升级此请求身份，让每个结果归属预冻结的具体检查，不能从日志内容或层次猜测。
+P0 的 `ActionProposal` 与主机授权函数已接入共享 SDK 工具调用，动作结果账本支持完成回放和未知结果停止。competition 已用 `LocalApplicationExecutor` 固定完整工程、源码映射和四项主机命令，并由 `competition-report.json` 汇总原版复现及候选检查；当前软件验收只使用模拟传输和短时合成工程，实际结果见 STATUS。`AcceptanceProtocol`、`CandidateRuntimeBinding`、`VerificationVerdict` 与 `evaluate_acceptance` 仍是独立的合成契约，没有自动转换本机命令回执，也没有真实打包与设备证明。模拟 HTTP `ExecutionRequest` 仍只有执行层次，没有 check_id/场景 ID；后续接入该正式协议时须升级身份，不能从日志内容或层次猜测。
 
 ## 5. 核心机制二：只为会改变修复决策的问题补证据
 
@@ -320,7 +323,21 @@ Agent 的工作记录包括当前假设、支持/反驳事实、修复义务、�
 
 ## 6. 本机应用执行与模型接入
 
-核心逻辑仍依赖统一 ExecutionBackend 协议，但真实应用的首选实现是本机受管作业进程和 SQLite 作业账本，不再要求 HTTP 服务或远程主机。W06 的 HTTPX/FastAPI 单作业模拟切片保留为状态转换与故障注入测试；它不产生应用证据，真实本机适配器尚未实现。基础模型拟由同一受管 Agent 经云端 API 调用，每次请求都须经过模型调用账本；不把 API 响应当作应用验证。真实调用前须核对私仓代码和日志的外发许可及最小发送范围。
+竞赛入口复用已有 SDK 修复循环、模型调用账本和候选工作区。`CloudChatCompletionsAdapter` 提供显式 HTTPS 请求通道，`LocalApplicationExecutor` 提供完整工程上的受管本机检查，检查意图、阶段回执和最终结果保存为 run 内文件；不要求 HTTP 应用服务或远程主机。`scripts/local.ps1 Run -Task competition` 冻结任务与竞赛配置，工作根为 `.dfx-local/work/competition-<ID>`。`configs/competition-demo.json` 使用模拟传输和短时 toy 工程；`configs/competition-cloud.template.json` 是须由主机填写和审查的配置模板，端点、模型、工程、命令及 oracle 摘要占位值不代表已接纳环境。真实模型与应用开关仍为 false，本批软件证据与未通过项统一见 STATUS。
+
+主机提供完整 `project_root`，执行器冻结全部普通文件的路径、原字节摘要和大小，以及目录清单。`source_mapping` 显式给出分析快照每个文件到完整工程的唯一映射；空映射表示相同相对路径。绑定时必须覆盖完整分析基准、映射目标不重合且原字节一致，拒绝链接、重解析点和不安全路径。run 内保存独立的完整工程基准，原版和候选分别复制它，候选覆盖来自已登记的完整冻结源码和 diff；映射外的工程资源随副本保留。显式映射不接纳未映射新增源码；同路径模式也不允许新增源码覆盖无关工程资源。执行不修改 data_B 或主机原工程。
+
+主机固定 `build`、`target`、`behavior`、`regression` 四项 argv，模型不能修改命令或取得任意 shell 权限。子进程使用 `shell=False`，合成模式只允许当前受管 Python，拒绝 shell 脚本入口。原版先在独立副本执行 build 和 target：构建须成功，target 须返回预定非零退出码，并在配置了故障串时从实际捕获输出匹配 `baseline_fault_pattern` 的字面串；application 模式必须给该串及每项命令的 `oracle_sha256`。oracle_sha256 只固定主机事前声明的 oracle 身份/审阅信息，执行器不读取外部 oracle 文件核对该值，不能认证测试语义。原故障未复现时停止候选检查；候选四项都以零退出码完成并确认子树停止，才可能通过。
+
+每项启动前保存 `before_launch` 意图，回执明确 baseline/candidate、stage、状态、退出码、时间及有界 stdout/stderr 文件的摘要。超时取阶段配置、整次检查上限及 Agent 剩余墙钟的较严值，耗尽后不再启动；输出超限、停止、捕获异常或子树状态未知均为 inconclusive。每项之后重新核对映射源码，检查命令不能悄悄改写候选。候选失败反馈包含具体阶段、原因、退出码和有限输出片段，供下一轮修订。
+
+执行器核对受管标记、owner 与持久 active lease，打开该 lease 的唯一命名 Windows Job，验证当前进程确属该 Job、父进程身份及生效限额与 lease 完全一致；不能以外层 Job 的限制代替本项目限制。每个检查子进程挂起创建，加入嵌套 Job 后再恢复，退出、超时或停止时终止该子树并有界核实零活动进程。主机 API 凭据环境名与配置排除名不传给子进程，临时目录留在工程副本。application 模式还须同时满足主机 `allow_application` 和资源策略 `execution.allow_application_experiments`，当前不具备放行条件。
+
+完成结果按同一幂等键只读回放；pending 或未知意图保持 inconclusive，不重新启动程序。`evidence(key)` 只读回核协议、候选、阶段及输出文件，synthetic 的 `application_verification` 恒为 not_run，`application_success` 和 accepted 恒为 false。执行恢复仍要求原 `project_root` 存在、完整工程清单未漂移、run 内基准及原配置一致；保存摘要或交付副本不能替代这项恢复条件。Windows 证据读写使用已有扩展路径入口，工程工作副本采用有界短目录，无法满足子进程工作路径要求时拒绝启动。
+
+`CheckResult.level` 区分 offline_synthetic 与 application_execution，失败证据的 scope 和 kind 随实际检查级别派生；失败与某项义务或根因的关联仍为 model_inference。`competition-report.json` 承担竞赛任务的最终接受判断，结合最新候选的定位关联、完整执行证据及未完成调用；`result.md` 提供可读结果，`delivery.zip` 保存私有原件。旧 `agent-report.json` 继续是保守的 SDK 轨迹摘要，不凭新字段宣称应用成功。协议覆盖外的语义、根因准确率和修复效果保持未知。
+
+W06 的 HTTPX/FastAPI 单作业模拟切片继续按下列 `ExecutionBackend` 接口测试状态转换，不产生应用证据；它与上述文件回执通道分别保留原身份和恢复语义。
 
 | 接口 | 作用 |
 |---|---|
@@ -332,19 +349,19 @@ Agent 的工作记录包括当前假设、支持/反驳事实、修复义务、�
 
 ExecutionRequest 必须绑定 task_id、完整运行源码哈希、补丁哈希、环境标识、测试协议哈希、初始状态方案、执行层次、重复序号和超时。幂等标识只对这些字段完全相同的一次逻辑调用有效；重跑使用新重复序号，不能错误复用历史成功。
 
-本机适配器在启动前先只读盘点操作系统、可用内存和磁盘、已装工具及版本、项目构建依赖、设备/模拟器连接和驱动能力。开发数据中先挑两个预登记代表案例，核对完整工程、分析源码与运行源码谱系，并准备候选无关的目标操作、业务行为和回归 oracle。缺 SDK、设备或可信 oracle 的案例仍可离线分析，但不进入可宣称应用修复的运行阶段。具体工具版本与容量由案例需求及盘点决定；不能因设计文档列出了名称就视为已安装。
+真实应用接纳仍须只读盘点操作系统、可用内存和磁盘、已装工具及版本、项目构建依赖、设备/模拟器连接和驱动能力。开发数据中先挑两个预登记代表案例，核对完整工程、分析源码与运行源码谱系，并准备候选无关的目标操作、业务行为和回归 oracle。缺 SDK、设备或可信 oracle 的案例仍可离线分析，但不进入可宣称应用修复的运行阶段。具体工具版本与容量由案例需求及盘点决定；不能因代码已有命令入口或设计列出了工具名称就视为已安装。
 
-本机作业先在 `.dfx-local` 内写入版本绑定的请求、协议哈希和幂等键，再由 `scripts/local.ps1` 的受管入口启动单个独立作业进程。每次只接受预定类型的构建、安装、目标回放或行为/回归检查，模型没有任意 shell 权限。SQLite 保存 job_id、进程身份、候选/原本运行源码、check_id、场景、初始状态、重复序号和终态；同一请求恢复先核对进程、设备状态与产物，不盲目再执行。取消必须确认构建子进程和设备动作停止；超时或进程失联保留 inconclusive，不把它判成补丁失败或成功。产物按 job_id 归属并核对哈希与大小。
+安装与设备动作不在当前四项本机命令通道的独立认证范围。后续应用适配须核对场景、初始状态、设备运行版本及取消后的动作停止，再把结果接到正式接受协议；当前进程树停止证明不能代替设备状态核验。超时或状态失联仍须保留 inconclusive，不归因成补丁功能错误。
 
 Agent 的 Python 环境与目标项目所需的 Node/Java/SDK、可能的 Hypium Python 环境分开。SDK、签名和设备参数由受管本机执行配置提供，不进入模型上下文；以项目匹配版本的命令行构建和场景操作为准，不假定任一案例已经支持模拟器。HarmonyOS 测试入口的此前参考是 [HarmonyOS 测试入门](https://developer.huawei.com/consumer/cn/testing/get-started/)；实际命令、工具版本和环境兼容性须在本机盘点后逐项验证。
 
-W06 已有的 HTTP 提交/查询/取消/产物哈希模拟测试仍用于检查通用状态语义，不再扩展为必需的远程部署路径。真实本机适配器须另测中断后作业恢复、设备占用、进程树停止、磁盘预检、日志上限、产物错配和原本/候选版本绑定；只有带本机实际执行证据的检查结果可进入共同接受门。应用修复评测按 [评测口径](../preparation/metrics-and-gates.md) 用同一设备/环境、协议及预算比较 B0/B1/P，不把模拟通过计入成绩。
+本机执行通道已有原版/候选绑定、进程停止、有界输出与未知不重启的软件路径，实际验收见 STATUS；设备占用、工具链兼容性和真实业务判据仍待接纳。应用修复评测按 [评测口径](../preparation/metrics-and-gates.md) 用同一设备/环境、协议及预算比较 B0/B1/P，不把模拟通过计入成绩。
 
 ## 7. Skills 的具体位置
 
 上下文、经验和 Skills 共同服务于一件事：依据当前根因假设和修复义务，选择有用证据及可迁移步骤，避免因异常相似而照搬错误修法。Deep Agents 继续承担通用工具循环及扩展接口，我们实现领域 harness，不另写 Agent runtime，不依赖模型微调。
 
-当前 `policies.py` 提供四类静态 RuleCard，由 `consult_rule` 工具读取；已有诊断、义务、候选和合成反例交接。`knowledge.py`、`knowledge_retrieval.py` 和 `applicability.py` 提供主机批准经验、冻结检索、当前依据绑定与独立三态接口；`knowledge_run.py` 和 `knowledge_handoff.py` 将普通检索接入 SDK，覆盖 run 内批准原件、授权查询/回读及会话、报告、聚合和私有导出。三态 SDK 工具已接入实际发送和统一账本。`static_skills.py` 从批准人工条目生成完整静态过程，复用 SDK 原生 SkillsMiddleware；目录及完整正文绑定同一冻结清单，薄层核验资源、权限和检查点元数据。开启注入目录，关闭保留相同正文和读取能力；static_skill_handoff.py 将相同 read_skill 接入动作预算和实际 solver 输入，报告分别认证完整读取与后续真正可见性，冻结恢复、对照和私有导出。固定/模拟脚本及受管 CLI 已消费完整外部知识批准和策略；跨任务反馈固定来源并接纳人工待审核提议。独立 Skill 版本、事前计划、完整同池合成回执、合成演进判定及沙盒别名的程序接口已实现；独立 LearningStore 已接模拟提炼和待审核草案，模型来源版本和冻结选择由独立版本程序入口接入 Agent；旧 KnowledgeStore 入库及新代受管 CLI 尚未接入，旧知识入库也保持独立，整链验收见 STATUS。主机压缩仍按历史前缀处理。受管验收结论只见 STATUS，详细记录与不变量在 [模块规格第 3.1 节](../design-contracts.md#31-工作上下文经验与-skill-的实施契约) 定义；独立加载、实际发送和跨任务学习分别验收，不代表已有收益。
+当前 `policies.py` 提供四类静态 RuleCard，由 `consult_rule` 工具读取；已有诊断、义务、候选及按实际检查级别派生的失败交接，关联解释仍为模型推断。`knowledge.py`、`knowledge_retrieval.py` 和 `applicability.py` 提供主机批准经验、冻结检索、当前依据绑定与独立三态接口；`knowledge_run.py` 和 `knowledge_handoff.py` 将普通检索接入 SDK，覆盖 run 内批准原件、授权查询/回读及会话、报告、聚合和私有导出。三态 SDK 工具已接入实际发送和统一账本。`static_skills.py` 从批准人工条目生成完整静态过程，复用 SDK 原生 SkillsMiddleware；目录及完整正文绑定同一冻结清单，薄层核验资源、权限和检查点元数据。开启注入目录，关闭保留相同正文和读取能力；static_skill_handoff.py 将相同 read_skill 接入动作预算和实际 solver 输入，报告分别认证完整读取与后续真正可见性，冻结恢复、对照和私有导出。固定/模拟脚本及受管 CLI 已消费完整外部知识批准和策略；跨任务反馈固定来源并接纳人工待审核提议。独立 Skill 版本、事前计划、完整同池合成回执、合成演进判定及沙盒别名的程序接口已实现；独立 LearningStore 已接模拟提炼和待审核草案，模型来源版本和冻结选择由独立版本程序入口接入 Agent；模型来源直接进入旧 KnowledgeStore 及其新代受管 CLI 尚未接入，整链部署验收与已有容量失败见 STATUS。主机压缩仍按历史前缀处理。受管验收结论只见 STATUS，详细记录与不变量在 [模块规格第 3.1 节](../design-contracts.md#31-工作上下文经验与-skill-的实施契约) 定义；独立加载、实际发送和跨任务学习分别验收，不代表已有收益。
 
 ### 7.1 以当前修复决定组织工作上下文
 
@@ -397,6 +414,8 @@ SDK 模型边界已接入按可见授权回执组织的发送视图：先保留�
 ### 7.3 从经验形成可验证的 Skill
 
 一个 Skill 对应可迁移的诊断/修复过程，包含适用前提、必需输入、查证步骤、观察分支、可选修改、保留义务、反例和退出条件，不对应案例编号或固定补丁。首批仍围绕初始化顺序、索引/字节边界、递归终止和动态正则，条件依据在 [模块规格第 3 节](../design-contracts.md#3-四类可迁移规则卡) 维护；修改时核对规则提示，避免语义漂移。
+
+正式通用内容已保存在 `resources/skills/bounds.json`、`lifecycle.json`、`recursion.json` 与 `dynamic_pattern.json`。competition 经 `domain_skills.py` 把完整 ExperienceContent 固定为 host_curated、无验证范围的批准知识，再复用已有普通检索、三态和静态 read_skill 管道。它没有 data_B 答案或成功历史；主机原批准与 run 原件固定后，恢复不要求临时知识库仍存在。竞赛配置明确默认开启规则指导、义务、决策检查、工作上下文、适用性交接和静态 Skill，原通用模块默认值及关闭对照仍保留。正式内容与实际读取/可见性的软件验收统一见 STATUS，默认启用不能证明修复收益或跨任务学习。
 
 版本链区分两类来源：人工种子/修订继续使用 schema 1、host_curated 和 not_run/null 学习记录；模型草案使用独立 schema 2，保留 model_inference。主机审核固定草案、只读学习来源包、完整投影和父版本的精确身份，父版本关系属于主机审核决定，不能倒填原学习 owner。模型版本保存原草案成本前缀、全操作成本、完整原件及祖先谱系；权限取父版本与新来源的交集，排除项取并集。两条路径均由 `SkillValidationStore` 保存不可改写版本，保存或审核不表示验证有效。具体实现及验收以 STATUS 为准。
 
@@ -451,13 +470,13 @@ SDK 模型边界已接入按可见授权回执组织的发送视图：先保留�
 
 | 审查点 | 实现和测试入口 | 应判断的行为与剩余边界 |
 |---|---|---|
-| 故障到补丁、检查与重试 | agent.py、workspace.py、verification.py；test_agent_loop.py | 候选绑定实际源码、失败后修订、停止和恢复；应用构建与业务/回归判据尚未接入 |
+| 故障到补丁、检查与重试 | agent.py、workspace.py、verification.py、local_execution.py、competition.py；test_agent_loop.py、test_local_execution.py、test_competition.py | 分析候选与完整工程映射、基准复现、四项主机检查、失败修订与未知恢复；真实工具链、设备及可信业务判据仍待接纳 |
 | 根因假设与业务义务 | contracts.py、diagnostics.py；test_causal_diagnosis.py | 日志/源码依据、假设和义务双向引用；程序认证来源与交接，不确认因果关系或业务语义 |
 | 按决策需要补证据 | decisions.py、policies.py；test_decisions.py、test_policies.py | 方向对应已登记问题、失败反例及条件结果，可关闭且保留通用路径；建议不执行探针或强制模型采纳 |
 | 有限条件及可信输入 | conditions.py、value_sources.py、agent.py；test_conditions.py、test_value_sources.py、test_condition_handoff.py | 同操作、单位和版本的有限计算及实际 SDK 交接；默认合成 registry 不含真实输入，自动 literal/运行采样不是现有能力 |
 | 工作上下文与实际发送 | working_context_plan.py、working_context_materials.py、working_context_projection.py；test_working_context_handoff.py | 焦点由可见回执推导，完整材料绑定实际发送；排序或压缩的修复收益仍未知 |
 | 检索与有条件经验迁移 | knowledge_retrieval.py、applicability_handoff.py、solver_visibility.py；test_applicability_handoff.py | 普通检索与三态共用知识/工具，依据来自当时已见原件；前提判断仍是模型推断 |
-| Skill 的实际消费 | static_skill_handoff.py、version_skills.py；test_model_skill_sdk.py、test_model_skill_deployment.py | 完整读取与后续输入可见性分别核验，旧任务只恢复原批准副本；选中目录不等于实际采用或逐步正确执行 |
+| Skill 的实际消费 | domain_skills.py、static_skill_handoff.py、version_skills.py；test_competition.py、test_model_skill_sdk.py、test_model_skill_deployment.py | 完整读取与后续输入可见性分别核验，旧任务只恢复原批准副本；选中目录不等于实际采用或逐步正确执行 |
 | 从失败提炼、验证与演进 | learning.py、skill_validation.py、skill_evolution.py；test_learning_source.py、test_model_skill_deployment.py、test_skill_evolution_receipts.py | 原响应/失败/全部调用保留，事前四角色验证、独立判定、发表与退回；有限合成资格不能授应用资格，自动学习收益未证明 |
 | 完整成本与公平比较 | research_profile.py、research_accounting.py、metrics.py、exporting.py；test_research_profile.py、test_research_accounting.py、test_model_skill_deployment.py | 显式来源历史清单核算完整学习/验证并跨清单去重，缺项未知；完整跨阶段成本、共享总预算和学习因素比较须继续闭合 |
 
@@ -480,7 +499,7 @@ SDK 模型边界已接入按可见授权回执组织的发送视图：先保留�
 | 生成并验证 | 提交实际 diff；检查容量及业务行为，再进入应用共同验收 | 执行前登记候选；最终判据独立于模型自建检查 |
 | 分析失败 | 若不崩溃但校验错误，回到编码/消费者假设，修订对应补丁 | 绑定具体反例，不将“无异常”当成功，也不清除失败成本 |
 
-SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可关闭的义务/检查建议。diagnostics.py 接纳模型因果提案，decisions.py 将提议方向与已登记假设、证据、义务和有效合成失败绑定；建议可回读，候选可注明所选方向。基础与增强配置保留同一通用读码、编辑和检查工具；主机只给计划工具实际已有的源码/日志读取能力，当前没有诊断执行探针。workspace.py 负责候选冻结；verification.py 和 backends.py 当前仅绑定合成检查与模拟 HTTP 作业，应用执行证据仍待接入。规则卡不包含案例编号到补丁的映射。合成自检只证明记录交接和预设分支行为，不证明模型话提出正确的方向或提高修复率。
+SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可关闭的义务/检查建议。diagnostics.py 接纳模型因果提案，decisions.py 将提议方向与已登记假设、证据、义务和匹配候选的实际失败绑定；建议可回读，候选可注明所选方向。基础与增强配置保留同一通用读码、编辑和检查工具；主机只给计划工具实际已有的源码/日志读取能力，当前没有诊断执行探针。workspace.py 负责候选冻结；verification.py 经同一检查接口接本机完整工程执行，backends.py 保留模拟 HTTP 作业，competition 从独立 evidence 汇总最终接受。正式规则与 Skill 不包含案例编号到补丁的映射。Mock/toy 自检只证明软件路径，不证明模型会提出正确方向或提高修复率。
 
 ### 8.4 如何控制增强反而变差的风险
 
@@ -512,13 +531,13 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 
 本机承担 Agent 控制、代码工作副本、HarmonyOS 构建、设备/模拟器回放和效果评测，不使用远程应用执行主机。基础模型拟由本机受管程序调用云端大模型 API；当前不安装模型权重、不安排小模型微调，也不启动真实调用。模型账号、具体型号、请求参数、外发数据边界和费用预算待确定。本机 SDK/模拟器是后续执行条件，不代表现在可以安装：先盘点容量、依赖和设备，再实现受管安装、运行、停止、证据保留和清理。现有轻量配置不能直接作为大型 SDK 或模拟器任务的已验收限额。
 
-采用一个项目专属运行目录和一个 PowerShell 管理入口。用户能查看占用、停止本项目进程、清理缓存或完全移除运行环境；源码、Git、原始数据和已导出证据不话被普通清理删除。W01 实现目录归属与按计划清理，W02 实现 Job 进程保护与 Stop，W03 将同一保护用于 Init、pytest、文档/Ruff/Pyright 检查，W05 接入固定响应离线 Agent 的 repair/resume。W09/W10 沿用该保护完成只读聚合和本机私有证据导出；离线导出的实际验收进度只在 STATUS 记录。真实模型与应用任务仍未接入受管 Run。
+采用一个项目专属运行目录和一个 PowerShell 管理入口。用户能查看占用、停止本项目进程、清理缓存或完全移除运行环境；源码、Git、原始数据和已导出证据不话被普通清理删除。W01 实现目录归属与按计划清理，W02 实现 Job 进程保护与 Stop，W03 将同一保护用于 Init、pytest、文档/Ruff/Pyright 检查，W05 接入固定响应离线 Agent 的 repair/resume。W09/W10 沿用该保护完成只读聚合和本机私有证据导出；离线导出的实际验收进度只在 STATUS 记录。competition 已接入同一受管 Run，真实模型与应用开关仍为 false，本批只验 Mock 和 toy 软件行为。
 
 “集中目录”不等于进程隔离，Python 虚拟环境不限制 CPU/内存。操作系统限制只覆盖管理入口创建的工作进程树，不覆盖 Codex、编辑器、用户其他程序，以及未纳入 Job 的既有设备服务；我们不能保证整台电脑绝不满载。Job Object 不提供 GPU 显存硬配额；若模拟器需要 GPU，必须另有监测与可确认停止机制才运行。磁盘采用容量预检与监测，不是内核硬配额；任意恶意代码不在本机执行，Job Object 也不是安全沙箱。
 
 ### 9.2 文件归属与安装边界
 
-受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。`execution.application_target=local` 是后续位置决定；`allow_local_harmony_sdk=false`、`allow_model_experiments=false` 和 `allow_application_experiments=false` 仍是当前禁用状态，不能解释成“应用话在远程跑”。`enforcement_status=offline_agent_guarded` 表示固定合成 Run、Init、pytest、质量检查、固定响应离线 Agent、只读聚合和 Export 使用相同 Job 保护；真实模型与应用执行仍未接入。运行时生效限制写入本地活动记录，不另维护一份项目进度台账。
+受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。`execution.application_target=local` 是后续位置决定；`allow_local_harmony_sdk=false`、`allow_model_experiments=false` 和 `allow_application_experiments=false` 仍是当前禁用状态，不能解释成“应用话在远程跑”。`enforcement_status=offline_agent_guarded` 保留现有配置标记；固定合成 Run、Init、pytest、质量检查、离线 Agent、competition 软件路径、只读聚合和 Export 使用相同 Job 保护，不能由标记或代码通道推定真实实验已解锁。运行时生效限制写入本地活动记录，不另维护一份项目进度台账。
 
 | 位置 | 内容 | 清理性质 |
 |---|---|---|
@@ -533,11 +552,11 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 
 默认管理目录固定在仓库内；首次实现不支持随意更改为任意盘符根目录。若 SDK/构建缓存实测超出受管目录和磁盘预算，须先设计并验收项目专属的新位置与清理边界，再修改配置；不能直接改全局安装器或借用其他盘根目录。虚拟环境不承诺复制后可用。项目总占用报告分开列管理目录、未来项目专属 SDK/缓存、保留数据和导出包，不能只报 .dfx-local 造成“已全部清理”的误解。
 
-入口脚本 scripts/local.ps1 提供 Prepare/Status/Clean/Stop/Init、固定合成/仓库测试/质量检查/离线 Agent/只读聚合的 Run，以及本机私有 Export/Verify；scripts/local_job.cs 创建和核验 Windows Job，scripts/local_export.ps1 在 Job 内调用固定导出接口。Prepare 不下载依赖；Init 只在 Job 内通过固定来源和 SHA-256 安装便携 uv/CPython 并同步锁定环境。Run 接受固定任务、仓库测试路径或已审查快照与固定脚本，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装全局 Python 包、系统工具或后台服务。导出内部使用 Windows 长路径接口，不改注册表或用户 PATH。真实模型与应用任务仍待接入，各入口验收证据见 STATUS。
+入口脚本 scripts/local.ps1 提供 Prepare/Status/Clean/Stop/Init、固定合成/仓库测试/质量检查/离线 Agent/competition/只读聚合的 Run，以及本机私有 Export/Verify；scripts/local_job.cs 创建和核验 Windows Job，scripts/local_export.ps1 在 Job 内调用固定导出接口。Prepare 不下载依赖；Init 只在 Job 内通过固定来源和 SHA-256 安装便携 uv/CPython 并同步锁定环境。Run 接受固定任务、仓库测试路径或已审查快照与固定脚本，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装全局 Python 包、系统工具或后台服务。导出内部使用 Windows 长路径接口，不改注册表或用户 PATH。competition 已建立唯一命名 Job 并保存 job_name，执行器据此核验实际所属限制；真实模型/应用仍禁用，各入口软件验收证据见 STATUS。
 
 安装时通过显式子进程环境设置 UV_CACHE_DIR、UV_PROJECT_ENVIRONMENT、UV_PYTHON_INSTALL_DIR、UV_PYTHON_BIN_DIR、UV_TOOL_DIR/UV_TOOL_BIN_DIR、TEMP/TMP 与 PYTHONPYCACHEPREFIX；Pyright 后备 Node 目录和 Ruff 缓存也路由到项目根。pytest 使用受管 basetemp，关闭持久 pytest 缓存和字节码写入，并在退出时删除自己的临时目录，避免不同 Windows 账户交替运行时产生不可访问目录。变量只在该子进程树生效，不改用户级 PATH、注册表、Shell profile、Conda base 或全局 pip。uv 固定版本/下载哈希，关闭 Python 注册表安装；环境同步使用 `uv sync --locked` 和项目 Python。正式 Agent 任务也须遵循同样入口，不用普通 `uv run` 绕过限制。
 
-既有 Python/Git/ripgrep 可只读调用，但不由清理器接管；不存在时把新增工具放项目目录。若依赖需要不能受控的安装器、全局写入或后台服务，则报告不兼容，不自动提权全局安装。正式适配的凭据须通过进程环境传入，不写入 manifest、日志或导出包；当前固定/mock 模型入口不接受真实凭据。原始源码、日志和消息本身可能含私密内容，Export 的名称守卫不能证明其中没有秘密，不能直接作为公开包。第三方包可能绕过约定路径，安装验收要观察已知用户缓存位置的新增写入；“未观察到”不是系统级零写入证明。
+既有 Python/Git/ripgrep 可只读调用，但不由清理器接管；不存在时把新增工具放项目目录。若依赖需要不能受控的安装器、全局写入或后台服务，则报告不兼容，不自动提权全局安装。CloudChatCompletionsAdapter 的凭据只从配置指定的进程环境名读取，不写入 manifest、日志或导出包，也不传给本机检查子进程；原固定/mock 入口仍无凭据，真实调用仍受禁用开关约束。原始源码、日志和消息本身可能含私密内容，Export 的名称守卫不能证明其中没有秘密，不能直接作为公开包。第三方包可能绕过约定路径，安装验收要观察已知用户缓存位置的新增写入；“未观察到”不是系统级零写入证明。
 
 ### 9.3 资源限制怎样生效
 
@@ -547,7 +566,7 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 |---|---|---|
 | CPU、进程数 | Windows Job Object 对受管工作进程树设置 CPU hard cap 和活动进程数上限 | 无法建立/核验限制则拒绝工作进程继续运行，不能悄悄变为无限制 |
 | 内存 | Job 的 committed memory 上限取配置绝对上限与物理内存比例的较小值；启动预留系统可用内存，运行时监测 | 分配可能失败；记录资源原因并停止任务。它不是对全机 RSS 或系统文件缓存的硬限制 |
-| 并发 | 一个管理根的互斥锁与运行租约；合成、安装、测试、质量、离线 Agent、聚合和 Export 串行 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
+| 并发 | 一个管理根的互斥锁与运行租约；合成、安装、测试、质量、离线 Agent、competition、聚合和 Export 串行 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
 | 磁盘 | 所有受管任务预检和监测 managed 与 exports 合计逻辑大小及卷剩余空间；下载前估算，uv ZIP 流式限定字节；Export 另估算完整包和暂存新增 | 超过共同预算、导出单包上限或预留线则拒绝；不能通过不断换 Export ID 绕过累计限制，未来应用副本仍须单独估算 |
 | 日志 | 受管任务的 stdout/stderr 经管道按字节上限保存，超额立即终止 Job 并继续排空 | 不在内存或磁盘无限堆积输出；留存日志标记截断 |
 | 时间 | 单调时钟截止时间 + 子命令超时，采用资源配置与任务预算中的较严值 | 先请求退出，宽限结束后终止本任务 Job，记录 timeout/inconclusive |
@@ -562,7 +581,7 @@ Stop 优先通过当前用户可访问的控制通道请求管理器停止，再
 
 ### 9.4 统一命令与清理协议
 
-下面列出统一接口。已有离线实现包括 Prepare/Status/Clean/Stop/Init、固定合成/测试/质量/离线 Agent/聚合 Run 及私有 Export/Verify；是否完成相应验收以 STATUS 为准。Status 若遇到受管目录不可读，会保留 inaccessible_paths 并将 resource_accounting 标为 incomplete；任何新 Run 都拒绝启动，直到资源可完整盘点。真实模型/应用 Run 尚未接入。
+下面列出统一接口。已有离线实现包括 Prepare/Status/Clean/Stop/Init、固定合成/测试/质量/离线 Agent/competition/聚合 Run 及私有 Export/Verify；是否完成相应验收以 STATUS 为准。Status 若遇到受管目录不可读，会保留 inaccessible_paths 并将 resource_accounting 标为 incomplete；任何新 Run 都拒绝启动，直到资源可完整盘点。competition 代码通道已接入；真实模型/应用开关仍禁用，软件通过不能作为效果证据。
 
 | 目标调用 | 行为 |
 |---|---|
@@ -573,6 +592,7 @@ Stop 优先通过当前用户可访问的控制通道请求管理器停止，再
 | .\scripts\local.ps1 Run -Task test -TestPath tests/test_sdk_compat.py | 在受管环境运行单个现存仓库测试文件；不接受任意命令或数据包脚本 |
 | .\scripts\local.ps1 Run -Task docs/ruff/pyright | 在受管环境运行固定文档、Lint 或类型检查 |
 | .\scripts\local.ps1 Run -Task offline -OfflineTaskPath TASK -OfflineScriptPath SCRIPT -OfflineWorkId ID | 在受管环境运行固定响应、合成判据的离线闭环；同一 ID 可加 -Resume 恢复，详情见原型说明 |
+| .\scripts\local.ps1 Run -Task competition -CompetitionConfigPath configs/competition-demo.json -CompetitionWorkId ID | 在受管环境运行独立 toy 软件路径并输出报告；mock_demo 自备任务，不提供数据任务。cloud 模式另需已审查的 -CompetitionTaskPath TASK 与完整配置，且真实开关当前禁止；同一 ID 可加 -Resume 核原件恢复 |
 | .\scripts\local.ps1 Stop | 停止本项目受管工作树并核验退出；保留文件和证据，释放进程资源 |
 | .\scripts\local.ps1 Export -EvaluationManifestPath MANIFEST -ExportId ID | 默认受管预览，披露私有内容范围与预计字节，保存固定计划并返回 PlanId；不创建最终包 |
 | .\scripts\local.ps1 Export -EvaluationManifestPath MANIFEST -ExportId ID -Apply -PlanId HASH | 复核计划和源树，在私有暂存区复制、核验并发布新 runs/exports/ID；不覆盖目标或删除源 |
@@ -602,7 +622,7 @@ Verify 的证据输入只取包内清单、哈希、源码/候选与账本以及
 
 ## 10. 详细设计与接手边界
 
-当前已确定方法主线、模块职责、本机资源/清理方案和分步验收任务。W01–W03 的本机管理和 SDK 接入、W04 的首批对象、W05 的固定响应离线闭环与模型账本接入、W06 的模拟 HTTP 作业协议、W07 的受控策略分支、P0 动作/接受契约、逐工具授权/恢复、因果记录与有限条件结果到修复决策交接已完成合成验证。W09/W10 的只读聚合和私有导出消费这些持久记录，其实际验收结果统一见 STATUS，不作为应用效果证据。可信采值与操作绑定的来源、接口和迁移设计见第 3.2.1 节及模块规格；独立合成绑定、凭据和不可改写登记已有实现，真实来源及新条件计算尚未接入。第 7 节的工作上下文和实际发送已有基础，主机批准知识及普通检索 SDK 切片已编码，验收只在 STATUS 记录；普通、三态和静态 Skill 的实际 SDK 与显式受管配置已有入口，跨任务反馈与学习按模块规格第 3.1 节继续分步实现。其余规则计算、正式模型适配、真实应用任务、独立业务反馈和设备恢复仍待编码和验证。资源数值对受管 Init/测试/质量/离线 Agent/聚合/Export 生效，不代表真实模型或设备任务已受管；具体进度见 STATUS。
+当前已确定方法主线、模块职责、本机资源/清理方案和分步验收任务。W01–W03 的本机管理和 SDK 接入、W04 的首批对象、W05 的固定响应离线闭环与模型账本接入、W06 的模拟 HTTP 作业协议、W07 的受控策略分支、P0 动作/接受契约、逐工具授权/恢复、因果记录与有限条件结果到修复决策交接已完成合成验证。W09/W10 的只读聚合和私有导出消费这些持久记录，其实际验收结果统一见 STATUS，不作为应用效果证据。可信采值与操作绑定的来源、接口和迁移设计见第 3.2.1 节及模块规格；独立合成绑定、凭据和不可改写登记已有实现，真实来源及新条件计算尚未接入。第 7 节的工作上下文和实际发送已有基础，主机批准知识及普通检索 SDK 切片已编码，验收只在 STATUS 记录；普通、三态和静态 Skill 的实际 SDK 与显式受管配置已有入口，跨任务反馈与学习按模块规格第 3.1 节继续分步实现。CloudChatCompletionsAdapter、本机完整工程检查、通用领域资源及明确竞赛配置已实现，软件验收统一见 STATUS。真实提供方兼容性、业务判据、HarmonyOS 工具链/设备及其余规则计算仍待接纳或实现，自动采值与自动学习/晋升保持未完成扩展。资源数值对受管 Init/测试/质量/离线 Agent/competition/聚合/Export 软件路径生效，真实模型及应用开关仍 false；不得称已有效修复或取得方法收益。
 
 接手者按 [实施计划](../project-work-plan.md) 的工作包顺序推进，先读当前包的输入、输出和反例用例；每次交付一个可检查的变更。实现中的局部选择可按契约自行决定；更换框架、放宽本机限制、改变评测判据或开启真真实验不属于随意实现细节，须按已授权边界处理并同步主文档。设计不能保证任何具体模型零错误，但可以使偏离易于发现、每步可回退。
 

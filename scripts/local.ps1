@@ -5,11 +5,14 @@ param(
     [switch]$Apply,
     [string]$PlanId,
     [switch]$DiscardEvidence,
-    [ValidateSet('synthetic', 'test', 'docs', 'ruff', 'pyright', 'offline', 'aggregate')][string]$Task = 'synthetic',
+    [ValidateSet('synthetic', 'test', 'docs', 'ruff', 'pyright', 'offline', 'aggregate', 'competition')][string]$Task = 'synthetic',
     [string]$TestPath,
     [string]$OfflineTaskPath,
     [string]$OfflineScriptPath,
     [string]$OfflineWorkId,
+    [string]$CompetitionTaskPath,
+    [string]$CompetitionConfigPath,
+    [string]$CompetitionWorkId,
     [string]$EvaluationManifestPath,
     [string]$EvaluationWorkId,
     [string]$ExportId,
@@ -545,6 +548,8 @@ try {
         $savedTemp = $env:TEMP; $savedTmp = $env:TMP; $savedTestPath = $env:DFX_TEST_PATH
         $savedOfflineTask = $env:DFX_OFFLINE_TASK; $savedOfflineScript = $env:DFX_OFFLINE_SCRIPT
         $savedOfflineWork = $env:DFX_OFFLINE_WORK; $savedOfflineResume = $env:DFX_OFFLINE_RESUME
+        $savedCompetitionTask = $env:DFX_COMPETITION_TASK; $savedCompetitionConfig = $env:DFX_COMPETITION_CONFIG
+        $savedCompetitionWork = $env:DFX_COMPETITION_WORK; $savedCompetitionResume = $env:DFX_COMPETITION_RESUME
         $savedMetricsManifest = $env:DFX_METRICS_MANIFEST; $savedMetricsWork = $env:DFX_METRICS_WORK
         $savedExportManifest = $env:DFX_EXPORT_MANIFEST; $savedExportId = $env:DFX_EXPORT_ID
         $savedExportOwner = $env:DFX_EXPORT_OWNER; $savedExportPlan = $env:DFX_EXPORT_PLAN
@@ -563,7 +568,7 @@ try {
                 Add-Type -TypeDefinition (Get-Content -LiteralPath (Join-Path $PSScriptRoot 'local_job.cs') -Raw -Encoding UTF8) -ErrorAction Stop
             }
             $effective = Get-RunLimits
-            if ($taskKind -in @('test', 'docs', 'ruff', 'pyright', 'offline', 'aggregate', 'export')) {
+            if ($taskKind -in @('test', 'docs', 'ruff', 'pyright', 'offline', 'aggregate', 'export', 'competition')) {
                 $environmentPath = Join-Path $script:StatePath 'environment.json'
                 if (-not [IO.File]::Exists($environmentPath)) { throw 'Managed environment is not initialized' }
                 $environment = Get-Content -LiteralPath $environmentPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -604,8 +609,34 @@ try {
                 if (-not $Resume -and [IO.Directory]::Exists($offlineWork)) { throw 'Offline work already exists' }
                 $env:DFX_OFFLINE_TASK = $resolvedTask; $env:DFX_OFFLINE_SCRIPT = $resolvedScript
                 $env:DFX_OFFLINE_WORK = $offlineWork; $env:DFX_OFFLINE_RESUME = if ($Resume) { '1' } else { '0' }
-            } elseif ($OfflineTaskPath -or $OfflineScriptPath -or $OfflineWorkId -or $Resume) {
+            } elseif ($OfflineTaskPath -or $OfflineScriptPath -or $OfflineWorkId -or ($Resume -and $taskKind -ne 'competition')) {
                 throw 'Offline parameters require -Task offline'
+            }
+            if ($taskKind -eq 'competition') {
+                if ($CompetitionWorkId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$' -or -not $CompetitionConfigPath) {
+                    throw 'Competition config and work ID are required'
+                }
+                $competitionConfig = Resolve-EvaluationManifest $CompetitionConfigPath
+                $configuration = Get-Content -LiteralPath $competitionConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($configuration.model_mode -eq 'mock_demo') {
+                    if ($CompetitionTaskPath) { throw 'mock_demo creates its own synthetic task; do not provide task data' }
+                    $competitionTask = Join-Path $script:Root ('tmp/competition-' + $CompetitionWorkId + '-demo-task')
+                } else {
+                    if (-not $CompetitionTaskPath -or [IO.Path]::IsPathRooted($CompetitionTaskPath)) { throw 'Reviewed repository-relative task path is required' }
+                    $competitionTask = [IO.Path]::GetFullPath((Join-Path $script:Repo $CompetitionTaskPath))
+                    Assert-PathChain $competitionTask
+                    if (-not [IO.Directory]::Exists($competitionTask) -or
+                        (Test-Within $competitionTask (Join-Path $script:Repo 'data_B')) -or
+                        (Test-Within $competitionTask (Join-Path $script:Repo 'archive'))) { throw 'Competition task must be a reviewed snapshot outside data_B/archive' }
+                }
+                $competitionWork = Join-Path $script:Root ('work/competition-' + $CompetitionWorkId)
+                Assert-PathChain $competitionWork
+                if ($Resume -and -not [IO.Directory]::Exists($competitionWork)) { throw 'Competition work does not exist' }
+                if (-not $Resume -and [IO.Directory]::Exists($competitionWork)) { throw 'Competition work already exists' }
+                $env:DFX_COMPETITION_TASK = $competitionTask; $env:DFX_COMPETITION_CONFIG = $competitionConfig
+                $env:DFX_COMPETITION_WORK = $competitionWork; $env:DFX_COMPETITION_RESUME = if ($Resume) { '1' } else { '0' }
+            } elseif ($CompetitionTaskPath -or $CompetitionConfigPath -or $CompetitionWorkId) {
+                throw 'Competition parameters require -Task competition'
             }
             if ($taskKind -eq 'aggregate') {
                 $env:DFX_METRICS_MANIFEST = $aggregateManifest; $env:DFX_METRICS_WORK = $aggregateWork
@@ -621,7 +652,7 @@ try {
             $job = [DfxLocal.BoundedJob]::new($effective.cpu_percent, $effective.memory_bytes, $effective.max_processes, $jobName)
             $exe = (Get-Process -Id $PID).Path
             if (-not [IO.File]::Exists($exe)) { throw 'PowerShell executable identity unavailable' }
-            $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } elseif ($taskKind -eq 'offline') { 'local_agent.ps1' } elseif ($taskKind -eq 'aggregate') { 'local_metrics.ps1' } elseif ($taskKind -eq 'export') { 'local_export.ps1' } else { 'local_synthetic.ps1' }
+            $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } elseif ($taskKind -eq 'offline') { 'local_agent.ps1' } elseif ($taskKind -eq 'competition') { 'local_competition.ps1' } elseif ($taskKind -eq 'aggregate') { 'local_metrics.ps1' } elseif ($taskKind -eq 'export') { 'local_export.ps1' } else { 'local_synthetic.ps1' }
             $workerPath = Join-Path $PSScriptRoot $workerName
             Assert-PathChain $workerPath
             $job.Start($exe, $workerPath, $taskKind, $logPath, $script:Repo, $Seconds,
@@ -682,6 +713,8 @@ try {
             $env:TEMP = $savedTemp; $env:TMP = $savedTmp; $env:DFX_TEST_PATH = $savedTestPath
             $env:DFX_OFFLINE_TASK = $savedOfflineTask; $env:DFX_OFFLINE_SCRIPT = $savedOfflineScript
             $env:DFX_OFFLINE_WORK = $savedOfflineWork; $env:DFX_OFFLINE_RESUME = $savedOfflineResume
+            $env:DFX_COMPETITION_TASK = $savedCompetitionTask; $env:DFX_COMPETITION_CONFIG = $savedCompetitionConfig
+            $env:DFX_COMPETITION_WORK = $savedCompetitionWork; $env:DFX_COMPETITION_RESUME = $savedCompetitionResume
             $env:DFX_METRICS_MANIFEST = $savedMetricsManifest; $env:DFX_METRICS_WORK = $savedMetricsWork
             $env:DFX_EXPORT_MANIFEST = $savedExportManifest; $env:DFX_EXPORT_ID = $savedExportId
             $env:DFX_EXPORT_OWNER = $savedExportOwner; $env:DFX_EXPORT_PLAN = $savedExportPlan

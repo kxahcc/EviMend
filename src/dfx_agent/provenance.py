@@ -23,7 +23,7 @@ from typing import Any
 
 _ROOT = Path(__file__).absolute().parents[2]
 _HOST_SCRIPTS = (
-    "scripts/dfx.py", "scripts/local_agent.ps1", "scripts/local.ps1", "scripts/local_job.cs",
+    "scripts/dfx.py", "scripts/local_agent.ps1", "scripts/local_competition.ps1", "scripts/local.ps1", "scripts/local_job.cs",
 )
 _INPUTS = ("uv.lock", "pyproject.toml", ".python-version", "configs/local-runtime.json")
 _MAX_FILES = 4096

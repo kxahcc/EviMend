@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-08",
+  "batch": "competition delivery 2: managed product and complete software acceptance",
+  "scope": "real SDK, MockTransport and bounded toy subprocesses; no cloud or HarmonyOS effects",
+  "changes": ["managed competition command and immutable host configuration", "four curated domain procedures, frozen approved knowledge and native SDK skill consumption", "obligation, working context and failed-check revision in one loop", "human result, structured report, all candidate diffs and private byte-verified delivery", "completed replay, interrupted saved response recovery and budget preflight", "missing or inconclusive first check remains unknown rather than a failed first attempt"],
+  "validation": [
+    {"task": "tests/test_competition.py", "passed": 4, "seconds": 141.33, "receipt": "6c813245-2238-4a01-bb31-fe268fd62f1a"},
+    {"task": "tests/test_competition.py after unknown first-attempt reporting correction", "passed": 4, "seconds": 140.04, "receipt": "5f334025-4376-45b1-9023-94c2c892dc68"},
+    {"task": "managed CLI demonstration", "result": "synthetic_checked", "accepted": false, "model_calls": 15, "candidates": 2, "tool_actions": 14, "receipt": "ef5a39bd-c4ba-4eae-b96d-79e4b25f995e"},
+    {"task": "managed CLI completed resume", "result": "synthetic_checked", "model_calls": 15, "candidates": 2, "new_checks": 0, "receipt": "b1b6b467-0306-4950-a1dc-6081ce5ca726"},
+    {"task": "Ruff after final code change", "result": "All checks passed", "receipt": "e9493e48-5ed9-4020-82df-fb197f547d4d"},
+    {"task": "Pyright after final code change", "errors": 0, "warnings": 0, "receipt": "f2dfb1c0-3192-4696-9789-bae39b61141c"},
+    {"task": "documentation check", "documents": 14, "errors": 0, "optional_notes": 0, "receipt": "5346b4d2-a636-48d6-ae35-3fde266898a7"}
+  ],
+  "cli_evidence_note": "review01 predates only the final missing-first-check report correction; current-source regression after that correction is recorded separately. Resume requires exact saved execution provenance, not a newer source revision.",
+  "demonstration": {"work": ".dfx-local/work/competition-review01", "first_attempt": "target passed but behavior failed with required value semantics lost", "second_attempt": "baseline fault reproduced and build, target, behavior and regression passed", "model_usage": "225 tokens from scripted fixture, not measured cloud consumption", "private_package_bytes_at_observation": 1635090},
+  "failures_retained": [
+    {"receipt": "2198d865-eb23-457a-806c-4c101e8a71d8", "failed": 1, "passed": 2, "reason": "knowledge blob rename exceeded Windows path limit; store now uses the existing extended-path helper"},
+    {"receipt": "1f9b4fd3-9a32-4026-8e0d-c8f669038846", "failed": 1, "passed": 2, "reason": "empty stderr masked real stdout in failure feedback; nonempty stream is now selected"},
+    {"receipt": "c8a6bb04-6997-4b18-b603-23c8a5c6944e", "reason": "CLI failed before child launch because competition was missing from the Job worker allowlist; fixed without changing limits"}
+  ],
+  "environment": "reused existing project Python 3.13.5 and locked Deep Agents 0.7.18; no installs, downloads, global changes, model weights or HarmonyOS tooling",
+  "resource_observation_before_final_docs_check": {"date": "2026-10-08", "managed_and_existing_export_bytes": 429475489, "owner_valid": true, "resource_accounting": "complete", "inaccessible_paths": [], "active_state": "none", "cleanup_available": true},
+  "real_model_calls": 0,
+  "harmonyos_application_runs": 0,
+  "limitations": ["cloud provider compatibility and real task reasoning untested", "full HarmonyOS projects, independent business oracles, SDK/device admission and real metrics still required", "curated skill/obligation meaning remains guidance, not semantic certification", "delivery.zip verifies byte preservation, not independent experiment aggregation or public redaction", "automatic skill promotion, automatic runtime value acquisition and lifecycle ResearchProfile remain deferred incomplete extensions"],
+  "next": "review current system and contributions, then admit local real execution conditions before experiments"
+}
