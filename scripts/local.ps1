@@ -558,6 +558,7 @@ try {
         $savedExportRunId = $env:DFX_EXPORT_RUN_ID
         $job = $null; $markerCreated = $false
         $runId = [Guid]::NewGuid().ToString()
+        $activePendingPath = Join-Path $script:StatePath ('active-' + $runId + '.new')
         $taskKind = if ($Action -eq 'Init') { 'bootstrap' } elseif ($Action -eq 'Export') { 'export' } elseif ($Task -ne 'synthetic') { $Task } else { $Scenario }
         $logPath = Join-Path $script:Root ("artifacts/$runId.log")
         $recordPath = Join-Path $script:Root ("artifacts/$runId.json")
@@ -655,19 +656,27 @@ try {
             $workerName = if ($Action -eq 'Init') { 'local_bootstrap.ps1' } elseif ($taskKind -eq 'test') { 'local_test.ps1' } elseif ($taskKind -in @('docs', 'ruff', 'pyright')) { 'local_quality.ps1' } elseif ($taskKind -eq 'offline') { 'local_agent.ps1' } elseif ($taskKind -eq 'competition') { 'local_competition.ps1' } elseif ($taskKind -eq 'aggregate') { 'local_metrics.ps1' } elseif ($taskKind -eq 'export') { 'local_export.ps1' } else { 'local_synthetic.ps1' }
             $workerPath = Join-Path $PSScriptRoot $workerName
             Assert-PathChain $workerPath
-            $job.Start($exe, $workerPath, $taskKind, $logPath, $script:Repo, $Seconds,
+            $job.StartSuspended($exe, $workerPath, $taskKind, $logPath, $script:Repo, $Seconds,
                 [long]$effective.max_log_file_bytes)
             $childPid = [int]$job.ProcessId
             $child = Get-Process -Id $childPid -ErrorAction Stop
             $self = Get-Process -Id $PID -ErrorAction Stop
-            [pscustomobject]@{
+            $activeJson = [pscustomobject]@{
                 schema_version = 1; run_id = $runId; project_instance_id = $owner.project_instance_id
                 manager_pid = $PID; manager_start_utc_ticks = $self.StartTime.ToUniversalTime().Ticks
                 manager_executable = $exe; child_pid = $childPid
                 child_start_utc_ticks = $child.StartTime.ToUniversalTime().Ticks
                 task = $taskKind; job_name = $jobName; effective_limits = $effective; started_at = [DateTimeOffset]::UtcNow.ToString('o')
-            } | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath $script:ActivePath -Encoding UTF8
+            } | ConvertTo-Json -Depth 7
+            Assert-PathChain $activePendingPath
+            [IO.File]::WriteAllText($activePendingPath, $activeJson, [Text.UTF8Encoding]::new($false))
+            [IO.File]::Move($activePendingPath, $script:ActivePath)
             $markerCreated = $true
+            if ([IO.File]::Exists($script:StopPath)) {
+                $request = Get-Content -LiteralPath $script:StopPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($request.run_id -cne $runId) { throw 'Stop request has mismatched run ID' }
+                $outcome = 'canceled'; $reason = 'stop_requested'; $job.Terminate()
+            } else { $job.Resume() }
             $elapsed = [Diagnostics.Stopwatch]::StartNew()
             while (-not $job.HasExited()) {
                 if ([IO.File]::Exists($script:StopPath)) {
@@ -709,6 +718,10 @@ try {
                     try { $job.Terminate(); $null = $job.WaitForExit(5000) } catch {}
                 }
                 $job.Dispose()
+            }
+            if ([IO.File]::Exists($activePendingPath)) {
+                Assert-PathChain $activePendingPath
+                Remove-Item -LiteralPath $activePendingPath -Force
             }
             $env:TEMP = $savedTemp; $env:TMP = $savedTmp; $env:DFX_TEST_PATH = $savedTestPath
             $env:DFX_OFFLINE_TASK = $savedOfflineTask; $env:DFX_OFFLINE_SCRIPT = $savedOfflineScript

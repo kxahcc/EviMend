@@ -573,7 +573,7 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 
 生效计算：内存上限取 min(job_memory_cap_bytes, 总物理内存 × job_memory_fraction_of_physical)；磁盘预留取 max(min_free_disk_bytes, 卷总容量 × min_free_disk_fraction)。启动时要求可用物理内存足以容纳该内存预算和预留，运行时低于预留线则停止；CPU 配置百分比转换为 Windows CpuRate 时乘以 100。硬件容量通过 GlobalMemoryStatusEx 与 .NET DriveInfo 查询，避免依赖可能无权限的 WMI/CIM；读取失败保持未知并拒绝重任务。
 
-受管任务启动顺序：读取并校验配置和 owner → 获取项目租约 → 检查空间/可用内存 → 创建并读回 Job 限制 → 以挂起状态创建工作进程 → 加入 Job → 恢复线程。子进程使用正常 CreateProcess 继承 Job，不允许 breakaway；不通过服务、计划任务或 WMI 绕过管理。启用 KILL_ON_JOB_CLOSE，Job 句柄不继承给工作进程；管理器异常退出后受管树退出已由合成测试验证。外层运行宿主若不支持 Job 嵌套，必须拒绝任务启动，不能无保护继续。
+受管任务启动顺序：读取并校验配置和 owner → 获取项目租约 → 检查空间/可用内存 → 创建并读回 Job 限制 → 以挂起状态创建工作进程 → 加入 Job → 将完整活动凭据写入本次独有临时文件并原子发布 active.json → 检查启动期间收到的 Stop → 恢复线程。凭据含 Job 名称、manager/child 身份和实际限制，工作进程开始读取时必须完整可见；发布或恢复失败终止该 Job，清理本次临时/活动标记，关闭挂起线程句柄。旧 Start API 保留为兼容封装，管理入口用显式 StartSuspended/Resume。子进程使用正常 CreateProcess 继承 Job，不允许 breakaway；不通过服务、计划任务或 WMI 绕过管理。启用 KILL_ON_JOB_CLOSE，Job 句柄不继承给工作进程；管理器异常退出后受管树退出已有合成测试，最新反例证据只见 STATUS。外层运行宿主若不支持 Job 嵌套，必须拒绝任务启动，不能无保护继续。
 
 Stop 优先通过当前用户可访问的控制通道请求管理器停止，再使用经归属核对的 Job 终止受管进程。记录 PID、创建时间、可执行路径和实例 ID，不能按 python/node/java 进程名批量杀进程；PID 重用或失联时先核验，无法确认归属就报告，不扩大终止范围。默认前台运行，不遗留后台常驻进程；确需后台助手时隐藏窗口且纳入同一生命周期。
 

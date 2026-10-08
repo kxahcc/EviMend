@@ -101,7 +101,7 @@ namespace DfxLocal {
         private static extern IntPtr CreateFile(string name, uint access, uint share, ref SecurityAttributes attributes,
             uint disposition, uint flags, IntPtr template);
 
-        private IntPtr job, process, readPipe;
+        private IntPtr job, process, readPipe, initialThread;
         private Thread outputThread;
         private volatile bool logExceeded;
         private Exception outputError;
@@ -154,6 +154,14 @@ namespace DfxLocal {
 
         public void Start(string executable, string script, string scenario, string logPath, string workDirectory,
             int seconds, long maxLogBytes) {
+            StartSuspended(executable, script, scenario, logPath, workDirectory, seconds, maxLogBytes);
+            try { Resume(); }
+            catch { Terminate(); throw; }
+        }
+
+        // The host must publish the complete lease before explicitly resuming.
+        public void StartSuspended(string executable, string script, string scenario, string logPath,
+            string workDirectory, int seconds, long maxLogBytes) {
             if (disposed || ProcessId != 0) throw new InvalidOperationException("Job already used");
             if (maxLogBytes < 1024) throw new ArgumentOutOfRangeException(nameof(maxLogBytes));
             if (scenario != "idle" && scenario != "child" && scenario != "noisy" &&
@@ -184,18 +192,33 @@ namespace DfxLocal {
                 // Output consumer is live before the child can produce bytes.
                 outputThread = new Thread(() => DrainOutput(logPath, maxLogBytes)) { IsBackground = true };
                 outputThread.Start();
-                if (ResumeThread(info.Thread) == 0xffffffffu) throw Error("ResumeThread failed");
                 process = info.Process;
                 ProcessId = info.ProcessId;
+                initialThread = info.Thread;
             } catch {
                 TerminateProcess(info.Process, 1);
                 CloseHandle(info.Process);
                 throw;
-            } finally { CloseHandle(info.Thread); }
+            } finally { if (initialThread != info.Thread) CloseHandle(info.Thread); }
             } finally {
                 if (writePipe != IntPtr.Zero) CloseHandle(writePipe);
                 if (nullInput != IntPtr.Zero && nullInput != new IntPtr(-1)) CloseHandle(nullInput);
             }
+        }
+
+        public void Resume() {
+            if (disposed || process == IntPtr.Zero || initialThread == IntPtr.Zero)
+                throw new InvalidOperationException("Job has no suspended worker to resume");
+            if (outputError != null || logExceeded)
+                throw new InvalidOperationException("Output capture failed before worker resume");
+            uint count = ResumeThread(initialThread);
+            if (count == 0xffffffffu) throw Error("ResumeThread failed");
+            if (count != 1u) {
+                Terminate();
+                throw new InvalidOperationException("Worker suspend count changed before resume");
+            }
+            CloseHandle(initialThread);
+            initialThread = IntPtr.Zero;
         }
 
         private void DrainOutput(string logPath, long maxLogBytes) {
@@ -238,6 +261,7 @@ namespace DfxLocal {
         public void Dispose() {
             if (disposed) return;
             disposed = true;
+            if (initialThread != IntPtr.Zero) { CloseHandle(initialThread); initialThread = IntPtr.Zero; }
             if (process != IntPtr.Zero) { CloseHandle(process); process = IntPtr.Zero; }
             if (job != IntPtr.Zero) { CloseHandle(job); job = IntPtr.Zero; }
             if (outputThread != null && !outputThread.Join(5000))

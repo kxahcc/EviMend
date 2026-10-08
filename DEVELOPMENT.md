@@ -196,6 +196,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_managed_knowledge_workflow.py` | 固定/模拟 CLI 全流程及真实 Windows Job 验收的合成 fixture，核完整 Skill 可见性与同资源启停矩阵 |
 | `tests/test_model_provider.py`、`tests/test_provider_loop.py`、`tests/test_reporting.py`、`tests/test_offline_script.py`、`tests/test_offline_cli.py` | 模拟模型请求/响应、SDK 交接、最终摘要核验和受管脚本/命令入口；不调用真实模型 |
 | `tests/test_cloud_provider.py`、`tests/test_local_execution.py`、`tests/test_competition.py` | MockTransport 云端调用、短时本机程序及统一竞赛入口的边界、恢复和输出软件验收；不调用真实 API 或 HarmonyOS，实际结果见 STATUS |
+| `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
 | `tests/test_context_compaction.py`、`tests/test_compaction_loop.py` | 主机压缩的完整工具组、冻结来源、独立费用、格式失败、未知结果、恢复及实际 SDK 交接的合成验收 |
 | `tests/test_readonly_evidence.py`、`tests/test_metrics.py`、`tests/test_metrics_cli.py` | 不可变账本、完整分母/未知项/重复运行、配置漂移及受管聚合入口的合成验收 |

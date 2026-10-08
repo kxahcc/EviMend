@@ -2,7 +2,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:Repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd([IO.Path]::DirectorySeparatorChar)
-$script:TestRoot = Join-Path $script:Repo ('runs/W02-test-' + [Guid]::NewGuid().ToString('N'))
+$script:TestBase = Join-Path $script:Repo '.dfx-local/tmp'
+$script:TestRoot = Join-Path $script:TestBase ('W02-test-' + [Guid]::NewGuid().ToString('N'))
 $script:CaseRepo = Join-Path $script:TestRoot 'repo 空格'
 $script:Local = Join-Path $script:CaseRepo 'scripts/local.ps1'
 $script:Checks = 0
@@ -100,6 +101,85 @@ try {
     $memory = [DfxLocal.BoundedJob]::PhysicalMemory()
     Check ($memory[0] -gt 0 -and $memory[1] -gt 0) 'physical memory query'
 
+    # A worker that immediately requires every identity/limit field would fail
+    # if it ran during the deliberate delay before lease publication.
+    $managerText = Get-Content -LiteralPath $script:Local -Raw
+    $syntheticPath = Join-Path $script:CaseRepo 'scripts/local_synthetic.ps1'
+    $syntheticText = Get-Content -LiteralPath $syntheticPath -Raw
+    $proofPath = Join-Path $script:CaseRepo '.dfx-local/tmp/startup-proof.json'
+    $leaseWorker = @'
+param([string]$Scenario, [int]$Seconds)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$lease = Get-Content -LiteralPath (Join-Path $repo '.dfx-local/state/active.json') -Raw | ConvertFrom-Json
+$self = Get-Process -Id $PID
+$owner = Get-Content -LiteralPath (Join-Path $repo '.dfx-local/owner.json') -Raw | ConvertFrom-Json
+if ($lease.schema_version -ne 1 -or $lease.child_pid -ne $PID -or
+    $lease.child_start_utc_ticks -ne $self.StartTime.ToUniversalTime().Ticks -or
+    $lease.project_instance_id -cne $owner.project_instance_id -or $lease.manager_pid -le 0 -or
+    $lease.manager_start_utc_ticks -le 0 -or -not $lease.manager_executable -or
+    $lease.job_name -cne ('Local\DFX-Guard-' + $lease.run_id) -or $lease.task -cne 'idle' -or
+    $lease.effective_limits.cpu_percent -ne 20 -or $lease.effective_limits.memory_bytes -ne 268435456 -or
+    $lease.effective_limits.max_processes -le 0 -or -not $lease.started_at) {
+    throw 'Worker started before complete lease identity and limits were published'
+}
+$lease | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $repo '.dfx-local/tmp/startup-proof.json')
+[Console]::Out.WriteLine('complete_lease_observed_before_work')
+'@
+    $publicationAnchor = '$child = Get-Process -Id $childPid -ErrorAction Stop'
+    Check ($managerText.Contains($publicationAnchor)) 'publication-delay fixture identifies the actual manager boundary'
+    $delayedText = $managerText.Replace($publicationAnchor,
+        ('Start-Sleep -Milliseconds 1200' + [Environment]::NewLine + '            ' + $publicationAnchor))
+    try {
+        Set-Content -LiteralPath $syntheticPath -Value $leaseWorker -Encoding UTF8
+        Set-Content -LiteralPath $script:Local -Value $delayedText -Encoding UTF8
+        $published = Invoke-Case @('Run', '-Scenario', 'idle', '-Seconds', '1', '-TimeoutSeconds', '8') | ConvertFrom-Json
+        Check ($published.status -eq 'finished') 'delayed lease publication precedes any worker execution'
+        $proof = Get-Content -LiteralPath $proofPath -Raw | ConvertFrom-Json
+        Check ($proof.run_id -ceq $published.run_id -and $proof.child_pid -eq $published.child_pid) 'worker observed its exact published lease'
+        Check (-not [IO.File]::Exists((Join-Path $script:CaseRepo '.dfx-local/state/active.json'))) 'delayed startup clears the active marker after success'
+        Remove-Item -LiteralPath $proofPath -Force
+
+        $moveAnchor = '[IO.File]::Move($activePendingPath, $script:ActivePath)'
+        Check ($managerText.Contains($moveAnchor)) 'publication-failure fixture reaches the pending lease before publication'
+        $failedText = $managerText.Replace($moveAnchor, 'throw ''Synthetic lease publication failure''')
+        Set-Content -LiteralPath $script:Local -Value $failedText -Encoding UTF8
+        $failedStart = Invoke-Case @('Run', '-Scenario', 'idle', '-Seconds', '1', '-TimeoutSeconds', '8') $false | ConvertFrom-Json
+        Check ($failedStart.status -eq 'failed' -and $failedStart.reason -ceq 'Synthetic lease publication failure') 'lease publication failure fails closed'
+        Check (Wait-Dead $failedStart.child_pid) 'publication failure terminates the suspended worker'
+        Check (-not [IO.File]::Exists($proofPath)) 'failed publication never runs worker code'
+        Check (-not [IO.File]::Exists((Join-Path $script:CaseRepo '.dfx-local/state/active.json'))) 'failed publication leaves no active marker'
+        Check (@(Get-ChildItem -LiteralPath (Join-Path $script:CaseRepo '.dfx-local/state') -Filter 'active-*.new').Count -eq 0) 'failed publication removes its partial pending lease'
+        $released = [DfxLocal.BoundedJob]::new(20, 268435456, 2, ('Local\DFX-Guard-' + $failedStart.run_id))
+        $released.Dispose()
+        Check $true 'publication failure closes the named Job so its identity can be reused'
+
+        $resumeAnchor = '$job.Resume()'
+        Check ($managerText.Contains($resumeAnchor)) 'resume-failure fixture reaches the published-lease boundary'
+        $resumeFailureText = $managerText.Replace($resumeAnchor, 'throw ''Synthetic worker resume failure''')
+        Set-Content -LiteralPath $script:Local -Value $resumeFailureText -Encoding UTF8
+        $failedResume = Invoke-Case @('Run', '-Scenario', 'idle', '-Seconds', '1', '-TimeoutSeconds', '8') $false | ConvertFrom-Json
+        Check ($failedResume.status -eq 'failed' -and $failedResume.reason -ceq 'Synthetic worker resume failure') 'post-publication resume exception fails closed'
+        Check (Wait-Dead $failedResume.child_pid) 'resume exception terminates the suspended worker'
+        Check (-not [IO.File]::Exists($proofPath)) 'resume exception never runs worker code'
+        Check (-not [IO.File]::Exists((Join-Path $script:CaseRepo '.dfx-local/state/active.json'))) 'resume exception clears its published active marker'
+
+        $stopAnchor = '$markerCreated = $true'
+        Check ($managerText.Contains($stopAnchor)) 'startup-stop fixture identifies the published marker boundary'
+        $stopText = $managerText.Replace($stopAnchor, ($stopAnchor + [Environment]::NewLine +
+            '            @{ schema_version = 1; run_id = $runId } | ConvertTo-Json | Set-Content -LiteralPath $script:StopPath -Encoding UTF8'))
+        Set-Content -LiteralPath $script:Local -Value $stopText -Encoding UTF8
+        $stoppedStart = Invoke-Case @('Run', '-Scenario', 'idle', '-Seconds', '1', '-TimeoutSeconds', '8') $false | ConvertFrom-Json
+        Check ($stoppedStart.status -eq 'canceled' -and $stoppedStart.reason -ceq 'stop_requested') 'Stop arriving before resume prevents worker execution'
+        Check (Wait-Dead $stoppedStart.child_pid) 'pre-resume Stop terminates the suspended worker'
+        Check (-not [IO.File]::Exists($proofPath)) 'pre-resume Stop never runs worker code'
+        Check (-not [IO.File]::Exists((Join-Path $script:CaseRepo '.dfx-local/state/active.json'))) 'pre-resume Stop clears the active marker'
+    } finally {
+        Set-Content -LiteralPath $script:Local -Value $managerText -Encoding UTF8
+        Set-Content -LiteralPath $syntheticPath -Value $syntheticText -Encoding UTF8
+    }
+
     $idle = Invoke-Case @('Run', '-Scenario', 'idle', '-Seconds', '1', '-TimeoutSeconds', '4') | ConvertFrom-Json
     Check ($idle.status -eq 'finished' -and $idle.reason -eq 'exited_zero') 'bounded idle task finished'
     Check (-not [IO.File]::Exists((Join-Path $script:CaseRepo '.dfx-local/state/active.json'))) 'normal exit clears marker'
@@ -167,8 +247,8 @@ try {
 } finally {
     Close-Manager $manager
     $base = [IO.Path]::GetFullPath($script:TestRoot)
-    $runsBase = [IO.Path]::GetFullPath((Join-Path $script:Repo 'runs')).TrimEnd([IO.Path]::DirectorySeparatorChar)
-    if (-not $base.StartsWith(($runsBase + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -or
+    $managedTmp = [IO.Path]::GetFullPath($script:TestBase).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    if (-not $base.StartsWith(($managedTmp + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase) -or
         [IO.Path]::GetFileName($base) -notlike 'W02-test-*') { throw 'Test cleanup path failed containment check' }
     if ([IO.Directory]::Exists($base)) { Remove-Item -LiteralPath $base -Recurse -Force }
 }

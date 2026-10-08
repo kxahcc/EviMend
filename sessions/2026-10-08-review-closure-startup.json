@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-08",
+  "batch": "review closure: atomic activity publication before managed worker execution",
+  "scope": "Reviewed startup race and existing bounded-process regression, not application/device stop qualification.",
+  "changes": [
+    "BoundedJob StartSuspended retains the initial worker thread after Job assignment; Resume and Dispose close it, while the existing Start API remains a compatibility wrapper.",
+    "The manager atomically publishes complete active.json from an owned pending file before Resume, handles Stop received before execution, and terminates the exact Job/cleans its markers on failures.",
+    "Managed pytest wraps the existing process script, with explicit timeout; the isolated copied repository and temporary test tree now reside under .dfx-local/tmp.",
+    "Registered the test entry in DEVELOPMENT and updated the existing resource design and current STATUS, with no additional permanent documentation."
+  ],
+  "validation": [
+    {"task": "tests/test_local_process.py", "passed": 1, "seconds": 16.85, "receipt": "470c99e2-edf3-4f33-9399-c3b3ed71ccc7",
+      "covers": ["delayed publication and immediate complete-lease read", "pending publication failure", "published-lease resume-boundary failure", "Stop before worker resume", "existing CPU/memory/log/timeout/child-tree and manager-exit assertions"]},
+    {"task": "same-source managed Ruff", "result": "All checks passed", "receipt": "4199ec59-6521-423e-b8f5-06cffb860958"},
+    {"task": "same-source managed Pyright", "errors": 0, "warnings": 0, "receipt": "f2456fd4-14df-4c1f-9f77-20cbc73258c2"},
+    {"task": "final managed documentation check", "documents": 14, "errors": 0, "optional_notes": 0, "receipt": "f57c0c5e-068b-48ff-8a98-4f215385e526"}
+  ],
+  "validation_scope_note": "Source and test bytes did not change between the prior quality checks and this startup suite; only documentation/session evidence is updated afterward. The wrapper's one pytest case executes the process script's individual assertions, not one cloud or application case. Intermediate Git commits are not substituted for the actual working-source receipts.",
+  "resource_observation_after_source_tests_before_final_docs": {
+    "date": "2026-10-08",
+    "managed_and_existing_export_bytes": 429483346,
+    "owner_valid": true,
+    "resource_accounting": "complete",
+    "inaccessible_paths": [],
+    "active_state": "none",
+    "cleanup_available": true
+  },
+  "environment": "No dependency/runtime installation, downloads, model weights, HarmonyOS tooling, ACL/global configuration or resource-limit changes. Test lifecycle removed only its verified temporary fixtures; older task/demo evidence and exports remain.",
+  "real_model_calls": 0,
+  "harmonyos_application_runs": 0,
+  "independent_review": "After stable author signals, a read-only reviewer checked completed/pending recovery, truthful application state and legacy Stop, terminal timing and startup/cleanup boundaries; no remaining blocking finding was identified in this scope. It did not execute tests.",
+  "limitations": ["Synthetic process protection does not establish actual build/device action shutdown", "Prior unchanged-repeat directory rename failure remains unexplained and retained", "No performance/accuracy/repair-effect or paper contribution claim follows from these checks"],
+  "next": "Prepare the existing P2 real execution conditions; keep all real-experiment and HarmonyOS installation flags disabled until their admission requirements are met."
+}
