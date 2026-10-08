@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-08",
+  "mode": "read_only_code_and_supplied_evidence_review",
+  "reviewed_source_commit": "ca172f5",
+  "scope": "Competition entry, SDK task loop, context/obligation/knowledge integration, managed local execution and the two competition delivery records; not an exhaustive audit of deferred extensions.",
+  "decision": "Main path is implemented and reviewable. Four local correctness/reporting issues should close before formal scored experiments; real input and environment preparation can proceed. No runtime rewrite or new method mechanism is required by this review.",
+  "findings": [
+    {
+      "id": "completed_resume_budget_boundary",
+      "priority": "P1",
+      "file": "src/dfx_agent/agent.py",
+      "line": 855,
+      "related": "src/dfx_agent/competition.py:199",
+      "support": "static_reachable_path; not newly executed",
+      "trigger": "Normally completed graph has no pending work and calls or known tokens exactly exhaust the original budget; resume raises model_budget despite requiring no new execution.",
+      "impact": "Previously successful completion is downgraded to unresolved by competition reporting.",
+      "test_gap": "Existing completed-resume integration uses 15 of 40 calls, not the exact limit.",
+      "acceptance": "Completed reconciliation preserves outcome at exhausted call/token limits with no new requests or checks; pending execution still enforces the original budget and deadline."
+    },
+    {
+      "id": "application_facts_vs_acceptance",
+      "priority": "P2",
+      "file": "src/dfx_agent/competition.py",
+      "line": 196,
+      "related": "src/dfx_agent/competition.py:208; src/dfx_agent/local_execution.py:728",
+      "support": "static_reachable_path; no application run performed",
+      "trigger": "Application stages fail, or stages pass but diagnosis/localization linkage does not satisfy final task acceptance.",
+      "impact": "Summary can call actual application work not_run or synthetic_checked. Raw stage receipts remain present.",
+      "test_gap": "Current synthetic outcome and denied application-admission tests do not cover these application summary branches.",
+      "acceptance": "Validation level and attempted/result state are distinct from final acceptance, retaining application pass/fail/inconclusive/not_run accurately without promoting incomplete tasks."
+    },
+    {
+      "id": "managed_lease_publish_race",
+      "priority": "P2",
+      "file": "scripts/local_job.cs",
+      "line": 187,
+      "related": "scripts/local.ps1:658; scripts/local.ps1:663; src/dfx_agent/competition.py:315; src/dfx_agent/local_execution.py:405",
+      "support": "static_conditional_race; no scheduling injection run performed",
+      "trigger": "The child is resumed after Job assignment but before the manager publishes active.json; manager scheduling is delayed.",
+      "impact": "A correctly resource-limited worker can be rejected for a missing activity lease. This is not a resource-limit escape.",
+      "test_gap": "Existing normal startup tests do not deterministically delay publication.",
+      "acceptance": "Publish the complete activity lease before worker execution; delayed publication, startup failure, stop and cleanup preserve existing protections."
+    },
+    {
+      "id": "completed_resume_wall_time_inflation",
+      "priority": "P2",
+      "file": "src/dfx_agent/competition.py",
+      "line": 215,
+      "support": "static_path_and_retained_review01_artifacts; not newly executed",
+      "trigger": "A completed task is resumed after an idle interval; reporting recomputes now minus original session start.",
+      "impact": "Completed task timing grows without new solver/check work; review01 first CLI finished roughly 48 seconds after session start and completed-resume report records 185999.626 ms.",
+      "test_gap": "Existing zero-new-call/check resume assertion does not freeze or compare final execution timing.",
+      "acceptance": "Freeze terminal task execution timing or separate session elapsed/resume time; do not alter original shared-budget deadline semantics."
+    }
+  ],
+  "claim_evidence": [
+    "End-to-end software execution has existing synthetic evidence only; it does not establish HarmonyOS repair success.",
+    "The demo loads four static resources but reads one; knowledge queries/reads and applicability actions/contexts/reviews are empty. Separate module/SDK tests cover retrieval and applicability, not this demo's usage or transfer effectiveness.",
+    "Working context is used at 15 actual model-send sites. Final view increases from 46147 to 66276 bytes (about 43.6%); omitted_ranges are empty. These are bytes, not measured Token savings.",
+    "Obligation association and failure-driven reconsideration participate in the demo's two-candidate revision; linkage is optional, and neither citations nor hashes certify business semantic correctness.",
+    "DecisionStore restricts capabilities to source/log reading and remaining_probe_budget to zero. Active runtime probes, trusted value capture and default cross-task automatic learning are not delivered competition capabilities.",
+    "Effectiveness, localization accuracy, repair rate, savings, learning gains, novelty and publication readiness remain unknown. Compare the existing enhancements under the same model, knowledge, tools and budget before making benefit claims."
+  ],
+  "evidence_check": {
+    "supplied_records": [
+      "sessions/2026-10-08-competition-channels.json",
+      "sessions/2026-10-08-competition-product.json"
+    ],
+    "referenced_validation_receipts_and_logs_present": true,
+    "unique_relevant_passed_cases": 89,
+    "permission_skipped_cases": 1,
+    "new_software_tests": 0,
+    "new_real_model_runs": 0,
+    "new_harmonyos_runs": 0,
+    "note": "Counts are selected existing cloud/local/loop/diagnosis/competition tests, not the full repository. Repeated competition runs are not double-counted. Previously passed tests do not validate the newly identified counterexamples. Demo source provenance predates the final missing-first-check metric fix, as already recorded in the product session."
+  },
+  "validation": {
+    "task": "managed_docs",
+    "run_id": "5308bc18-ff7a-414e-a4cd-f43ab4361772",
+    "status": "finished",
+    "reason": "exited_zero",
+    "documents": 14,
+    "errors": 0,
+    "optional_notes": 0,
+    "log": ".dfx-local/artifacts/5308bc18-ff7a-414e-a4cd-f43ab4361772.log"
+  },
+  "environment": "No installations, downloads, cleanup, global configuration, resource-limit changes or source changes. Competition submission templates and original data_B are untouched.",
+  "next": "One bounded local correctness/reporting closure goal for the four findings with targeted synthetic counterexamples. Preserve optional method mechanisms, resource protections and disabled real-experiment flags; do not expand deferred learning/probe extensions."
+}
