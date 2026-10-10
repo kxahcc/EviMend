@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-10",
+  "mode": "package_A_implementation_pending_managed_acceptance",
+  "base_commit": "6943fe7",
+  "goal": "Select a finite repair working set and expose candidate-bound selected final localization without rebuilding the runtime.",
+  "changes": [
+    "Explicit repair_relevance selection uses visible receipt references, complete groups and existing bounded projections. Default legacy_refill serialization and rebuild semantics are preserved.",
+    "Keep related actual failures without requiring optional link_failed_check, unregistered successful edits, user constraints, complete knowledge guidance and current applicability unknowns. Never upgrade inferred relationships or old candidate facts.",
+    "Prioritize contradiction and failed-obligation evidence reads, deduplicate exact versioned reads and omit unrelated old thoughts without refilling spare capacity. Original Graph messages are unchanged.",
+    "Competition schema 3 adds separate selected/alternative projections and final completeness bound to the latest candidate diagnosis. SDK raw localization and actual execution facts remain independent.",
+    "Old schema 2 derived acceptance changes preserve the original terminal observation when actual progress facts are unchanged. Source compatibility remains mandatory.",
+    "Demo configuration explicitly selects repair_relevance; whole-chain test asserts real send plans use it and omit old groups. These assertions have not run."
+  ],
+  "static_review": {
+    "performed": true,
+    "corrected": [
+      "Actual related failed checks could disappear unless a model first created an optional failure link.",
+      "Already read complete Skill/experience guidance and current unknown premise reviews were not present in the repair packet and could disappear.",
+      "Legacy serializer could raise on exclude_defaults/exclude_unset/explicit excluded selector fields.",
+      "Successful edit and registration order inside the same multi-tool group requires receipt order, not message start order."
+    ],
+    "new_component_tests_written": 12,
+    "existing_tests_parameterized_for_both_selectors": 3,
+    "runtime_acceptance": "not_executed"
+  },
+  "managed_attempt": {
+    "operation": "Run -Task test -TestPath tests/test_working_context_plan.py -TimeoutSeconds 180",
+    "receipt": "991a2c80-0ab5-4bd0-bce2-034d3d8d240b",
+    "outcome": "failed_before_worker_creation",
+    "child_pid": 0,
+    "reason": "Managed resource accounting is incomplete because a managed path is not readable"
+  },
+  "environment": {
+    "user_reported_permission_repair": true,
+    "subsequent_sandbox_and_unsandboxed_status": "incomplete",
+    "active_state": "none",
+    "blocked_paths": [
+      ".dfx-local/tmp/pytest-031b01d69cd34079887b400cb17f1b2c",
+      ".dfx-local/tmp/pytest-dc6796292b2a4fe1ae52c628444c4cc4"
+    ],
+    "exact_path_unsandboxed_acl_and_enumeration": "Windows access denied",
+    "user_followup": "Finish code first; run tests later.",
+    "permissions_changed_by_agent": false,
+    "limits_loosened": false,
+    "dependency_installation": false,
+    "real_model_calls": 0,
+    "harmonyos_runs": 0
+  },
+  "limits": [
+    "Knowledge guidance retention is conservative per immutable version; semantic relevance between distinct queries is not inferred.",
+    "Nonempty reasoning history is rejected by the active selector. Actual provider mode admission remains separate.",
+    "No new test, docs checker, lint or type-check result is available for this implementation; text diff and manual review cannot substitute for runtime acceptance.",
+    "No context Token savings, localization accuracy, repair efficacy or paper contribution has been measured."
+  ],
+  "next": "Complete provider protocol preparation, then perform managed lock/install synchronization and A/B software acceptance when exact path permissions allow a complete resource inventory."
+}

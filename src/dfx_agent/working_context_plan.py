@@ -85,6 +85,14 @@ class WorkingContextPolicy(BaseModel):
     max_packet_bytes: int = Field(default=131_072, ge=128, le=524_288)
     max_view_bytes: int = Field(default=786_432, ge=512, le=1_048_576)
     retain_groups: int = Field(default=2, ge=1, le=20)
+    history_selection: Literal["legacy_refill", "repair_relevance"] = "legacy_refill"
+
+    @model_serializer(mode="wrap")
+    def serialized(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        value = handler(self)
+        if self.history_selection == "legacy_refill":
+            value.pop("history_selection", None)
+        return value
 
 
 class WorkingContextPlan(BaseModel):
@@ -376,6 +384,8 @@ def _proof_packet(packet: WorkingContextPacket, receipts: list[dict[str, Any]],
 def _select_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
                      receipts: list[dict[str, Any]], policy: WorkingContextPolicy, *,
                      projection: SolverContextProjection | None = None) -> tuple[list[BaseMessage], dict[str, Any]]:
+    if policy.history_selection == "repair_relevance":
+        return _select_repair_messages(messages, packet, receipts, policy, projection=projection)
     pinned, boundaries = _groups(messages)
     starts = [pinned] + boundaries[:-1] if boundaries else []
     groups = list(zip(starts, boundaries, strict=True))
@@ -436,6 +446,281 @@ def _select_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
         "omitted_reason": "view_byte_limit" if len(selected) != len(groups) else None,
         "recent_required_ranges": [list(group) for group in groups[-policy.retain_groups:]],
         "required_unrepresented_ranges": [list(group) for group in required],
+        "action_watermark": [item["action"]["action_id"] for item in receipts]}
+
+
+def _repair_read_anchors(value: dict[str, Any]) -> list[tuple[str, str, str, int, int, int]]:
+    """Reference overlap selects data; it never upgrades model-authored relations."""
+    evidence = value["evidence"]
+    priorities = {identifier: 1 for identifier in evidence}
+    pending = [identifier for diagnosis in value["diagnoses"].values()
+               for hypothesis in diagnosis["hypotheses"] for identifier in hypothesis["contradicting_evidence_ids"]]
+    violated = {identifier for feedback in value["feedback"].values() for identifier in feedback["violated_obligation_ids"]}
+    pending.extend(identifier for key, obligation in value["obligations"].items() if key in violated
+                   for identifier in obligation["source_evidence_ids"])
+    visited: set[str] = set()
+    while pending:
+        identifier = pending.pop()
+        if identifier in visited:
+            continue
+        visited.add(identifier)
+        fact = evidence.get(identifier)
+        if fact is not None:
+            priorities[identifier] = 0
+            pending.extend(fact["basis_ids"])
+    anchors: list[tuple[str, str, str, int, int, int]] = []
+    for identifier, fact in evidence.items():
+        location = fact["location"]
+        if fact["kind"] == "source_fact" and location is not None:
+            anchors.append(("source", location["snapshot_sha256"], location["path"],
+                            location["start_line"], location["end_line"], priorities[identifier]))
+        elif fact["kind"] == "log_observation":
+            start = fact["log_line"]
+            anchors.append(("log", "input", "", start, start + fact["statement"].count("\n"), priorities[identifier]))
+    return sorted(anchors)
+
+
+def _repair_domain_requirement(item: dict[str, Any], value: dict[str, Any], related_candidates: set[str]) -> bool:
+    """Keep current unexpressed records, without retaining every old diagnosis."""
+    answer = _answer(item)
+    if answer is None:
+        return False
+    tool = item["action"]["tool_name"]
+    if tool == "record_diagnosis":
+        return answer.get("diagnosis_id") == value["focus"]["diagnosis_id"] and answer.get("diagnosis_id") not in value["diagnoses"]
+    if tool == "register_candidate":
+        return answer.get("candidate_id") in related_candidates and answer.get("candidate_id") not in value["candidates"]
+    if tool in {"run_check", "link_failed_check"}:
+        identifier = answer.get("candidate_id")
+        if identifier not in related_candidates:
+            return False
+        if tool == "run_check":
+            check = value["checks"].get(identifier)
+            return check is None or check["result"] != answer
+        return value["feedback"].get(answer.get("feedback_id")) != {
+            key: raw for key, raw in answer.items() if key != "feedback_id"}
+    if tool == "record_obligation":
+        return (value["obligations"].get(answer.get("record_id")) != answer and
+                bool(set(answer.get("source_evidence_ids", [])) & set(value["evidence"])))
+    if tool == "plan_repair_action":
+        return (answer["request"]["diagnosis_id"] in value["diagnoses"] and
+                value["decisions"].get(answer.get("record_id")) != answer)
+    if tool == "evaluate_condition":
+        request = answer["result"]["request"]
+        return (request["diagnosis_id"] in value["diagnoses"] and
+                request["scope"]["candidate_id"] in {None, *related_candidates} and
+                value["conditions"].get(answer.get("result_id")) != answer)
+    return False
+
+
+def _repair_read(item: dict[str, Any], value: dict[str, Any], anchors: list[tuple[str, str, str, int, int, int]],
+                 edit_epoch: int) -> tuple[int, str, str] | None:
+    answer = _answer(item)
+    if answer is None:
+        return None
+    tool, args = item["action"]["tool_name"], item["tool_call"]["args"]
+    if tool in {"read_source", "read_log"}:
+        draft = tool == "read_source" and args.get("draft", False)
+        kind, snapshot, path = (("log", "input", "") if tool == "read_log" else
+                                ("source", value["source_snapshot_sha256"], answer["path"]))
+        start, end = answer["start_line"], answer["start_line"] + len(answer["lines"]) - 1
+        matching = [priority for anchor_kind, anchor_snapshot, anchor_path, low, high, priority in anchors
+                    if (kind, snapshot, path) == (anchor_kind, anchor_snapshot, anchor_path) and start <= high and end >= low]
+        if not matching:
+            return None
+        # Draft reads have no immutable snapshot in their receipt. Never merge
+        # them across successful edits or call them verified baseline facts.
+        version = ["draft", edit_epoch] if draft else [kind, snapshot]
+        return min(matching), canonical([tool, version, path, start, end, answer]), "related_draft_read" if draft else "related_evidence_read"
+    if tool == "search_source":
+        versions = {value["source_snapshot_sha256"]} | {candidate["candidate_snapshot_sha256"] for candidate in value["candidates"].values()}
+        if answer["snapshot_sha256"] not in versions:
+            return None
+        matching = [priority for match in answer["matches"]
+                    for kind, snapshot, path, low, high, priority in anchors
+                    if kind == "source" and snapshot == answer["snapshot_sha256"] and path == match["path"]
+                    and low <= match["line"] <= high]
+        if matching:
+            return min(matching), canonical([tool, answer]), "related_search_result"
+    return None
+
+
+def _repair_knowledge(item: dict[str, Any], value: dict[str, Any]) -> tuple[str, str] | None:
+    """Retain complete selected guidance; matching scope never proves applicability."""
+    answer = _answer(item)
+    if answer is None:
+        return None
+    tool = item["action"]["tool_name"]
+    if tool == "read_skill":
+        return canonical(["skill", answer["skill_id"], answer["snapshot_sha256"], answer["content_sha256"],
+            answer["projection_sha256"], answer["body_sha256"], answer.get("version_id")]), "latest_complete_skill_version"
+    if tool in {"search_experience", "read_experience"}:
+        # Bound query IDs and complete projections are immutable host results.
+        # search and a later whole-page re-read share one key.
+        return canonical(["experience", answer["query_id"], answer.get("entry_id"),
+            answer.get("projection")]), "latest_complete_experience_version"
+    if tool not in {"prepare_experience_context", "review_experience", "read_experience_review"}:
+        return None
+    if answer.get("next_action") == "ordinary_retrieval":
+        return canonical(["ordinary_experience", answer["query_id"]]), "latest_ordinary_applicability_unknown"
+    focus = dict(value["focus"])
+    diagnosis = value["diagnoses"].get(focus["diagnosis_id"])
+    selected = None if diagnosis is None else diagnosis.get("selected_hypothesis_id")
+    # Match SolverVisibilityStore's existing selected-hypothesis readback;
+    # the packet itself is not rewritten or made more authoritative.
+    if not focus["hypothesis_ids"] and isinstance(selected, str) and diagnosis is not None:
+        focus["hypothesis_ids"] = [selected]
+    if tool == "prepare_experience_context":
+        frozen = _load(answer["context"]["payload_json"])["packet"]
+        actual_focus = _load(frozen["canonical_payload_json"])["focus"]
+        if actual_focus == focus:
+            return canonical(["experience_context", answer["query_id"], focus]), "current_complete_applicability_context"
+        return None
+    guidance = answer["guidance"]
+    proposal = guidance["proposal"]
+    current = value["candidates"].get(focus["current_candidate_id"])
+    snapshot = None if current is None else current["candidate_snapshot_sha256"]
+    if (proposal["diagnosis_id"] != focus["diagnosis_id"] or
+            set(proposal["hypothesis_ids"]) != set(focus["hypothesis_ids"]) or
+            proposal["candidate_id"] != focus["current_candidate_id"] or
+            proposal["candidate_snapshot_sha256"] != snapshot or
+            proposal["source_snapshot_sha256"] != value["source_snapshot_sha256"]):
+        return None
+    return canonical(["experience_review", answer["query_id"], proposal["entry_id"],
+        proposal["content_sha256"], proposal["projection_sha256"], focus]), "current_complete_applicability_review"
+
+
+def _select_repair_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
+                           receipts: list[dict[str, Any]], policy: WorkingContextPolicy, *,
+                           projection: SolverContextProjection | None = None) -> tuple[list[BaseMessage], dict[str, Any]]:
+    pinned, boundaries = _groups(messages)
+    if any(type(message) is AIMessage and message.additional_kwargs.get("reasoning_content") for message in messages):
+        raise WorkingContextError("working_context_reasoning_history_unsupported")
+    groups = list(zip([pinned] + boundaries[:-1] if boundaries else [], boundaries, strict=True))
+    if projection is not None:
+        verify_solver_projection(projection, packet, max_bytes=policy.max_packet_bytes)
+    value = packet.contents() if projection is None else projection.contents()
+    anchors = _repair_read_anchors(value)
+    registrations = [(position, answer["candidate_id"]) for position, item in enumerate(receipts)
+                     if item["action"]["tool_name"] == "register_candidate" and (answer := _answer(item)) is not None]
+    latest_registration, latest_candidate = registrations[-1] if registrations else (-1, None)
+    latest_diagnosis = max((position for position, item in enumerate(receipts)
+                           if item["action"]["tool_name"] == "record_diagnosis" and _answer(item) is not None), default=-1)
+    if latest_registration < latest_diagnosis and latest_candidate not in value["candidates"]:
+        latest_candidate = None
+    related_candidates = set(value["candidates"])
+    if latest_candidate is not None:
+        related_candidates.add(latest_candidate)
+    registered_args = {answer["candidate_id"]: item["tool_call"]["args"] for item in receipts
+                       if item["action"]["tool_name"] == "register_candidate" and (answer := _answer(item)) is not None}
+    for item in receipts:
+        answer = _answer(item)
+        if item["action"]["tool_name"] == "run_check" and answer is not None and answer["status"] == "fail":
+            args = registered_args.get(answer["candidate_id"], {})
+            if (args.get("diagnosis_id") == value["focus"]["diagnosis_id"] and
+                    set((args.get("restores") or []) + (args.get("preserves") or [])) & set(value["obligations"])):
+                # Keep observed failure even before an optional model-authored
+                # failure link. Shared obligations do not identify which failed.
+                related_candidates.add(answer["candidate_id"])
+        if (item["action"]["tool_name"] == "link_failed_check" and answer is not None and
+                set(answer["violated_obligation_ids"]) & set(value["obligations"])):
+            # A visible failure can still constrain the current business behavior
+            # before a later decision record explicitly adds it to the packet.
+            related_candidates.add(answer["candidate_id"])
+    mandatory: set[int] = set()
+    reasons = {group: "outside_repair_working_set" for group in groups}
+    by_start = {group[0]: group for group in groups}
+    required_reasons: dict[int, str] = {}
+    optional: dict[int, tuple[int, str, str]] = {}
+    duplicate_keys: set[str] = set()
+    knowledge_keys: set[str] = set()
+    epoch = 0
+    epochs: dict[str, int] = {}
+    positions = {item["action"]["action_id"]: position for position, item in enumerate(receipts)}
+    for position, item in enumerate(receipts):
+        if (item["action"]["tool_name"] == "edit_source" and item["action"]["authorization"] == "allowed" and
+                item["receipt"]["content"] == "draft updated; register a candidate before any check"):
+            epoch += 1
+            if position > latest_registration:
+                required_reasons[item["group_start"]] = "unregistered_draft_edit"
+        epochs[item["action"]["action_id"]] = epoch
+        if _repair_domain_requirement(item, value, related_candidates):
+            mandatory.add(item["group_start"])
+            required_reasons[item["group_start"]] = "current_unrepresented_domain_record"
+    # Most recent equivalent data wins; immutable versions and draft edit epochs
+    # form part of the key. Selection never changes the historical messages.
+    for item in reversed(receipts):
+        group = by_start[item["group_start"]]
+        knowledge = _repair_knowledge(item, value)
+        if knowledge is not None:
+            key, reason = knowledge
+            if key in knowledge_keys:
+                reasons[group] = "superseded_complete_guidance"
+            else:
+                knowledge_keys.add(key)
+                required_reasons.setdefault(group[0], reason)
+            continue
+        if (item["action"]["tool_name"] == "read_source" and item["tool_call"]["args"].get("draft", False) and
+                (positions[item["action"]["action_id"]] <= latest_registration or epochs[item["action"]["action_id"]] != epoch)):
+            reasons[group] = "historical_draft_read"
+            continue
+        related = _repair_read(item, value, anchors, epochs[item["action"]["action_id"]])
+        if related is None:
+            continue
+        priority, key, reason = related
+        if key in duplicate_keys:
+            if group[0] not in optional:
+                reasons[group] = "duplicate_versioned_read"
+            continue
+        duplicate_keys.add(key)
+        candidate = (priority, key, reason)
+        if group[0] not in optional or candidate < optional[group[0]]:
+            optional[group[0]] = candidate
+    required = [group for group in groups if group[0] in mandatory]
+    panel = {"packet": value, "required_unrepresented_groups": [
+        {"range": list(group), "messages": _load(_serialized(messages[group[0]:group[1]]))} for group in required]}
+    startup = [message.model_copy(deep=True) for message in messages[:pinned]]
+    if type(startup[-1]) is not HumanMessage or not isinstance(startup[-1].content, str):
+        raise ValueError("working context startup must be text")
+    startup[-1].content += "\n\n" + WORKING_CONTEXT_PROMPT + "\n" + canonical(panel)
+    selected: set[tuple[int, int]] = set()
+    for group in groups:
+        if group[0] in required_reasons:
+            selected.add(group)
+            reasons[group] = required_reasons[group[0]]
+        elif any(type(message) is HumanMessage or message.type == "system" for message in messages[group[0]:group[1]]):
+            selected.add(group)
+            reasons[group] = "task_constraint_message"
+    for group in groups[-policy.retain_groups:]:
+        selected.add(group)
+        if group[0] not in required_reasons:
+            reasons[group] = "recent_complete_group"
+
+    def view() -> list[BaseMessage]:
+        return startup + [message.model_copy(deep=True) for group in groups if group in selected
+                          for message in messages[group[0]:group[1]]]
+
+    if len(_serialized(view()).encode("utf-8")) > policy.max_view_bytes:
+        raise WorkingContextError("working_context_required_limit")
+    for start in sorted(optional, key=lambda start: (optional[start][0], -start)):
+        group = by_start[start]
+        if group in selected:
+            continue
+        selected.add(group)
+        if len(_serialized(view()).encode("utf-8")) > policy.max_view_bytes:
+            selected.remove(group)
+            reasons[group] = "related_evidence_exceeds_view_limit"
+        else:
+            reasons[group] = optional[start][2]
+    final = view()
+    _groups(final)
+    return final, {"history_selection": "repair_relevance", "pinned_count": pinned,
+        "retained_ranges": [list(group) for group in groups if group in selected],
+        "omitted_ranges": [list(group) for group in groups if group not in selected],
+        "omitted_reason": "repair_relevance" if len(selected) != len(groups) else None,
+        "recent_required_ranges": [list(group) for group in groups[-policy.retain_groups:]],
+        "required_unrepresented_ranges": [list(group) for group in required],
+        "group_decisions": [{"range": list(group), "retained": group in selected, "reason": reasons[group]} for group in groups],
         "action_watermark": [item["action"]["action_id"] for item in receipts]}
 
 

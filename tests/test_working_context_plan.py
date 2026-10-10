@@ -9,7 +9,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import pytest
@@ -70,7 +70,8 @@ def fixed_intent(plan: WorkingContextPlan, view: list[BaseMessage], names: list[
 
 
 class SyntheticHost:
-    def __init__(self, root: Path, *, max_view_bytes: int = 786_432):
+    def __init__(self, root: Path, *, max_view_bytes: int = 786_432,
+                 history_selection: Literal["legacy_refill", "repair_relevance"] = "legacy_refill"):
         self.task = task_snapshot(root)
         self.workspace = CandidateWorkspace(self.task, root / "run", "run1")
         self.ledger = CheckLedger(self.workspace, FixedTextExecutor("src/main.ets", "value=good\n"))
@@ -78,7 +79,8 @@ class SyntheticHost:
                      verify_task(self.task)["crash_sha256"], FULL)}
         self.actions = ToolActionStore(self.workspace.root / "tool-actions.sqlite")
         self.calls = ModelCallStore(self.workspace.root / "model-calls.sqlite")
-        self.policy = WorkingContextPolicy(enabled=True, max_view_bytes=max_view_bytes, retain_groups=1)
+        self.policy = WorkingContextPolicy(enabled=True, max_view_bytes=max_view_bytes, retain_groups=1,
+                                           history_selection=history_selection)
         self.store = WorkingContextStore(self.workspace, self.task, self.ledger, self.policy, FIXED)
         self.messages: list[BaseMessage] = [SystemMessage(content="synthetic host policy"),
             HumanMessage(content="Repair the synthetic task; application verification is unavailable.")]
@@ -161,8 +163,10 @@ def test_initial_unknown_packet_is_frozen_and_views_are_independent(tmp_path: Pa
     assert audited[0]["final_bytes"] is None and audited[0]["materialized_bytes"] > 0
 
 
-def test_actual_failed_A_remains_separate_from_current_B(tmp_path: Path) -> None:
-    host = SyntheticHost(tmp_path)
+@pytest.mark.parametrize("history_selection", ["legacy_refill", "repair_relevance"])
+def test_actual_failed_A_remains_separate_from_current_B(tmp_path: Path,
+        history_selection: Literal["legacy_refill", "repair_relevance"]) -> None:
+    host = SyntheticHost(tmp_path, history_selection=history_selection)
     host.diagnosis()
     initial = host.step("plan_repair_action", {"plan_json": json.dumps(decision_request(host.task))})
     old = host.candidate("almost", decision=initial["record_id"])
@@ -184,8 +188,10 @@ def test_actual_failed_A_remains_separate_from_current_B(tmp_path: Path) -> None
     assert len(host.store.audit(host.calls, host.actions, [])) == host.number
 
 
-def test_historical_plan_replays_after_legal_checks_and_unrelated_records_progress(tmp_path: Path) -> None:
-    host = SyntheticHost(tmp_path)
+@pytest.mark.parametrize("history_selection", ["legacy_refill", "repair_relevance"])
+def test_historical_plan_replays_after_legal_checks_and_unrelated_records_progress(tmp_path: Path,
+        history_selection: Literal["legacy_refill", "repair_relevance"]) -> None:
+    host = SyntheticHost(tmp_path, history_selection=history_selection)
     host.diagnosis()
     identifier = host.candidate("good")
     original = [message.model_copy(deep=True) for message in host.messages]
@@ -253,13 +259,285 @@ def test_selection_keeps_complete_recent_groups_and_omits_optional_old_groups(tm
     assert len(host.messages) == 8
 
 
-def test_required_budget_failure_does_not_reserve_or_write_plan(tmp_path: Path) -> None:
-    host = SyntheticHost(tmp_path, max_view_bytes=512)
+@pytest.mark.parametrize("history_selection", ["legacy_refill", "repair_relevance"])
+def test_required_budget_failure_does_not_reserve_or_write_plan(tmp_path: Path,
+        history_selection: Literal["legacy_refill", "repair_relevance"]) -> None:
+    host = SyntheticHost(tmp_path, max_view_bytes=512, history_selection=history_selection)
     before = frozen_files(tmp_path)
     with pytest.raises(WorkingContextError, match="working_context_required_limit"):
         host.plan()
     assert host.calls.usage_summary("task1", "run1")["reserved_calls"] == 0
     assert frozen_files(tmp_path) == before
+
+
+def test_legacy_policy_keeps_original_serialization_and_selection_shape(tmp_path: Path) -> None:
+    expected = {"enabled": False, "max_packet_bytes": 131_072, "max_view_bytes": 786_432, "retain_groups": 2}
+    assert WorkingContextPolicy().model_dump(mode="json") == expected
+    assert json.loads(WorkingContextPolicy(history_selection="legacy_refill").model_dump_json()) == expected
+    assert WorkingContextPolicy().model_dump(mode="json", exclude_defaults=True) == {}
+    assert WorkingContextPolicy().model_dump(mode="json", exclude_unset=True) == {}
+    assert WorkingContextPolicy().model_dump(mode="json", exclude={"history_selection"}) == expected
+    assert WorkingContextPolicy.model_validate_json(canonical(expected)).history_selection == "legacy_refill"
+    host = SyntheticHost(tmp_path)
+    host.step(None, text="old unconfirmed thought")
+    selected = host.plan()
+    assert "history_selection" not in selected.model_dump(mode="json")["policy"]
+    selection = json.loads(selected.selection_json)
+    assert "history_selection" not in selection and "group_decisions" not in selection
+    assert not selection["omitted_ranges"]
+    assert WorkingContextPlan.model_validate_json(selected.model_dump_json()) == selected
+
+
+def test_repair_selection_removes_repeated_and_unrelated_history_with_large_surplus(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.step("read_source", {"path": "src/main.ets"})
+    host.step("read_source", {"path": "src/main.ets"})
+    host.step("read_log", {})
+    host.step(None, text="old unconfirmed thought: " + "x" * 30_000)
+    host.diagnosis()
+    host.step(None, text="current thought remains unknown")
+    original = message_json(host.messages)
+    selected = host.plan()
+    view = selected.view_messages()
+    reads = [call for message in view if type(message) is AIMessage for call in message.tool_calls]
+    assert [call["name"] for call in reads] == ["read_source"]
+    assert reads[0]["id"] == "tool-2"
+    assert "old unconfirmed thought" not in selected.stage_messages_json
+    assert "Preserve the expected value" in selected.stage_messages_json
+    assert message_json(host.messages) == original
+    decisions = json.loads(selected.selection_json)["group_decisions"]
+    assert any(row["reason"] == "duplicate_versioned_read" and not row["retained"] for row in decisions)
+    assert len(selected.stage_messages_json.encode("utf-8")) < host.policy.max_view_bytes // 2
+    assert len(decisions) == 6
+    assert WorkingContextPlan.model_validate_json(selected.model_dump_json()) == selected
+
+
+def test_repair_selection_prioritizes_frozen_contradicting_read_under_limit(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.step("read_log", {})
+    host.step("read_source", {"path": "src/main.ets"})
+    raw = diagnosis_submission(host.task)
+    raw["log_citations"] = [{"evidence_id": "log1", "start_line": 1, "end_line": 1}]
+    raw["diagnosis"]["hypotheses"][0]["contradicting_evidence_ids"] = ["log1"]
+    host.step("record_diagnosis", {"diagnosis_json": json.dumps(raw)})
+    host.step(None, text="current repair focus")
+    frozen = host.plan()
+    # Budget the existing complete panel/recent group plus only the older
+    # contradiction read. Newer source reading must not displace it.
+    source_ids = {call["id"] for message in frozen.view_messages() if type(message) is AIMessage
+                  for call in message.tool_calls if call["name"] == "read_source"}
+    budget_view = [message for message in frozen.view_messages() if not (
+        type(message) is AIMessage and any(call["id"] in source_ids for call in message.tool_calls) or
+        type(message) is ToolMessage and message.tool_call_id in source_ids)]
+    policy = host.policy.model_copy(update={"max_view_bytes": len(message_json(budget_view).encode("utf-8"))})
+    audit_packet = WorkingContextPacket.model_validate_json(frozen.packet_json)
+    view, selection = _select_messages(host.messages, audit_packet, json.loads(frozen.visible_receipts_json), policy,
+                                      projection=project_working_context(audit_packet, max_bytes=policy.max_packet_bytes))
+    assert [call["name"] for message in view if type(message) is AIMessage for call in message.tool_calls] == ["read_log"]
+    assert any(row["reason"] == "related_evidence_exceeds_view_limit" and not row["retained"]
+               for row in selection["group_decisions"])
+
+
+def test_repair_selection_does_not_force_old_unrelated_candidate_or_diagnosis(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.diagnosis()
+    old = host.candidate("almost")
+    host.step("run_check", {"candidate_id": old})
+    latest = host.step("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "new unconfirmed root"})
+    host.step(None, text="retain only the current repair focus")
+    selected = host.plan()
+    assert packet(selected)["focus"]["diagnosis_id"] == latest["diagnosis_id"]
+    assert old not in packet(selected)["candidates"]
+    names = [call["name"] for message in selected.view_messages() if type(message) is AIMessage for call in message.tool_calls]
+    assert "register_candidate" not in names and "run_check" not in names
+    assert not json.loads(selected.selection_json)["required_unrepresented_ranges"]
+
+
+def test_repair_selection_keeps_successful_unregistered_edit_after_recent_thoughts(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.diagnosis()
+    registered = host.candidate("good")
+    host.step("edit_source", {"path": "src/main.ets", "old": "bad", "new": "almost"})
+    for _ in range(3):
+        host.step(None, text="draft has not yet been frozen")
+    selected = host.plan()
+    assert packet(selected)["focus"]["current_candidate_id"] == registered
+    calls = [call for message in selected.view_messages() if type(message) is AIMessage for call in message.tool_calls]
+    assert [call["args"]["new"] for call in calls if call["name"] == "edit_source"] == ["almost"]
+    assert any(row["reason"] == "unregistered_draft_edit" and row["retained"]
+               for row in json.loads(selected.selection_json)["group_decisions"])
+
+
+def test_repair_selection_keeps_current_unrepresented_behavior_obligation(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.diagnosis()
+    host.step("record_obligation", {"obligation_id": "extra_behavior", "statement": "Keep an unresolved output",
+                                  "evidence_ids": ["source1"]})
+    host.step(None, text="recent thought does not replace the extra behavior")
+    selected = host.plan()
+    panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
+    assert "extra_behavior" not in panel["packet"]["obligations"]
+    assert panel["required_unrepresented_groups"][0]["messages"][0]["tool_calls"][0]["name"] == "record_obligation"
+    assert "Keep an unresolved output" in selected.stage_messages_json
+
+
+def test_repair_selection_keeps_related_failure_without_a_followup_decision(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.diagnosis()
+    old = host.candidate("almost")
+    host.step("run_check", {"candidate_id": old})
+    failure = host.step("link_failed_check", {"candidate_id": old, "violated_obligation_ids": ["keep_value"]})
+    current = host.candidate("good")
+    host.step(None, text="the prior failed behavior still matters")
+    selected = host.plan()
+    assert packet(selected)["focus"]["current_candidate_id"] == current
+    assert old not in packet(selected)["candidates"]
+    panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
+    names = [group["messages"][0]["tool_calls"][0]["name"] for group in panel["required_unrepresented_groups"]]
+    assert names == ["register_candidate", "run_check", "link_failed_check"]
+    assert failure["candidate_snapshot_sha256"] in selected.stage_messages_json
+    assert "keep_value" in selected.stage_messages_json
+
+
+def test_repair_selection_keeps_observed_failure_without_optional_model_link(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.diagnosis()
+    old = host.candidate("almost")
+    observed = host.step("run_check", {"candidate_id": old})
+    current = host.candidate("good")
+    host.step(None, text="the last registered candidate is current")
+    selected = host.plan()
+    assert packet(selected)["focus"]["current_candidate_id"] == current
+    assert old not in packet(selected)["candidates"]
+    panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
+    names = [group["messages"][0]["tool_calls"][0]["name"] for group in panel["required_unrepresented_groups"]]
+    assert names == ["register_candidate", "run_check"]
+    assert observed["candidate_snapshot_sha256"] in selected.stage_messages_json
+    assert not packet(selected)["feedback"]
+
+
+def test_repair_selection_retains_complete_guidance_and_current_unknown_reviews(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.diagnosis()
+    identifier = host.candidate("good")
+    frozen = host.plan()
+    value = packet(frozen)
+    focus = {**value["focus"], "hypothesis_ids": ["h1"]}
+    messages = [message.model_copy(deep=True) for message in host.messages]
+    receipts = json.loads(frozen.visible_receipts_json)
+    ranges: dict[str, list[int]] = {}
+
+    def append(name: str, answer: dict[str, Any], label: str) -> None:
+        start = len(messages)
+        call = {"name": name, "args": {}, "id": label}
+        receipt = ToolMessage(content=canonical(answer), name=name, tool_call_id=label)
+        messages.extend([AIMessage(content="", tool_calls=[call]), receipt])
+        receipts.append({"group_start": start, "action": {"action_id": label,
+            "authorization": "allowed", "tool_name": name}, "tool_call": call,
+            "receipt": receipt.model_dump(mode="json")})
+        ranges[label] = [start, start + 2]
+
+    # Pure selector fixtures use the guidance-bearing fields read here. They
+    # do not authenticate the store/schema or prove SDK tool visibility.
+    skill = {"skill_id": "dfx-selected", "snapshot_sha256": "a" * 64, "content_sha256": "b" * 64,
+             "projection_sha256": "c" * 64, "body_sha256": "d" * 64,
+             "body": "complete operational procedure; preserve behavior; check prerequisites"}
+    append("read_skill", skill, "old-skill")
+    append("read_skill", skill, "latest-skill")
+    page = {"query_id": "bound-query-selected", "bound_query": {"content_sha256": "e" * 64},
+            "retrieval": {"hits": [], "unknown_questions": ["unanswered prerequisite"]}}
+    append("search_experience", page, "old-page")
+    append("read_experience", page, "latest-page")
+    entry = {"query_id": page["query_id"], "entry_id": "experience-selected",
+             "projection": {"procedure": "complete entry process", "premises": ["unanswered prerequisite"]}}
+    append("read_experience", entry, "old-entry")
+    append("read_experience", entry, "latest-entry")
+    context = {"query_id": page["query_id"], "context": {"context_id": "app-context-selected",
+        "payload_json": canonical({"packet": {"canonical_payload_json": canonical({"focus": focus})}})}}
+    append("prepare_experience_context", context, "current-context")
+    proposal = {"diagnosis_id": focus["diagnosis_id"], "hypothesis_ids": focus["hypothesis_ids"],
+        "candidate_id": identifier, "candidate_snapshot_sha256": value["candidates"][identifier]["candidate_snapshot_sha256"],
+        "source_snapshot_sha256": value["source_snapshot_sha256"], "entry_id": entry["entry_id"],
+        "content_sha256": "b" * 64, "projection_sha256": "c" * 64}
+    review = {"query_id": page["query_id"], "review": {"record_id": "app-review-selected"},
+              "guidance": {"proposal": proposal, "status": "unknown", "questions": ["unanswered prerequisite"],
+                           "projection": {"procedure": "complete entry process"}}}
+    append("review_experience", review, "old-current-review")
+    append("read_experience_review", review, "latest-current-review")
+    historical = copy.deepcopy(review)
+    historical["guidance"]["proposal"]["candidate_id"] = "f" * 64
+    append("read_experience_review", historical, "old-focus-review")
+    fallback = {"query_id": page["query_id"], "status": "unknown", "reason": "no_visible_focus",
+                "next_action": "ordinary_retrieval", "guidance": page}
+    append("prepare_experience_context", fallback, "ordinary-unknown")
+    messages.append(AIMessage(content="current thought keeps no new guidance authority"))
+    original = message_json(messages)
+    view, selection = _select_messages(messages, WorkingContextPacket.model_validate_json(frozen.packet_json),
+                                      receipts, host.policy)
+    retained = selection["retained_ranges"]
+    for label in ("latest-skill", "latest-page", "latest-entry", "current-context", "latest-current-review", "ordinary-unknown"):
+        assert ranges[label] in retained
+    for label in ("old-skill", "old-page", "old-entry", "old-current-review", "old-focus-review"):
+        assert ranges[label] in selection["omitted_ranges"]
+    assert "complete operational procedure" in message_json(view)
+    assert "unanswered prerequisite" in message_json(view)
+    assert "unknown" in message_json(view)
+    assert message_json(messages) == original
+
+
+def test_repair_selection_keeps_multi_tool_groups_whole(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.diagnosis()
+    frozen = host.plan()
+    messages = [message.model_copy(deep=True) for message in host.messages]
+    start = len(messages)
+    calls = [{"name": "read_source", "args": {"path": "src/main.ets"}, "id": "source-with-sibling"},
+             {"name": "read_log", "args": {}, "id": "log-with-sibling"}]
+    answers = [{"path": "src/main.ets", "start_line": 1, "lines": ["value=bad"]},
+               {"start_line": 1, "lines": ["synthetic crash"]}]
+    messages.append(AIMessage(content="", tool_calls=calls))
+    receipts = json.loads(frozen.visible_receipts_json)
+    # Pure selector fixture. Production select authenticates these facts against
+    # model/action ledgers before entering the same whole-group boundary.
+    for index, (call, answer) in enumerate(zip(calls, answers, strict=True)):
+        receipt = ToolMessage(content=canonical(answer), name=call["name"], tool_call_id=call["id"])
+        messages.append(receipt)
+        receipts.append({"group_start": start, "action": {"action_id": f"synthetic-multi-{index}",
+            "authorization": "allowed", "tool_name": call["name"]}, "tool_call": call,
+            "receipt": receipt.model_dump(mode="json")})
+    messages.append(AIMessage(content="current no-tool thought"))
+    original = message_json(messages)
+    view, selection = _select_messages(messages, WorkingContextPacket.model_validate_json(frozen.packet_json),
+                                     receipts, host.policy)
+    retained = [message for message in view if type(message) is ToolMessage]
+    assert {message.tool_call_id for message in retained} == {"source-with-sibling", "log-with-sibling"}
+    assert [start, start + 3] in selection["retained_ranges"]
+    assert message_json(messages) == original
+
+
+def test_repair_selection_rejects_reasoning_history_before_plan_or_reservation(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.step(None, text="an unconfirmed thought")
+    host.messages[-1].additional_kwargs["reasoning_content"] = "provider-specific reasoning history"
+    before = frozen_files(host.workspace.root)
+    usage = host.calls.usage_summary("task1", "run1")
+    with pytest.raises(WorkingContextError, match="working_context_reasoning_history_unsupported"):
+        host.plan()
+    assert frozen_files(host.workspace.root) == before
+    assert host.calls.usage_summary("task1", "run1") == usage
+
+
+def test_repair_selection_reason_tampering_cannot_rebuild_a_frozen_plan(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_relevance")
+    host.step(None, text="old thought")
+    host.step(None, text="current thought")
+    selected = host.plan()
+    raw = selected.model_dump(mode="json")
+    changed = json.loads(raw["selection_json"])
+    changed["group_decisions"][0]["reason"] = "fabricated selection reason"
+    raw["selection_json"] = canonical(changed)
+    with pytest.raises(ValidationError, match="stage selection changed"):
+        WorkingContextPlan.model_validate_json(canonical(raw))
 
 
 @pytest.mark.parametrize("fault", ["delete_diagnosis", "delete_support", "delete_check", "unknowns", "authority",

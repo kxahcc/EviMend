@@ -11,17 +11,19 @@ import json
 import os
 import sys
 import zipfile
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .actions import ToolActionStore
 from .agent import ResumeAdmissionRejected, preflight_resume, run_provider_agent
 from .applicability_contracts import TaskKnowledgeBinding
 from .applicability_handoff import ApplicabilityPolicy
+from .contracts import SourceLocation
 from .domain_skills import prepare_domain_knowledge
 from .evidence_io import local_evidence_path
 from .local_execution import LocalApplicationExecutor, LocalCheckConfig, _checked
@@ -188,12 +190,12 @@ def _previous_report(work: Path, task: dict[str, Any], run_id: str) -> dict[str,
         return None
     value = json.loads(_checked(path).read_bytes())
     original = {key: item for key, item in value.items() if key != "report_sha256"}
-    if (value.get("schema_version") not in (1, 2) or value.get("scope") != "competition_task" or
+    if (value.get("schema_version") not in (1, 2, 3) or value.get("scope") != "competition_task" or
             value.get("task_id") != task["task_id"] or value.get("run_id") != run_id or
             value.get("source_snapshot_sha256") != task["source_snapshot_sha256"] or
             value.get("report_sha256") != digest(canonical(original).encode())):
         raise ResumeAdmissionRejected("competition report source or integrity differs")
-    if value["schema_version"] == 2:
+    if value["schema_version"] in (2, 3):
         start = datetime.fromisoformat(json.loads(_checked(work / "session.json").read_bytes())["started_at"])
         _validate_report_timing(value, start)
     return value
@@ -206,7 +208,7 @@ def _terminal_facts(facts: dict[str, Any]) -> dict[str, Any]:
 def _progress_facts(facts: dict[str, Any]) -> dict[str, Any]:
     """Comparable legacy watermarks; derived execution labels are not progress."""
     return {key: facts[key] for key in ("task_id", "run_id", "source_snapshot_sha256", "method",
-                                      "execution_provenance", "cost")} | {
+                                      "execution_provenance", "cost", "localization", "obligations", "decisions")} | {
         "attempts": [{key: attempt[key] for key in ("candidate", "patch_path", "patch_sha256", "check")}
                      for attempt in facts["attempts"]]}
 
@@ -235,10 +237,14 @@ def _report_timing(work: Path, facts: dict[str, Any], previous: dict[str, Any] |
         raise ValueError("competition timing requires timezone-aware host observations")
     terminal_sha = digest(canonical(_terminal_facts(facts)).encode())
     if previous is not None:
-        if previous["schema_version"] == 2:
+        if previous["schema_version"] in (2, 3):
             timing = _validate_report_timing(previous, start)
             if timing["terminal_facts_sha256"] == terminal_sha:
                 return timing
+            if previous["schema_version"] == 2 and _progress_facts(previous) == _progress_facts(facts):
+                # A stricter derived report is not new model/tool/application work.
+                # Keep the original observation while binding it to the new facts.
+                return {**timing, "terminal_facts_sha256": terminal_sha}
         elif _progress_facts(previous) == _progress_facts(facts):
             return {"agent_wall_ms": None, "finished_at": None, "terminal_facts_sha256": terminal_sha,
                 "authority": "host_report_observation", "scope": "session_start_to_reported_terminal",
@@ -248,6 +254,83 @@ def _report_timing(work: Path, facts: dict[str, Any], previous: dict[str, Any] |
         raise ValueError("competition finish predates its original session")
     return {"agent_wall_ms": elapsed, "finished_at": observed_at.isoformat(), "terminal_facts_sha256": terminal_sha,
             "authority": "host_report_observation", "scope": "session_start_to_reported_terminal", "reason": None}
+
+
+def _localization_projection(localized: Any, source_sha256: str) -> dict[str, Any]:
+    """Derive output completeness without changing the saved SDK localization."""
+    result: dict[str, Any] = {"diagnosis_id": None, "selected": None, "alternatives": [],
+        "complete": False, "incomplete_reasons": [], "authority": "model_inference",
+        "root_cause_confirmation": "unknown"}
+    reasons = result["incomplete_reasons"]
+    if not isinstance(localized, dict) or not isinstance(localized.get("diagnosis"), dict):
+        reasons.append("diagnosis_missing")
+        return result
+    diagnosis = localized["diagnosis"]
+    result["diagnosis_id"] = localized.get("diagnosis_id")
+    if (not isinstance(result["diagnosis_id"], str) or not result["diagnosis_id"] or
+            diagnosis.get("record_id") != result["diagnosis_id"]):
+        reasons.append("diagnosis_identity_invalid")
+    if diagnosis.get("source_snapshot_sha256") != source_sha256:
+        reasons.append("diagnosis_source_mismatch")
+    hypotheses = diagnosis.get("hypotheses")
+    if not isinstance(hypotheses, list) or any(
+        not isinstance(item, dict) or not isinstance(item.get("hypothesis_id"), str) for item in hypotheses
+    ) or len({item["hypothesis_id"] for item in hypotheses}) != len(hypotheses):
+        reasons.append("hypotheses_invalid")
+        return result
+    selected_id = diagnosis.get("selected_hypothesis_id")
+    result["alternatives"] = deepcopy([item for item in hypotheses if item["hypothesis_id"] != selected_id])
+    if not isinstance(selected_id, str) or not selected_id:
+        reasons.append("selected_hypothesis_missing")
+        return result
+    selected = next((item for item in hypotheses if item["hypothesis_id"] == selected_id), None)
+    if selected is None:
+        reasons.append("selected_hypothesis_not_found")
+        return result
+    result["selected"] = deepcopy(selected)
+    locations = selected.get("root_cause_locations")
+    if not isinstance(locations, list) or not locations:
+        reasons.append("selected_root_cause_locations_missing")
+        return result
+    try:
+        for location in locations:
+            if SourceLocation.model_validate(location).snapshot_sha256 != source_sha256:
+                raise ValueError("root cause uses another source")
+    except (ValueError, ValidationError):
+        reasons.append("selected_root_cause_locations_invalid")
+    result["complete"] = not reasons
+    return result
+
+
+def _localization_result(localization: dict[str, Any], latest: dict[str, Any] | None,
+                         source_sha256: str) -> dict[str, Any]:
+    result = {key: _localization_projection(localization.get(key), source_sha256)
+              for key in ("initial", "latest", "candidate_linked")}
+    final = result.pop("candidate_linked")
+    final["candidate_id"] = latest["candidate"].get("candidate_id") if latest else None
+    candidate_diagnosis = latest["candidate"].get("diagnosis_id") if latest else None
+    if latest is None:
+        final["incomplete_reasons"].append("candidate_missing")
+    elif not candidate_diagnosis:
+        final["incomplete_reasons"].append("candidate_diagnosis_missing")
+    elif candidate_diagnosis != final["diagnosis_id"]:
+        final["incomplete_reasons"].append("candidate_diagnosis_mismatch")
+    final["complete"] = final["complete"] and not final["incomplete_reasons"]
+    return {**result, "final": final}
+
+
+def _location_lines(hypothesis: dict[str, Any]) -> list[str]:
+    locations = hypothesis.get("root_cause_locations")
+    if not isinstance(locations, list):
+        return []
+    lines = []
+    for raw in locations:
+        try:
+            location = SourceLocation.model_validate(raw)
+        except (ValueError, ValidationError):
+            continue
+        lines.append(f"- {location.path}:{location.start_line}-{location.end_line}")
+    return lines
 
 
 def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecutor,
@@ -266,8 +349,9 @@ def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecut
                          if latest and latest["execution"] else "not_run")
     level = (latest["execution"]["verification_level"] if latest and latest["execution"] else
              latest["check"]["level"] if latest and latest["check"] else "not_run")
+    localization_result = _localization_result(completion["localization"], latest, solver["source_snapshot_sha256"])
     accepted = bool(latest and latest["execution"] and application_state == "pass" and latest["execution"]["accepted"] and
-                    latest["candidate"]["diagnosis_id"] and completion["localization"]["candidate_linked"])
+                    localization_result["final"]["complete"])
     software_pass = bool(latest and latest["check"] and latest["check"]["status"] == "pass")
     outcome = ("application_verified" if accepted else "synthetic_checked"
                if software_pass and level == "offline_synthetic" else "unresolved")
@@ -278,9 +362,10 @@ def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecut
     session = completion["execution_provenance"]
     actions = solver["actions"]
     diagnosis = completion["localization"]
-    facts = {"schema_version": 2, "scope": "competition_task", "task_id": solver["task_id"], "run_id": solver["run_id"],
+    facts = {"schema_version": 3, "scope": "competition_task", "task_id": solver["task_id"], "run_id": solver["run_id"],
         "status": outcome, "accepted": accepted, "application_verification": application_state, "verification_level": level,
         "root_cause_authority": "model_inference", "localization": diagnosis, "attempts": attempts,
+        "localization_result": localization_result,
         "obligations": {path.stem: json.loads(path.read_text(encoding="utf-8"))
                         for path in sorted((work / "obligations").glob("*.json"))},
         "decisions": solver["decisions"], "stopped_reason": solver["stopped_reason"],
@@ -303,15 +388,29 @@ def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecut
     lines = ["# 故障修复结果", "", f"状态：{outcome}；应用接受：{accepted}",
         f"检查层级：{level}；实际应用检查：{application_state}", "",
         "定位依据和根因解释由模型提出；准确率需独立标签评测。", ""]
-    for label in ("initial", "latest"):
-        localized = diagnosis[label]
-        if localized:
-            lines.append("初次定位：" if label == "initial" else "最新定位：")
-            for location in localized["root_cause_locations"]:
-                lines.append(f"- {location['path']}:{location['start_line']}")
-            for evidence in localized["evidence"]:
-                lines.append(f"- {evidence['kind']}：{evidence['statement']}")
-            lines.append("")
+    for label, title in (("initial", "初次定位"), ("latest", "最新定位"), ("final", "最新候选关联的最终定位")):
+        projected = localization_result[label]
+        if label != "final" and projected["diagnosis_id"] is None:
+            continue
+        lines.append(title + "：")
+        if label == "final":
+            lines.append(f"候选：{projected['candidate_id'] or '无'}；诊断：{projected['diagnosis_id'] or '无'}")
+        selected = projected["selected"]
+        if selected is not None:
+            lines.append(f"所选假设：{selected['hypothesis_id']}")
+            lines.extend(_location_lines(selected))
+        else:
+            lines.append("尚未选定根因假设。")
+        for alternative in projected["alternatives"]:
+            lines.append(f"备选假设（未作为所选根因）：{alternative['hypothesis_id']}")
+            lines.extend(_location_lines(alternative))
+        if not projected["complete"]:
+            lines.append("定位输出不完整：" + ", ".join(projected["incomplete_reasons"]))
+        localized = diagnosis["candidate_linked" if label == "final" else label]
+        if isinstance(localized, dict) and localized.get("evidence"):
+            lines.append("登记证据（包含所选与备选的依据）：")
+            lines.extend(f"- {item['kind']}：{item['statement']}" for item in localized["evidence"])
+        lines.append("")
     lines += ["| 尝试 | 检查 | 补丁 |", "|---|---|---|"]
     for attempt in attempts:
         lines.append(f"| {attempt['candidate']['ordinal']} | {(attempt['check'] or {}).get('status', 'not_run')} | [{attempt['patch_path']}]({attempt['patch_path']}) |")

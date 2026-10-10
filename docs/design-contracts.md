@@ -36,7 +36,7 @@ Evidence 至少包含：
 
 Diagnosis 保存 exception_locations、hypotheses、selected_hypothesis_id、unknowns 及可空 feedback_candidate_id。异常位置与根因位置分别填写；未知根因可以暂空。每个 Hypothesis 包含：
 
-最终交付须区分定位输出完整性、修复实际检查与根因正确性。中间诊断允许未知或空根因，不因此禁止继续分析/修复；完整任务结果应有原版具体文件/行，并明确所选假设位置与备选位置。非空位置不证明命中独立标签。当前 reporting 的投影合并各假设位置，competition 最终接受仅查关联诊断对象存在，尚未实现这个最终完整性区分；该缺口须按实施计划最小收口，不将已运行检查改写为未运行，也不伪造根因确认。
+最终交付区分定位输出完整性、修复实际检查与根因正确性。中间诊断允许未知或空根因，不因此禁止继续分析/修复；完整任务结果须有原版具体文件/行，并明确所选假设位置与备选位置。非空位置不证明命中独立标签。旧 reporting 的合并位置投影与 SDK 终止语义保持原解释；competition schema 3 另派生 `localization_result`，最终完整性只核最新候选关联诊断的所选假设及其有效原版位置。缺所选位置时不借备选位置、补丁位置或较新未关联诊断补足，不将已运行检查改写为未运行，也不伪造根因确认。
 
 | 字段 | 内容及约束 |
 |---|---|
@@ -178,9 +178,9 @@ oracle 的实际内容与 hash 由独立准备者管理：已核验需求/接口
 
 W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈希、补丁哈希、环境、共同协议、初始状态、执行层、重复序号和超时。`run_id + 请求规范摘要` 生成幂等键；重复序号改变表示一次新的逻辑回放。客户端提交前保存意图，响应丢失时只能以同一键对账；服务端 SQLite 对该键设唯一约束，查询不能新建作业。`cancel_requested` 不是 `canceled`，服务重启后无法确认仍在运行的模拟作业标记 `inconclusive`。产物引用绑定 job、内容哈希与大小，服务和客户端分别校验。模拟结果显式 `scope=synthetic`、`application_verification=not_run`，不能转为正式应用 pass。当前 W06 请求尚无 check_id 与场景绑定，接入正式协议时须在兼容性版本中补齐，逐项产生上述 Verdict；不能按执行层次猜测属于哪个检查。本机执行器另用主机固定 stage 和文件回执，不沿用该模拟请求，设备状态确认及正式 Verdict 接纳仍待完成。
 
-competition 提供 schema 2、scope=competition_task 的 `competition-report.json`、可读 `result.md` 和私有 `delivery.zip`。报告保存初次、最新及最新候选关联的定位、全部候选 diff/检查/执行 evidence、义务、决策、停止与适配错误、完整调用成本及墙钟。verification_level 与 application_verification 记录最新候选的实际检查层级/结果；最终 accepted 另要求其应用执行 pass/accepted、已核对的关联诊断，且无停止原因或未知模型/工具调用。应用检查通过但缺关联仍 unresolved，保留 application_verification=pass；应用失败/未知不写为 not_run，失败或未知的新候选不得继承旧通过。只有实际 offline_synthetic 检查通过才可标 synthetic_checked，application_verification=not_run；根因仍为 model_inference，准确率、稳定性及未取得实际证据的效果保持 null。
+competition 提供 schema 3、scope=competition_task 的 `competition-report.json`、可读 `result.md` 和私有 `delivery.zip`。原 `localization` 保留 SDK 原件；`localization_result.initial/latest/final` 分别保存所选假设、备选假设、complete 及 incomplete_reasons，final 绑定最新候选。报告还保存全部候选 diff/检查/执行 evidence、义务、决策、停止与适配错误、完整调用成本及墙钟。verification_level 与 application_verification 记录最新候选的实际检查层级/结果；最终 accepted 另要求其应用执行 pass/accepted、关联诊断及所选原版根因位置完整，且无停止原因或未知模型/工具调用。应用检查通过但定位缺项仍 unresolved，保留 application_verification=pass；应用失败/未知不写为 not_run，失败或未知的新候选不得继承旧通过。只有实际 offline_synthetic 检查通过才可标 synthetic_checked，application_verification=not_run；根因仍为 model_inference，准确率、稳定性及未取得实际证据的效果保持 null。准确率评分应取 final.selected 的位置，不能把备选的合并列表当所选预测。
 
-timing 保存首次报告观察的 finished_at、agent_wall_ms 及绑定实际报告事实的 terminal_facts_sha256；范围为原 session 开始到报告观察，包含初始化/核验开销，不代替定位/修复分阶段耗时。无新事实的完成恢复复用原计时及报告摘要，不计入之后的空闲/只读恢复；新增真实求解/候选/检查事实才重新记录观察。恢复先在可写执行前核原报告身份、摘要及计时自洽性；哈希不是签名或独立时间认证。旧 schema 1 缺可信终态时间且无实际进展时保持 agent_wall_ms/finished_at=null，reason=legacy_terminal_time_unknown，不根据当前日期推造旧耗时。缺原完成报告时只有本次首次报告观察，不能认证此前已完成工作的真实结束时刻。原模型/执行共享预算和截止时间不改变，来源兼容准入仍须通过。旧 SDK 报告按下节保留轨迹，不承担竞赛接受，不能用补丁落点覆盖初始定位。
+timing 保存首次报告观察的 finished_at、agent_wall_ms 及绑定实际报告事实的 terminal_facts_sha256；范围为原 session 开始到报告观察，包含初始化/核验开销，不代替定位/修复分阶段耗时。无新事实的完成恢复复用原计时及报告摘要，不计入之后的空闲/只读恢复；新增真实求解/候选/检查事实才重新记录观察。恢复先在可写执行前核原报告身份、摘要及计时自洽性；哈希不是签名或独立时间认证。旧 schema 2 只改变派生完整性/接受标签且原定位、义务、决策、候选、检查与成本相同时，升级报告重绑事实摘要但保留原终态时间；格式兼容不放宽执行源码恢复准入。旧 schema 1 缺可信终态时间且无实际进展时保持 agent_wall_ms/finished_at=null，reason=legacy_terminal_time_unknown，不根据当前日期推造旧耗时。缺原完成报告时只有本次首次报告观察，不能认证此前已完成工作的真实结束时刻。原模型/执行共享预算和截止时间不改变，来源兼容准入仍须通过。旧 SDK 报告按下节保留轨迹，不承担竞赛接受，不能用补丁落点覆盖初始定位。
 
 ### 1.3.2 主机终止摘要与结果核验
 
@@ -413,7 +413,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 `working_context_plan.py` 的 WorkingContextStore 在模型边界组织上下文；WorkingContextPolicy 默认关闭，字节预算与近期组数在该对象定义并由 session 冻结。焦点只取当前输入中已完成、授权、有有效回执的工具动作，按可见顺序推导并保留水位。packet 中诊断、候选、检查、条件、决策和反馈也须有可见来源，磁盘上已经完成但当前消息尚未见到的检查不能提前进入包。没有诊断的候选和未纳入闭包的领域结果保持通用路径，相关完整工具组另作为必要材料。
 
-现有代码处理顺序是原 Graph 历史 → 完整 packet 与材料核验 → 有界求解投影和必要组组织 → 可选通用压缩 → 实际发送。投影与尚未由它表达的必要完整组作为引用数据附入原 startup HumanMessage，保留原任务文本和其他字段；覆盖判断使用实际投影全文，不能只凭记录 ID 丢掉原文。通用压缩保留这段 startup，不能把必要原文替换成摘要。原历史的 assistant 多工具调用与全部回执是一组，孤立、重复或未完成组拒绝。startup、必要投影、必要组及近期组先占组织视图预算，剩余历史从近到远装入，最终按原顺序发送；超过必需额度明确停止，不截断义务。它尚未实现决策相关有限选择。只有模型发送视图改变，Graph 原历史保留；消息字节不等于提供方 Token 窗口。
+代码处理顺序是原 Graph 历史 → 完整 packet 与材料核验 → 有界求解投影和必要组组织 → 可选通用压缩 → 实际发送。投影与尚未由它表达的必要完整组作为引用数据附入原 startup HumanMessage，保留原任务文本和其他字段；覆盖判断使用实际投影全文，不能只凭记录 ID 丢掉原文。通用压缩保留这段 startup，不能把必要原文替换成摘要。原历史的 assistant 多工具调用与全部回执是一组，孤立、重复或未完成组拒绝。startup、必要投影、必要组及近期组先占组织视图预算，超过必需额度明确停止，不截断义务。默认 legacy_refill 保留原近期回填和序列化；显式 repair_relevance 依当前引用选择可选材料并记录每组理由，不自动填满旧历史。新策略原件和身份不套用于旧计划；具体算法见设计第 7.1 节。只有模型发送视图改变，Graph 原历史保留；消息字节不等于提供方 Token 窗口。
 
 软件包 A 的有限选择契约如下，实际算法归属设计第 7.1 节，实现/验收状态只见 STATUS：
 
