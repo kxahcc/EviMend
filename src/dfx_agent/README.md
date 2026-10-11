@@ -32,9 +32,9 @@
 
 `working_context.history_selection` 可选 `legacy_refill`（缺省，保留旧计划语义）、`repair_relevance`（按已登记修复引用选择）或 `repair_frontier`（额外保护未吸收探索与换根因后的最近实际失败）。演示配置使用 frontier；其 `exploration_read_groups` 控制可选探索组上限，仍受共同视图预算约束。最新故障日志、必要义务、最近实际失败的原候选登记/检查、尚未冻结的编辑、完整知识读取及近期工具组优先保留，无关旧思考和重复读取可移出。旧候选失败不成为当前候选事实；必要内容超过预算停止，Graph 原历史不删除。新增分支的运行验收状态见 STATUS。`competition-report.json` schema 3 的 `localization_result.final.selected` 是最新候选实际关联的所选根因，alternatives 单列；位置缺项会使最终接受保持 false，实际应用检查结果仍独立保存。非空根因行不表示定位正确。
 
-frontier 可显式设置 `context_layout: "decision_layers"`，以阶段问题、假设/未知、事实/推断、运行条件/业务义务、候选检查和失败修订组织原语义记录，替换默认 `record_panel`。两种布局均冻结到 profile；旧缺省形状不变。编译回组须完整还原原投影，不能只发送摘要却认证原文可见；阶段建议不代替执行权限或最终接受。演示配置使用分层布局，新增软件用例及 SDK wire 验收状态见 STATUS。
+frontier 可显式设置 `context_layout: "decision_layers"`，以阶段问题、假设/未知、事实/推断、运行条件/业务义务、候选检查和失败修订组织原语义记录，替换默认 `record_panel`。两种布局均冻结到 profile；旧缺省形状不变。编译回组须完整还原原投影，不能只发送摘要却认证原文可见；阶段建议不代替执行权限或最终接受。演示配置与待填写云端模板均显式选择 frontier 和分层布局，新增软件用例及 SDK wire 验收状态见 STATUS。
 
-候选 DeepSeek 协议可在 model 中显式写 `thinking_mode: "disabled"` 以测试有限历史；思考模式写 `thinking_mode: "enabled"`，可配 `reasoning_effort: "low"/"high"/"max"`，并使用完整历史（working_context.enabled=false、不启用主机压缩）。enabled 不接 temperature 或强制工具选择，历史 reasoning 缺项/裁剪会在发送前停止。未声明模式仍是旧通用配置语义，不能据此判断提供方的实际默认。协议适配源码和 Mock 用例已写但未运行，也未请求真实服务；最终模式由接纳和同模式比较决定，云端模板仍需主机填写实际参数。
+候选 DeepSeek 协议可在 model 中显式写 `thinking_mode: "disabled"` 以测试有限历史；云端模板明确选择此准备配置，适配器会发送 `thinking: {"type":"disabled"}`，必须先核对实际提供方支持该字段与模式。它不是所有 OpenAI-compatible 服务通用的参数；其他提供方须按实际协议审查后配置，不能凭模板假定兼容。思考模式写 `thinking_mode: "enabled"`，可配 `reasoning_effort: "low"/"high"/"max"`，并使用完整历史（working_context.enabled=false、不启用主机压缩）。enabled 不接 temperature 或强制工具选择，历史 reasoning 缺项/裁剪会在发送前停止。未声明模式仍是旧通用配置语义，不能据此判断提供方的实际默认。协议适配源码和 Mock 用例已写但未运行，也未请求真实服务；最终模式由接纳和同模式比较决定，有限历史准备配置不代表已决定比赛最终模式。
 
 运行中显示实际模型派发/回执、工具授权/结果保存、原版和候选的 build/target/behavior/regression 阶段、源码绑定观察以及最终报告。工具结果保存不是业务通过，阶段退出成功不等于修复被接受；定位推断及完整补丁通过 result.md 查看。默认文本逐条反馈；`--output-format json` 只输出一个最终结果/观察，`stream-json` 每个事件一行，可用于其他界面。`logs NAME --after N --follow --output-format stream-json` 接续序号；查看日志时 Ctrl+C 只退出查看，运行时 Ctrl+C 请求停止本次 manager。缺身份或停止未确认保持 unknown，不停止其他任务。
 
@@ -60,7 +60,7 @@ events.jsonl 是容量有限的操作侧录：不输出模型正文、源码、�
 
 | 产物 | 用途与边界 |
 |---|---|
-| `competition-report.json` | schema 2 竞赛结构化结果：定位推断、全部候选/补丁与检查、独立的实际检查层级/结果和任务接受、失败反馈/修订、停止原因、成本、固定终态观察计时、来源及未知指标 |
+| `competition-report.json` | schema 3 竞赛结构化结果：初次与最新候选关联的所选根因/备选、全部候选/补丁与检查、独立的实际检查层级/结果和任务接受、失败反馈/修订、停止原因、成本、固定终态观察计时、来源及未知指标；旧报告仍按原代读取 |
 | `result.md` | 面向审阅者的定位、修复、验证和限制说明；控制台 report_path 指向此文件 |
 | `delivery.zip` | 未脱敏的私有交付原件及字节/哈希清单，供保留和审阅；字节核验不等于评测重聚合、根因认证或修复成功证明 |
 | `agent-report.json`、账本及 Graph 检查点 | SDK 运行轨迹与恢复依据；agent-report 不是最终竞赛接受报告 |

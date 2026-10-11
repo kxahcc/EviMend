@@ -21,7 +21,7 @@ from dfx_agent.agent import run_provider_agent
 from dfx_agent.applicability_handoff import ApplicabilityPolicy
 from dfx_agent.model_provider import MOCK_ENDPOINT, ChatCompletionsAdapter
 from dfx_agent.verification import FixedTextExecutor
-from dfx_agent.working_context_plan import WorkingContextPolicy
+from dfx_agent.working_context_plan import WORKING_CONTEXT_PROMPT, WorkingContextPolicy
 
 
 def tool_result(body: dict, tool_name: str) -> dict:
@@ -56,10 +56,11 @@ def tool_result(body: dict, tool_name: str) -> dict:
     return answers[-1]
 
 
-@pytest.mark.parametrize("working_context", [False, True], ids=["ordinary-view", "working-view"])
+@pytest.mark.parametrize("working_context", [False, True, "decision_layers"],
+                         ids=["ordinary-view", "working-view", "decision-view"])
 @pytest.mark.parametrize("state", ["supported", "contradicted", "unknown"])
 def test_three_states_send_complete_guidance_then_keep_the_repair_loop(
-        tmp_path: Path, working_context: bool, state: str) -> None:
+        tmp_path: Path, working_context: bool | str, state: str) -> None:
     data = inputs(tmp_path)
     query_id = expected_query(data.host)
     good = candidate_id(data.task, tmp_path / "derive", "good")
@@ -115,12 +116,16 @@ def test_three_states_send_complete_guidance_then_keep_the_repair_loop(
         assert number <= 9
         return httpx.Response(200, json=wire_response(number, calls.get(number)))
 
-    adapter = ChatCompletionsAdapter(settings(), httpx.MockTransport(handler))
+    decision_view = working_context == "decision_layers"
+    policy = (WorkingContextPolicy(enabled=True, history_selection="repair_frontier", context_layout="decision_layers")
+              if decision_view else WorkingContextPolicy(enabled=bool(working_context)))
+    configuration = settings(thinking_mode="disabled") if decision_view else settings()
+    adapter = ChatCompletionsAdapter(configuration, httpx.MockTransport(handler))
     work = tmp_path / "sdk-run"
     report = run_provider_agent(data.task, work, "run1", adapter,
         FixedTextExecutor("src/main.ets", "value=good\n"), knowledge=data.host,
         applicability_policy=ApplicabilityPolicy(enabled=True),
-        working_context_policy=WorkingContextPolicy(enabled=working_context))
+        working_context_policy=policy)
     assert reviewed is not None, {"requests": len(requests), "status": report["status"],
         "stopped_reason": report["stopped_reason"], "adapter_error_reason": report["adapter_error_reason"]}
     assert report["schema_version"] == 9 and report["completion"]["schema_version"] == 6
@@ -133,6 +138,15 @@ def test_three_states_send_complete_guidance_then_keep_the_repair_loop(
     assert len(list((work / "applicability-contexts").glob("*.json"))) == 1
     assert len(list((work / "applicability-reviews").glob("*.json"))) == 1
     assert current_solver_call() is None
+    if decision_view:
+        panels = [json.loads(body["messages"][1]["content"].split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
+                  for body in requests]
+        assert all("packet" not in panel and "decision_context" in panel for panel in panels)
+        assert panels[-1]["decision_context"]["decision_board"]["phase"] == "delivery_review"
+        # The immutable complete procedure remains visible beyond the recent
+        # window. A baseline-only applicability review is not relabeled as a
+        # review of the newly registered candidate.
+        assert tool_result(requests[-1], "search_experience") == tool_result(requests[1], "search_experience")
 
 
 def test_disabled_sdk_review_keeps_ordinary_guidance_without_parsing_premises(tmp_path: Path) -> None:

@@ -12,8 +12,9 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from test_applicability_provider import tool_result
 
-from dfx_agent import models
+from dfx_agent import competition, models
 from dfx_agent.agent import ResumeAdmissionRejected
 from dfx_agent.competition import (
     CompetitionConfig,
@@ -24,6 +25,7 @@ from dfx_agent.competition import (
 )
 from dfx_agent.local_execution import LocalApplicationExecutor
 from dfx_agent.model_calls import ModelCallStore, canonical, sha256
+from dfx_agent.working_context_plan import WORKING_CONTEXT_PROMPT
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -39,6 +41,14 @@ def config(tmp_path: Path, **overrides: object) -> Path:
 def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DFX_MANAGED_COMPETITION", "local-v1")
+    requests = []
+    original = competition._DemoModel.__call__
+
+    def observe(model, request):
+        requests.append(json.loads(request.content))
+        return original(model, request)
+
+    monkeypatch.setattr(competition._DemoModel, "__call__", observe)
     settings = config(tmp_path, max_calls=15)
     work = tmp_path / "run"
     result = run_competition(tmp_path / "unused", work, "software-acceptance", settings, REPO)
@@ -66,8 +76,25 @@ def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
     assert any(resource["actions"] for resource in solver["static_skill_facts"]["resources"])
     assert solver["working_context_plans"]
     plans = [json.loads(path.read_bytes()) for path in (work / "working-context").glob("*.plan.json")]
-    assert plans and all(plan["policy"]["history_selection"] == "repair_relevance" for plan in plans)
+    assert plans and all(plan["policy"]["history_selection"] == "repair_frontier" and
+                         plan["policy"]["context_layout"] == "decision_layers" for plan in plans)
     assert any(json.loads(plan["selection_json"])["omitted_ranges"] for plan in plans)
+    assert len(requests) == 15
+    panels = [json.loads(body["messages"][1]["content"].split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
+              for body in requests]
+    assert all("packet" not in panel and "decision_context" in panel for panel in panels)
+    contexts = [panel["decision_context"] for panel in panels]
+    assert contexts[0]["decision_board"]["phase"] == "exploration"
+    failures = [context["revision"]["latest_failure"] for context in contexts
+                if context["revision"]["latest_failure"] is not None]
+    assert failures and all(failure["candidate_id"] == first["candidate"]["candidate_id"] and
+                            failure["check_result"]["status"] == "fail" for failure in failures)
+    assert contexts[-1]["decision_board"]["phase"] == "delivery_review"
+    assert contexts[-1]["revision"]["latest_failure"] is None
+    assert all(context["decision_board"]["execution_permission"] == "not_granted" and
+               context["decision_board"]["repair_acceptance"] == "not_assessed" for context in contexts)
+    skill = tool_result(requests[4], "read_skill")
+    assert skill["body"] and tool_result(requests[-1], "read_skill") == skill
     manifest = verify_private_delivery(work / "delivery.zip", 268435456)
     assert any(item["path"].endswith("patch.diff") for item in manifest["files"])
     with zipfile.ZipFile(work / "delivery.zip") as archive:
@@ -80,6 +107,7 @@ def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
     assert restored_report["timing"] == report["timing"]
     assert restored_report["report_sha256"] == report["report_sha256"]
     assert checks == {path.name: path.read_bytes() for path in (work / "checks").glob("*.json")}
+    assert len(requests) == 15
     assert ModelCallStore(work / "model-calls.sqlite").usage_summary("competition-demo", "software-acceptance")["completed_calls"] == 15
     # Original host approval and original configuration are required on recovery.
     settings.write_text(settings.read_text(encoding="utf-8").replace('"max_calls": 15', '"max_calls": 16'), encoding="utf-8")

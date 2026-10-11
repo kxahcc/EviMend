@@ -80,7 +80,7 @@ flowchart LR
 
 ## 5. 开发框架和资源
 
-**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。HTTPX 云端请求适配器和本机受管子进程执行器已实现；本批使用 MockTransport 和短时合成程序验收同一调用路径，实际结果见 STATUS。真实云端提供方和型号仍须兼容性验证，应用检查仍须接纳匹配的 **HarmonyOS 工具链与设备/模拟器**。详细选择理由、恢复边界和依赖接入门槛统一见 [开发设计](docs/development/system-design-draft.md)。
+**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。HTTPX 云端请求适配器和本机受管子进程执行器已实现；软件验收以 MockTransport 和短时合成程序走同一调用路径，当前源码的实际结果见 STATUS。真实云端提供方和型号仍须兼容性验证，应用检查仍须接纳匹配的 **HarmonyOS 工具链与设备/模拟器**。详细选择理由、恢复边界和依赖接入门槛统一见 [开发设计](docs/development/system-design-draft.md)。
 
 | 部分 | 用什么 | 为什么 |
 |---|---|---|

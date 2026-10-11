@@ -102,13 +102,19 @@ def test_decision_layers_replace_flat_packet_on_actual_sdk_wire_and_resume(tmp_p
         "path": "src/main.ets", "line": 1, "reason": "unknown bad value"})]),
         wire_response(3, [("edit_source", {"path": "src/main.ets", "old": "bad", "new": "good"})]),
         wire_response(4, [("register_candidate", {"diagnosis_id": "diagnosis-1"})]),
-        wire_response(5, [("run_check", {"candidate_id": good})]), wire_response(6)]
+        wire_response(5, [("read_source", {"path": "src/main.ets", "candidate_id": good})]),
+        wire_response(6, [("run_check", {"candidate_id": good})]), wire_response(7)]
     policy = WorkingContextPolicy(enabled=True, history_selection="repair_frontier", context_layout="decision_layers")
     adapter = scripted_adapter(scripted, requests, configuration=settings(thinking_mode="disabled"))
     executor = FixedTextExecutor("src/main.ets", "value=good\n")
     report = run_provider_agent(task, work, "run1", adapter, executor, working_context_policy=policy)
     assert report["status"] == "offline_checked", report["stopped_reason"]
-    assert len(requests) == report["model_calls"] == 6
+    assert len(requests) == report["model_calls"] == 7
+    candidate_reads = [json.loads(message["content"]) for message in requests[5]["messages"]
+                       if message.get("role") == "tool" and message.get("tool_call_id") == "call-5-0"]
+    assert candidate_reads and candidate_reads[-1]["candidate_id"] == good
+    assert candidate_reads[-1]["lines"] == ["value=good"]
+    assert all(body["thinking"] == {"type": "disabled"} for body in requests)
     panels = [json.loads(body["messages"][1]["content"].split(WORKING_CONTEXT_PROMPT + "\n", 1)[1]) for body in requests]
     assert all("packet" not in panel and "decision_context" in panel for panel in panels)
     contexts = [panel["decision_context"] for panel in panels]
@@ -122,7 +128,7 @@ def test_decision_layers_replace_flat_packet_on_actual_sdk_wire_and_resume(tmp_p
     assert report["application_verification"] == "not_run"
     assert checked_completion(task, work) == report["completion"]
     resumed = run_provider_agent(task, work, "run1", adapter, executor, resume=True, working_context_policy=policy)
-    assert resumed["model_calls_this_turn"] == 0 and len(requests) == 6
+    assert resumed["model_calls_this_turn"] == 0 and len(requests) == 7
     assert resumed["completion"] == report["completion"]
 
 

@@ -546,11 +546,12 @@ flowchart LR
 | 审查点 | 实现和测试入口 | 应判断的行为与剩余边界 |
 |---|---|---|
 | 故障到补丁、检查与重试 | agent.py、workspace.py、verification.py、local_execution.py、competition.py；test_agent_loop.py、test_local_execution.py、test_competition.py | 分析候选与完整工程映射、基准复现、四项主机检查、失败修订与未知恢复；真实工具链、设备及可信业务判据仍待接纳 |
+| 实际查证与修改工具 | agent.py、source_search.py、workspace.py；test_candidate_source_read.py、test_source_search.py、test_workspace.py | 原版/草稿/冻结候选分离、分页及按行回读；SDK 精确替换、唯一锚点、换行及部分失败不污染草稿，新增源码验收见 STATUS；不开放任意 shell |
 | 根因假设与业务义务 | contracts.py、diagnostics.py；test_causal_diagnosis.py | 日志/源码依据、假设和义务双向引用；程序认证来源与交接，不确认因果关系或业务语义 |
 | 按决策需要补证据 | decisions.py、policies.py；test_decisions.py、test_policies.py | 方向对应已登记问题、失败反例及条件结果，可关闭且保留通用路径；建议不执行探针或强制模型采纳 |
 | 有限条件及可信输入 | conditions.py、value_sources.py、agent.py；test_conditions.py、test_value_sources.py、test_condition_handoff.py | 同操作、单位和版本的有限计算及实际 SDK 交接；默认合成 registry 不含真实输入，自动 literal/运行采样不是现有能力 |
-| 工作上下文与实际发送 | repair_context_layout.py、working_context_plan.py、working_context_materials.py、working_context_projection.py；test_repair_context_layout.py、test_working_context_handoff.py | 阶段/义务分槽保留全部语义，焦点由可见回执推导，探索与原失败在共同预算内选择，完整材料绑定实际发送；新源码未验收，修复收益未知 |
-| 检索与有条件经验迁移 | knowledge_retrieval.py、applicability_handoff.py、solver_visibility.py；test_applicability_handoff.py | 普通检索与三态共用知识/工具，依据来自当时已见原件；前提判断仍是模型推断 |
+| 工作上下文与实际发送 | repair_context_layout.py、working_context_plan.py、working_context_materials.py、working_context_projection.py；test_repair_context_layout.py、test_working_context_handoff.py、test_competition.py | 阶段/义务分槽保留全部语义，焦点由可见回执推导，探索与原失败在共同预算内选择；实际请求中核对布局、原失败与完整过程，不以 ID 或保存计划代替模型可见；新源码未验收，修复收益未知 |
+| 检索与有条件经验迁移 | knowledge_retrieval.py、applicability_handoff.py、solver_visibility.py；test_applicability_handoff.py、test_applicability_provider.py | 普通检索与三态共用知识/工具，普通/旧工作视图/决策布局分别核完整指导；依据来自当时已见原件，前提判断仍是模型推断，不将基线 review 改称新候选 review |
 | Skill 的实际消费 | domain_skills.py、static_skill_handoff.py、version_skills.py；test_competition.py、test_model_skill_sdk.py、test_model_skill_deployment.py | 完整读取与后续输入可见性分别核验，旧任务只恢复原批准副本；选中目录不等于实际采用或逐步正确执行 |
 | 从失败提炼、验证与演进 | learning.py、skill_validation.py、skill_evolution.py；test_learning_source.py、test_model_skill_deployment.py、test_skill_evolution_receipts.py | 原响应/失败/全部调用保留，事前四角色验证、独立判定、发表与退回；有限合成资格不能授应用资格，自动学习收益未证明 |
 | 完整成本与公平比较 | research_profile.py、research_accounting.py、metrics.py、exporting.py；test_research_profile.py、test_research_accounting.py、test_model_skill_deployment.py | 显式来源历史清单核算完整学习/验证并跨清单去重，缺项未知；完整跨阶段成本、共享总预算和学习因素比较须继续闭合 |
