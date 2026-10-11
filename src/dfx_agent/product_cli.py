@@ -10,7 +10,6 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 import threading
 import time
 from datetime import UTC, datetime
@@ -54,7 +53,7 @@ def _json(path: Path, limit: int = 4 * 1024 * 1024) -> dict[str, Any]:
         raise ValueError("missing or oversized metadata")
     value = json.loads(path.read_text(encoding="utf-8-sig"))
     if not isinstance(value, dict):
-        raise ValueError("metadata must be an object")
+        raise TypeError("metadata must be an object")
     return value
 
 
@@ -129,7 +128,7 @@ class _Capture:
             raise ValueError("backend response unavailable or exceeds limit")
         value = json.loads(self.data.decode("utf-8-sig"))
         if not isinstance(value, dict):
-            raise ValueError("backend response is not an object")
+            raise TypeError("backend response is not an object")
         return value
 
 
@@ -236,7 +235,7 @@ def _summary(root: Path, name: str) -> dict[str, Any]:
     # remains with existing independent report/export readers.
     cost = report.get("cost", {})
     if not isinstance(cost, dict):
-        raise ValueError("invalid saved cost view")
+        raise TypeError("invalid saved cost view")
     status, accepted = report["status"], report["accepted"]
     application, level = report["application_verification"], report.get("verification_level", "unknown")
     calls, tokens = cost.get("reserved_calls"), cost.get("known_total_tokens")
@@ -292,7 +291,7 @@ def _run(root: Path, task: str, config: str, name: str, resume: bool, mode: str)
         try:
             try:
                 active = _active(root)
-            except (OSError, ValueError):
+            except (OSError, ValueError, TypeError):
                 active = None
             if (active and active.get("manager_pid") == process.pid and
                     active.get("competition_work_id") == name):
@@ -300,7 +299,7 @@ def _run(root: Path, task: str, config: str, name: str, resume: bool, mode: str)
             if interrupted and manager is not None:
                 try:
                     _stop(root, name, manager)
-                except (OSError, ValueError, subprocess.SubprocessError):
+                except (OSError, ValueError, TypeError, subprocess.SubprocessError):
                     stop_unconfirmed = True
                     if mode != "json":
                         _emit({"event": "stop_unconfirmed", "name": name,

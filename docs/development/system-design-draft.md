@@ -550,7 +550,7 @@ flowchart LR
 | 根因假设与业务义务 | contracts.py、diagnostics.py；test_causal_diagnosis.py | 日志/源码依据、假设和义务双向引用；程序认证来源与交接，不确认因果关系或业务语义 |
 | 按决策需要补证据 | decisions.py、policies.py；test_decisions.py、test_policies.py | 方向对应已登记问题、失败反例及条件结果，可关闭且保留通用路径；建议不执行探针或强制模型采纳 |
 | 有限条件及可信输入 | conditions.py、value_sources.py、agent.py；test_conditions.py、test_value_sources.py、test_condition_handoff.py | 同操作、单位和版本的有限计算及实际 SDK 交接；默认合成 registry 不含真实输入，自动 literal/运行采样不是现有能力 |
-| 工作上下文与实际发送 | repair_context_layout.py、working_context_plan.py、working_context_materials.py、working_context_projection.py；test_repair_context_layout.py、test_working_context_handoff.py、test_competition.py | 阶段/义务分槽保留全部语义，焦点由可见回执推导，探索与原失败在共同预算内选择；实际请求中核对布局、原失败与完整过程，不以 ID 或保存计划代替模型可见；新源码未验收，修复收益未知 |
+| 工作上下文与实际发送 | repair_context_layout.py、working_context_plan.py、working_context_materials.py、working_context_projection.py；test_repair_context_layout.py、test_working_context_handoff.py、test_competition.py | 阶段/义务分槽保留全部语义，焦点由可见回执推导，探索与原失败在共同预算内选择；实际请求中核对布局、原失败与完整过程，不以 ID 或保存计划代替模型可见；实际验收见 STATUS；软件通过不证明修复收益 |
 | 检索与有条件经验迁移 | knowledge_retrieval.py、applicability_handoff.py、solver_visibility.py；test_applicability_handoff.py、test_applicability_provider.py | 普通检索与三态共用知识/工具，普通/旧工作视图/决策布局分别核完整指导；依据来自当时已见原件，前提判断仍是模型推断，不将基线 review 改称新候选 review |
 | Skill 的实际消费 | domain_skills.py、static_skill_handoff.py、version_skills.py；test_competition.py、test_model_skill_sdk.py、test_model_skill_deployment.py | 完整读取与后续输入可见性分别核验，旧任务只恢复原批准副本；选中目录不等于实际采用或逐步正确执行 |
 | 从失败提炼、验证与演进 | learning.py、skill_validation.py、skill_evolution.py；test_learning_source.py、test_model_skill_deployment.py、test_skill_evolution_receipts.py | 原响应/失败/全部调用保留，事前四角色验证、独立判定、发表与退回；有限合成资格不能授应用资格，自动学习收益未证明 |

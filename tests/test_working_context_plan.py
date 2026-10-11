@@ -622,7 +622,8 @@ def test_repair_selection_keeps_observed_failure_without_optional_model_link(tmp
     panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
     names = [group["messages"][0]["tool_calls"][0]["name"] for group in panel["required_unrepresented_groups"]]
     assert names == ["register_candidate", "run_check"]
-    assert observed["candidate_snapshot_sha256"] in selected.stage_messages_json
+    assert observed["status"] == "fail" and observed["candidate_id"] == old
+    assert observed["idempotency_key"] in selected.stage_messages_json
     assert not packet(selected)["feedback"]
 
 

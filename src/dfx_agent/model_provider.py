@@ -19,7 +19,14 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from .contracts import IDENTIFIER, require_hash
 

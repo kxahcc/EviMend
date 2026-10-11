@@ -221,7 +221,7 @@ def test_capture_drains_oversized_output_without_retaining_it() -> None:
 @pytest.mark.parametrize("raw", [b"private non-json failure", b"[]", b"\xff"])
 def test_capture_rejects_non_object_or_invalid_backend_output(raw: bytes) -> None:
     capture = cli._Capture(io.BytesIO(raw))
-    with pytest.raises((ValueError, UnicodeError)):
+    with pytest.raises((ValueError, TypeError, UnicodeError)):
         capture.finish()
 
 

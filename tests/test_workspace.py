@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -138,6 +140,48 @@ def test_sdk_edit_rejects_ambiguous_anchor_without_replacing_all(tmp_path: Path)
     with pytest.raises(ValueError, match="exactly once"):
         workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="good")])
     assert (workspace.draft / "src/main.ets").read_bytes() == b"bad bad\n"
+
+
+@pytest.mark.parametrize(("original", "anchor", "replacement", "markers"), [
+    (b"value=bad", "bad", "good", 2),
+    (b"value=bad", "bad", "good\n", 1),
+    (b"value=bad\n", "bad\n", "good", 1),
+    (b"value=bad\n", "bad", "good", 0),
+    (b"value=bad\nunchanged tail", "bad", "good", 1),
+    (b"value=bad\r\n", "bad", "good", 0),
+])
+def test_registered_patch_applies_to_exact_baseline_and_preserves_eof(
+        tmp_path: Path, original: bytes, anchor: str, replacement: str, markers: int) -> None:
+    task = task_snapshot(tmp_path)
+    (task / "source/src/main.ets").write_bytes(original)
+    manifest_path = task / "source-manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    next(entry for entry in manifest if entry["path"] == "src/main.ets")["sha256"] = digest(original)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    task_path = task / "task.json"
+    identity = json.loads(task_path.read_bytes())
+    identity["source_snapshot_sha256"] = snapshot_digest(manifest)
+    task_path.write_text(json.dumps(identity), encoding="utf-8")
+    workspace = CandidateWorkspace(task, tmp_path / "work", "run1")
+    workspace.start_draft()
+    workspace.apply_text_edits([TextEdit(path="src/main.ets", old=anchor, new=replacement)])
+    candidate = workspace.register_candidate(1)
+    patch = workspace.candidates / candidate.candidate_id / "patch.diff"
+    assert patch.read_bytes().count(b"\\ No newline at end of file\n") == markers
+    applied = tmp_path / "apply-check"
+    shutil.copytree(workspace.base, applied)
+    # Isolate Git's repository discovery from the surrounding checkout. This
+    # temporary toy repository and all Git children remain inside the Job.
+    # The assertion concerns patch bytes, so do not inherit a user's checkout
+    # CRLF conversion. These command-local options do not change Git settings.
+    git = ["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf"]
+    subprocess.run([*git, "init", "-q", str(applied)], check=True, capture_output=True)
+    for args in (["--check"], []):
+        subprocess.run([*git, "-C", str(applied), "apply", *args, str(patch)], check=True, capture_output=True)
+    frozen = workspace.require_registered(candidate.candidate_id)
+    assert (applied / "src/main.ets").read_bytes() == (frozen / "src/main.ets").read_bytes()
+    assert (applied / "src/other.ets").read_bytes() == (workspace.base / "src/other.ets").read_bytes()
+    assert (workspace.base / "src/main.ets").read_bytes() == original
 
 
 def test_changed_candidate_is_rejected_before_check(tmp_path: Path) -> None:

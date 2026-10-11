@@ -94,11 +94,17 @@ def _diff(base: Path, changed: Path) -> tuple[str, list[str]]:
         changed_paths.append(path)
         old_lines = old.decode("utf-8").splitlines(keepends=True)
         new_lines = new.decode("utf-8").splitlines(keepends=True)
-        output.extend(difflib.unified_diff(
+        for line in difflib.unified_diff(
             old_lines, new_lines,
             fromfile=f"a/{path}" if path in old_files else "/dev/null",
             tofile=f"b/{path}" if path in new_files else "/dev/null",
-        ))
+        ):
+            output.append(line)
+            # difflib keeps the missing EOF newline in data lines; directly
+            # joining them would concatenate adjacent patch records. Git's
+            # marker preserves that byte-level property when applying a diff.
+            if not line.endswith("\n"):
+                output.extend(("\n", "\\ No newline at end of file\n"))
     return "".join(output), changed_paths
 
 

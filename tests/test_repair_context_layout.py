@@ -8,7 +8,10 @@ from typing import Any
 import pytest
 
 from dfx_agent.model_calls import canonical
-from dfx_agent.repair_context_layout import build_decision_context, restore_decision_context
+from dfx_agent.repair_context_layout import (
+    build_decision_context,
+    restore_decision_context,
+)
 
 BASE = "a" * 64
 CANDIDATE = "b" * 64

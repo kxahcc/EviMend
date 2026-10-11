@@ -13,7 +13,13 @@ from typing import Any
 
 import httpx
 import pytest
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from pydantic import ValidationError
 
 from dfx_agent.context_compaction import CompactionPolicy, CompactionStore

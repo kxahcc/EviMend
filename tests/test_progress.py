@@ -13,7 +13,12 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables.config import get_executor_for_config
 
 from dfx_agent.actions import ToolActionStore
-from dfx_agent.model_calls import ModelCallIntent, ModelCallStore, invoke_accounted, sha256
+from dfx_agent.model_calls import (
+    ModelCallIntent,
+    ModelCallStore,
+    invoke_accounted,
+    sha256,
+)
 from dfx_agent.progress import emit_progress, progress_scope, read_progress
 
 
@@ -73,12 +78,11 @@ def test_nested_and_empty_contexts_do_not_leak_run_observations(tmp_path: Path) 
 
 def test_sdk_executor_propagates_scope_to_synchronous_tool_workers(tmp_path: Path) -> None:
     # ToolNode uses this SDK executor; its child threads copy ContextVars.
-    with progress_scope(tmp_path, "run1"):
-        with get_executor_for_config({"max_concurrency": 1}) as executor:
-            first = executor.submit(emit_progress, "model_dispatched", call_id="model-1")
-            first.result(timeout=5)
-            second = executor.submit(emit_progress, "tool_completed", tool_name="read_log", state="completed")
-            second.result(timeout=5)
+    with progress_scope(tmp_path, "run1"), get_executor_for_config({"max_concurrency": 1}) as executor:
+        first = executor.submit(emit_progress, "model_dispatched", call_id="model-1")
+        first.result(timeout=5)
+        second = executor.submit(emit_progress, "tool_completed", tool_name="read_log", state="completed")
+        second.result(timeout=5)
     assert [event["event"] for event in read_progress(tmp_path)["events"]] == ["model_dispatched", "tool_completed"]
 
 

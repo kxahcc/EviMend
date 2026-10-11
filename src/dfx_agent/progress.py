@@ -57,17 +57,12 @@ def _safe_fields(fields: dict[str, object]) -> dict[str, object]:
     """Only host identifiers, fixed vocabulary, booleans and counts may be displayed."""
     result: dict[str, object] = {}
     for key, value in fields.items():
-        if key in _ENUMS and isinstance(value, str) and value in _ENUMS[key]:
-            result[key] = value
-        elif key == "tool_name" and isinstance(value, str) and value in _TOOL_NAMES:
-            result[key] = value
-        elif key in _IDS and isinstance(value, str) and _IDENTIFIER.fullmatch(value):
-            result[key] = value
-        elif key in _HASHES and isinstance(value, str) and _HASH.fullmatch(value):
-            result[key] = value
-        elif key in _COUNTS and type(value) is int and 0 <= value <= 2**63 - 1:
-            result[key] = value
-        elif key in _BOOLEANS and type(value) is bool:
+        if ((key in _ENUMS and isinstance(value, str) and value in _ENUMS[key]) or
+                (key == "tool_name" and isinstance(value, str) and value in _TOOL_NAMES) or
+                (key in _IDS and isinstance(value, str) and _IDENTIFIER.fullmatch(value)) or
+                (key in _HASHES and isinstance(value, str) and _HASH.fullmatch(value)) or
+                (key in _COUNTS and type(value) is int and 0 <= value <= 2**63 - 1) or
+                (key in _BOOLEANS and type(value) is bool)):
             result[key] = value
     return result
 
@@ -76,6 +71,7 @@ def _normal(path: Path, *, missing_file: bool = False) -> os.stat_result | None:
     path = path.absolute()
     if ".." in path.parts:
         raise ValueError("progress path is not canonical")
+    info: os.stat_result | None = None
     for component in (*reversed(path.parents), path):
         try:
             info = component.lstat()
@@ -118,7 +114,7 @@ def _decode(raw: bytes) -> tuple[list[dict[str, Any]], bool]:
     for sequence, line in enumerate(lines, 1):
         value = json.loads(line)
         if not isinstance(value, dict):
-            raise ValueError("progress event is invalid")
+            raise TypeError("progress event is invalid")
         fixed = {"schema_version", "sequence", "observed_at", "run_id", "event"}
         if (value.get("schema_version") != 1 or type(value.get("sequence")) is not int or
                 value["sequence"] != sequence or value.get("event") not in _EVENTS or
@@ -218,7 +214,7 @@ class ProgressTracker:
                 finally:
                     os.close(descriptor)
                 self.state = "truncated" if limited else "available"
-            except Exception:
+            except (OSError, ValueError, TypeError, KeyError, OverflowError):
                 # Display failure never turns a completed effect into a retry.
                 self.state = "unknown"
 
