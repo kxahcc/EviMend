@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "platform": "harmonyos",
+  "profile_id": "reviewed-harmonyos-application",
+  "execution": {
+    "mode": "application",
+    "project_root": "SET_ABSOLUTE_FULL_PROJECT_ROOT",
+    "source_mapping": {},
+    "preparation": {
+      "argv": ["SET_ABSOLUTE_NODE_EXECUTABLE", "SET_ABSOLUTE_OHPM_JAVASCRIPT_ENTRY", "install", "SET_REVIEWED_OHPM_PROJECT_CACHE_ARGUMENTS"],
+      "timeout_seconds": 120
+    },
+    "commands": {
+      "build": {"argv": ["SET_ABSOLUTE_NODE_EXECUTABLE", "SET_ABSOLUTE_HVIGOR_JAVASCRIPT_ENTRY", "SET_REVIEWED_BUILD_ARGUMENTS"], "timeout_seconds": 120, "oracle_sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+      "target": {"argv": ["SET_ABSOLUTE_REPLAY_EXECUTABLE", "SET_REVIEWED_TARGET_ARGUMENTS"], "timeout_seconds": 120, "oracle_sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+      "behavior": {"argv": ["SET_ABSOLUTE_BEHAVIOR_EXECUTABLE", "SET_REVIEWED_BEHAVIOR_ARGUMENTS"], "timeout_seconds": 120, "oracle_sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+      "regression": {"argv": ["SET_ABSOLUTE_REGRESSION_EXECUTABLE", "SET_REVIEWED_REGRESSION_ARGUMENTS"], "timeout_seconds": 120, "oracle_sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    },
+    "baseline_target_exit_codes": [1],
+    "baseline_fault_pattern": "SET_EXACT_ORIGINAL_FAULT_MARKER",
+    "max_check_seconds": 900,
+    "credential_env_names": ["DFX_PROVIDER_API_KEY"]
+  },
+  "prerequisites": [
+    {"name": "node", "path": "SET_ABSOLUTE_NODE_EXECUTABLE", "kind": "file", "purpose": "Execute installed HarmonyOS JavaScript tooling without a shell wrapper."},
+    {"name": "sdk", "path": "SET_ABSOLUTE_HARMONYOS_SDK_DIRECTORY", "kind": "directory", "purpose": "Platform SDK provisioned once by the operator; version is checked during real environment acceptance."},
+    {"name": "ohpm", "path": "SET_ABSOLUTE_OHPM_JAVASCRIPT_ENTRY", "kind": "file", "purpose": "Prepare dependencies inside the independent managed project copy."},
+    {"name": "hvigor", "path": "SET_ABSOLUTE_HVIGOR_JAVASCRIPT_ENTRY", "kind": "file", "purpose": "Build with an explicitly installed toolchain and approved arguments."},
+    {"name": "hdc", "path": "SET_ABSOLUTE_HDC_EXECUTABLE", "kind": "file", "purpose": "The approved replay runner deploys to and controls the paired device."}
+  ],
+  "independent_oracles": {
+    "build": {"path": "SET_ABSOLUTE_INDEPENDENT_BUILD_ORACLE", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "target": {"path": "SET_ABSOLUTE_INDEPENDENT_TARGET_ORACLE", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "behavior": {"path": "SET_ABSOLUTE_INDEPENDENT_BEHAVIOR_ORACLE", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
+    "regression": {"path": "SET_ABSOLUTE_INDEPENDENT_REGRESSION_ORACLE", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+  },
+  "device_id": "SET_PAIRED_PHYSICAL_DEVICE_SERIAL",
+  "device_kind": "physical",
+  "physical_device_required": true,
+  "signing_paths": ["SET_ABSOLUTE_SIGNING_CERTIFICATE_OR_PROFILE"]
+}

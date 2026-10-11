@@ -8,6 +8,8 @@ import json
 import os
 import shutil
 import stat
+import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,28 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import CandidatePatch, require_hash, require_path
 from .task import digest, snapshot_digest, verify_task
+
+_WINDOWS = sys.platform == "win32"
+_RENAME_DELAYS = (0.025, 0.05, 0.075, 0.1)
+
+
+def _rename_owned(source: Path, destination: Path) -> None:
+    """Retry only the same atomic move after a brief Windows file contention.
+
+    Caller ownership/link checks and rollback remain unchanged. There are at
+    most five attempts, with 250 ms total waiting; no edit, freeze, model or
+    external action is repeated. Persistent denial and every other error raise.
+    """
+    if source.parent != destination.parent or source == destination:
+        raise ValueError("workspace rename must stay inside the same owned directory")
+    for attempt in range(len(_RENAME_DELAYS) + 1):
+        try:
+            source.rename(destination)
+            return
+        except OSError as error:
+            if not _WINDOWS or getattr(error, "winerror", None) not in {5, 32} or attempt == len(_RENAME_DELAYS):
+                raise
+            time.sleep(_RENAME_DELAYS[attempt])
 
 
 class TextEdit(BaseModel):
@@ -226,11 +250,11 @@ class CandidateWorkspace:
                     raise ValueError(f"edit anchor must match exactly once; SDK edit failed: {result.error}")
                 if result.path != f"/{edit.path}" or result.occurrences != 1:
                     raise ValueError("SDK edit did not confirm one replacement in the requested file")
-            self.draft.rename(backup)
+            _rename_owned(self.draft, backup)
             try:
-                temp.rename(self.draft)
+                _rename_owned(temp, self.draft)
             except Exception:
-                backup.rename(self.draft)
+                _rename_owned(backup, self.draft)
                 raise
             _files(backup)
             shutil.rmtree(backup)
@@ -274,7 +298,7 @@ class CandidateWorkspace:
             (temp / "manifest.json").write_text(json.dumps(candidate_manifest, sort_keys=True), encoding="utf-8")
             (temp / "patch.diff").write_bytes(diff.encode("utf-8"))
             (temp / "candidate.json").write_text(record.model_dump_json(), encoding="utf-8")
-            temp.rename(destination)
+            _rename_owned(temp, destination)
         except Exception:
             if temp.exists():
                 _files(temp)

@@ -36,6 +36,16 @@ if settings.get("sleep_stage") == stage:
     time.sleep(30)
 value_before = Path(settings["source"]).read_text()
 role = "baseline" if "bad" in value_before else "candidate"
+if stage == "prepare":
+    cache = Path(os.environ["npm_config_cache"])
+    assert cache.is_relative_to(Path.cwd()) and cache.is_dir()
+    assert cache.parent == Path(os.environ["DFX_PROJECT_CACHE_ROOT"])
+    Path(".prepared").write_text("project dependencies prepared")
+    if settings.get("fail_prepare_role") == role:
+        print("Synthetic dependency unavailable", flush=True)
+        sys.exit(7)
+elif settings.get("require_prepared"):
+    assert Path(".prepared").is_file(), "project dependencies were not prepared"
 if settings.get("mutate_stage") == stage and settings.get("mutate_role", role) == role:
     Path(settings["source"]).write_text(settings.get("mutate_value", "value=bad\\n"))
 if stage == "target" and "bad" in Path(settings["source"]).read_text():
@@ -62,7 +72,7 @@ def managed(monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def fixture(tmp_path: Path, managed_root: Path, *, mapping: bool = False,
             settings: dict[str, Any] | None = None, timeout: int = 3,
-            output: int = 131072, fault: str = "SyntheticTargetFault") -> tuple[
+            output: int = 131072, fault: str = "SyntheticTargetFault", prepare: bool = False) -> tuple[
                 CandidateWorkspace, Path, LocalCheckConfig, LocalApplicationExecutor]:
     project = tmp_path / "original-project"
     full_source = "module/main.ets" if mapping else "src/main.ets"
@@ -91,10 +101,94 @@ def fixture(tmp_path: Path, managed_root: Path, *, mapping: bool = False,
     config = LocalCheckConfig(project_root=str(project), commands={
         stage: LocalCommand(argv=[sys.executable, "verify.py", stage], timeout_seconds=timeout)
         for stage in local.STAGES}, baseline_target_exit_codes=[9], baseline_fault_pattern=fault,
+        preparation=LocalCommand(argv=[sys.executable, "verify.py", "prepare"], timeout_seconds=timeout) if prepare else None,
         source_mapping={"src/main.ets": full_source} if mapping else {},
         max_output_bytes=output, max_check_seconds=30, credential_env_names=["CLOUD_TEST_SECRET"])
     executor = LocalApplicationExecutor(config, workspace, managed_root=managed_root)
     return workspace, source, config, executor
+
+
+def test_optional_preparation_keeps_existing_protocol_serialization(tmp_path: Path) -> None:
+    # No process or application condition is needed to check old JSON identities.
+    config = LocalCheckConfig(project_root=str(tmp_path), commands={
+        stage: LocalCommand(argv=[sys.executable, "check.py", stage]) for stage in local.STAGES},
+        baseline_target_exit_codes=[9])
+    assert "preparation" not in config.model_dump(mode="json")
+    assert "preparation" not in json.loads(config.model_dump_json())
+
+
+def test_preparation_precedes_checks_in_each_independent_copy(tmp_path: Path, managed: Path,
+                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace, source, config, executor = fixture(tmp_path, managed, prepare=True, settings={"require_prepared": True})
+    receipt_key = key("prepared-project")
+    status, detail = executor.check(key=receipt_key, source=source)
+    assert status == "pass", detail
+    evidence = executor.evidence(receipt_key)
+    assert [(row["role"], row["stage"]) for row in evidence["preparation"]] == [
+        ("baseline", "prepare"), ("candidate", "prepare")]
+    assert all(row["source_binding_verified"] and row["subtree_stopped"] for row in evidence["preparation"])
+    assert evidence["accepted"] is False and evidence["application_verification"] == "not_run"
+    assert not (Path(config.project_root) / ".prepared").exists()
+    assert not (Path(config.project_root) / ".dfx-tool-cache").exists()
+    monkeypatch.setattr(local.subprocess, "Popen", lambda *_a, **_kw: pytest.fail("completed preparation relaunched"))
+    restored = LocalApplicationExecutor(config, workspace, managed_root=managed)
+    assert restored.check(key=receipt_key, source=source) == (status, detail)
+
+
+@pytest.mark.parametrize("role", ["baseline", "candidate"])
+def test_preparation_failure_is_unavailable_environment_not_bad_patch(tmp_path: Path, managed: Path,
+                                                                    role: str) -> None:
+    _, source, _, executor = fixture(tmp_path, managed, prepare=True, settings={"fail_prepare_role": role})
+    receipt_key = key("preparation-failure-" + role)
+    status, detail = executor.check(key=receipt_key, source=source)
+    assert status == "inconclusive" and "dependency preparation unavailable" in detail
+    evidence = executor.evidence(receipt_key)
+    assert evidence["preparation"][-1]["exit_code"] == 7
+    assert evidence["baseline"]["stages"] == [] and evidence["stages"] == []
+    assert evidence["accepted"] is False
+
+
+@pytest.mark.parametrize("role", ["baseline", "candidate"])
+def test_preparation_cannot_modify_bound_source(tmp_path: Path, managed: Path, role: str) -> None:
+    _, source, _, executor = fixture(tmp_path, managed, prepare=True,
+        settings={"mutate_role": role, "mutate_stage": "prepare", "mutate_value": "changed-source\n"})
+    receipt_key = key("preparation-source-" + role)
+    status, detail = executor.check(key=receipt_key, source=source)
+    assert status == "inconclusive" and "changed the bound execution source" in detail
+    evidence = executor.evidence(receipt_key)
+    assert evidence["preparation"][-1]["source_binding_verified"] is False
+    assert evidence["stages"] == [] and evidence["accepted"] is False
+
+
+def test_unknown_preparation_is_never_reinstalled_on_recovery(tmp_path: Path, managed: Path,
+                                                           monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace, source, config, executor = fixture(tmp_path, managed, prepare=True)
+    original = executor._stage
+
+    def interrupt(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        original(*args, **kwargs)
+        raise RuntimeError("preparation response lost")
+
+    monkeypatch.setattr(executor, "_stage", interrupt)
+    receipt_key = key("preparation-unknown")
+    with pytest.raises(RuntimeError, match="response lost"):
+        executor.check(key=receipt_key, source=source)
+    monkeypatch.setattr(local.subprocess, "Popen", lambda *_a, **_kw: pytest.fail("unknown preparation relaunched"))
+    restored = LocalApplicationExecutor(config, workspace, managed_root=managed)
+    assert restored.check(key=receipt_key, source=source)[0] == "inconclusive"
+    assert restored.evidence(receipt_key)["accepted"] is False
+
+
+def test_preparation_receipt_cannot_be_removed_from_a_pass(tmp_path: Path, managed: Path) -> None:
+    workspace, source, _, executor = fixture(tmp_path, managed, prepare=True)
+    receipt_key = key("preparation-receipt-drift")
+    assert executor.check(key=receipt_key, source=source)[0] == "pass"
+    path = local.local_evidence_path(workspace.root / "local-execution" / receipt_key / "execution.json")
+    value = json.loads(path.read_bytes())
+    del value["preparation"]
+    path.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing required evidence"):
+        executor.evidence(receipt_key)
 
 
 def key(name: str) -> str:

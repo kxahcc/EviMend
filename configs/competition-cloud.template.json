@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "model_mode": "cloud",
-  "provider": {"endpoint": "https://provider.example/v1/chat/completions", "credential_env": "DFX_PROVIDER_API_KEY"},
-  "model": {"provider_id": "chosen-provider", "model_id": "chosen-tool-calling-model", "max_output_tokens": 4096, "timeout_seconds": 60.0, "thinking_mode": "disabled"},
+  "provider": {"endpoint": "https://api.deepseek.com/chat/completions", "credential_env": "DEEPSEEK_API_KEY"},
+  "model": {"provider_id": "deepseek", "model_id": "SET_CONFIRMED_TOOL_CALLING_MODEL_ID", "max_output_tokens": 4096, "timeout_seconds": 60.0, "thinking_mode": "disabled"},
   "execution": {
     "mode": "application",
     "project_root": "SET_REVIEWED_FULL_PROJECT_ABSOLUTE_PATH",
@@ -16,7 +16,7 @@
     "baseline_target_exit_codes": [1],
     "baseline_fault_pattern": "SET_EXACT_BASELINE_FAULT_MARKER",
     "max_check_seconds": 600,
-    "credential_env_names": ["DFX_PROVIDER_API_KEY"]
+    "credential_env_names": ["DEEPSEEK_API_KEY"]
   },
   "policy_features": {"rule_guidance": true, "obligation_tracking": true, "decision_checks": true},
   "working_context": {"enabled": true, "history_selection": "repair_frontier", "exploration_read_groups": 6, "context_layout": "decision_layers"},

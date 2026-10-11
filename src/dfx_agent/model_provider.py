@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import re
 import time
 from collections.abc import Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from importlib.metadata import version
 from typing import Any, Literal, cast
 
 import httpx
@@ -36,6 +40,29 @@ MAX_RESPONSE_BYTES = 2_097_152
 WIRE_PROFILE = "chat-completions-text-tools-v1"
 INPUT_TOKEN_ESTIMATOR = "utf8-body-bytes-and-message-framing-v1"
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
+_SDK_PRIVATE_CALL: ContextVar[bool] = ContextVar("dfx_private_provider_call", default=False)
+
+
+class _PrivateSdkLogFilter(logging.Filter):
+    """SDK debug/error tracebacks are private while this adapter owns the call."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not _SDK_PRIVATE_CALL.get()
+
+
+@contextmanager
+def _private_sdk_call():
+    # Do not disable a user's global logger. Only suppress SDK internals in the
+    # current call context; the adapter reports fixed public failure categories.
+    for name in ("openai._base_client", "openai._response", "openai._legacy_response"):
+        logger = logging.getLogger(name)
+        if not any(isinstance(item, _PrivateSdkLogFilter) for item in logger.filters):
+            logger.addFilter(_PrivateSdkLogFilter())
+    token = _SDK_PRIVATE_CALL.set(True)
+    try:
+        yield
+    finally:
+        _SDK_PRIVATE_CALL.reset(token)
 
 
 class AdapterError(RuntimeError):
@@ -128,14 +155,15 @@ class ProviderSettings(BaseModel):
     temperature: float | None = Field(default=None, ge=0, le=2)
     timeout_seconds: float = Field(default=30.0, gt=0, le=600)
     thinking_mode: Literal["enabled", "disabled"] | None = None
-    reasoning_effort: Literal["low", "high", "max"] | None = None
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None = None
+    max_output_parameter: Literal["max_tokens", "max_completion_tokens"] | None = None
 
     @model_serializer(mode="wrap")
     def serialized(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         value = handler(self)
         # Preserve the exact settings shape of historical profiles that never
         # declared a thinking mode; an explicit mode has a distinct identity.
-        for field in ("thinking_mode", "reasoning_effort"):
+        for field in ("thinking_mode", "reasoning_effort", "max_output_parameter"):
             if value.get(field) is None:
                 value.pop(field, None)
         return value
@@ -150,7 +178,7 @@ class ProviderSettings(BaseModel):
             self.temperature is not None and not math.isfinite(self.temperature)
         ):
             raise ValueError("non-finite provider setting")
-        if self.reasoning_effort is not None and self.thinking_mode != "enabled":
+        if self.reasoning_effort is not None and self.thinking_mode != "enabled" and self.provider_id != "openai":
             raise ValueError("reasoning effort requires explicit thinking mode")
         if self.thinking_mode == "enabled" and self.temperature is not None:
             raise ValueError("temperature is not supported in explicit thinking mode")
@@ -178,6 +206,32 @@ class CloudProviderConfig(BaseModel):
         if not _ENV_NAME.fullmatch(self.credential_env):
             raise ValueError("invalid credential environment name")
         return self
+
+
+def provider_connection(provider: Literal["openai", "deepseek", "compatible"], model_id: str, *,
+                        base_url: str | None = None, credential_env: str | None = None,
+                        **settings: Any) -> tuple[CloudProviderConfig, ProviderSettings]:
+    """Resolve vendor ergonomics onto the official SDK's supported Chat API.
+
+    A preset selects connection defaults, never a model, mode or secret value.
+    Other protocols are not silently treated as OpenAI-compatible endpoints.
+    """
+    presets = {"openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
+               "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY"),
+               "compatible": (None, "DFX_PROVIDER_API_KEY")}
+    if provider not in presets:
+        raise AdapterRequestError("unsupported_provider_preset")
+    default_url, default_env = presets[provider]
+    selected_url = base_url if base_url is not None else default_url
+    if not selected_url:
+        raise AdapterRequestError("provider_base_url_required")
+    endpoint = selected_url.rstrip("/") + "/chat/completions"
+    if provider == "openai" and settings.get("thinking_mode") is not None:
+        raise AdapterRequestError("provider_thinking_mode_unsupported")
+    connection = CloudProviderConfig(endpoint=endpoint,
+                                     credential_env=credential_env if credential_env is not None else default_env)
+    model = ProviderSettings(provider_id=provider, model_id=model_id, **settings)
+    return connection, model
 
 
 class CloudCallAdmission(BaseModel):
@@ -434,8 +488,9 @@ class ChatCompletionsAdapter:
                 stop: list[str] | None = None, bind_options: dict[str, Any] | None = None,
                 generate_options: dict[str, Any] | None = None) -> PreparedRequest:
         descriptors = _tool_descriptors(tools)
+        output_parameter = self.settings.max_output_parameter or "max_tokens"
         body: dict[str, Any] = {"model": self.settings.model_id, "messages": _message_payload(messages),
-                                "max_tokens": self.settings.max_output_tokens, "stream": False}
+                                output_parameter: self.settings.max_output_tokens, "stream": False}
         if descriptors:
             body["tools"] = descriptors
         if self.settings.temperature is not None:
@@ -490,10 +545,12 @@ class ChatCompletionsAdapter:
             if validated.profile_sha256 != _digest(_canonical(self.profile())):
                 raise ValueError("profile differs")
             body = _decode(validated.body)
-            allowed = {"model", "messages", "tools", "max_tokens", "stream", "temperature", "stop",
+            allowed = {"model", "messages", "tools", "max_tokens", "max_completion_tokens", "stream", "temperature", "stop",
                        "tool_choice", "parallel_tool_calls", "thinking", "reasoning_effort"}
+            output_parameter = self.settings.max_output_parameter or "max_tokens"
             if set(body) - allowed or body["model"] != self.settings.model_id or body["stream"] is not False or (
-                type(body["max_tokens"]) is not int or body["max_tokens"] != self.settings.max_output_tokens or
+                type(body[output_parameter]) is not int or body[output_parameter] != self.settings.max_output_tokens or
+                any(key != output_parameter and key in body for key in ("max_tokens", "max_completion_tokens")) or
                 body.get("temperature") != self.settings.temperature or
                 ("temperature" in body and (self.settings.temperature is None or
                                             type(body["temperature"]) not in (float, int)))
@@ -547,11 +604,33 @@ class ChatCompletionsAdapter:
         return _response_message(result)
 
 
-class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
-    """The same finite wire profile, with explicit host network and budget admission.
+class _BoundedResponseStream(httpx.SyncByteStream):
+    """Apply task byte/deadline limits while the official SDK reads its response."""
 
-    Exact MockTransport is the offline substitute for the production HTTP transport.
-    Neither constructing this adapter nor preparing/auditing its profile reads a key.
+    def __init__(self, stream: httpx.SyncByteStream, deadline: float):
+        self.stream, self.deadline = stream, deadline
+
+    def __iter__(self):
+        size = 0
+        for chunk in self.stream:
+            if time.monotonic() >= self.deadline:
+                raise AdapterTransportError("provider_timeout")
+            size += len(chunk)
+            if size > MAX_RESPONSE_BYTES:
+                raise AdapterResponseError("response_byte_limit")
+            yield chunk
+
+    def close(self) -> None:
+        self.stream.close()
+
+
+class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
+    """Official OpenAI SDK Chat API with the host's durable budget boundary.
+
+    The SDK owns credentials, Chat API invocation and response models. This
+    wrapper only freezes supported task inputs, bounds I/O, and certifies the
+    resulting text/tool/usage facts before the Agent consumes them. An exact
+    MockTransport substitutes network I/O in offline acceptance.
     """
 
     def __init__(self, settings: ProviderSettings, config: CloudProviderConfig, *,
@@ -567,6 +646,7 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
         self._allow_network = allow_network
         self._cloud_transport = transport
         self._readonly = False
+        self._profile_override: dict[str, Any] | None = None
 
     def _validate_transport(self) -> None:
         # Structural validation remains useful for read-only recovery with networking
@@ -577,7 +657,11 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
             raise AdapterRequestError("invalid_network_permission")
 
     def profile(self) -> dict[str, Any]:
-        return {"schema_version": 1, "wire_profile": WIRE_PROFILE, "transport": "cloud-httpx",
+        if self._profile_override is not None:
+            return _decode(_canonical(self._profile_override))
+        return {"schema_version": 2, "wire_profile": WIRE_PROFILE, "transport": "openai-sdk",
+                "sdk": {"package": "openai", "version": version("openai"),
+                        "api": "chat.completions", "request_identity": "canonical-json"},
                 "endpoint": self.config.endpoint, "credential_env": self.config.credential_env,
                 "settings": self.settings.model_dump(mode="json"),
                 "max_request_bytes": MAX_REQUEST_BYTES, "max_response_bytes": MAX_RESPONSE_BYTES,
@@ -590,6 +674,8 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
             raise AdapterRequestError("provider_readonly")
         if self._cloud_transport is None and not self._allow_network:
             raise AdapterRequestError("provider_network_disabled")
+        if not self.config.endpoint.endswith("/chat/completions"):
+            raise AdapterRequestError("provider_chat_endpoint_required")
         value = os.environ.get(self.config.credential_env)
         if value is None or not value:
             raise AdapterRequestError("provider_credential_missing")
@@ -647,53 +733,94 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
             raise AdapterRequestError("provider_time_budget")
         if credential in validated.body or credential in _canonical(self.profile()):
             raise AdapterRequestError("provider_credential_exposed")
+        from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
+
+        def check_request(outgoing: httpx.Request) -> None:
+            remaining = admitted.deadline - time.monotonic()
+            if remaining <= 0:
+                raise AdapterRequestError("provider_time_budget")
+            # SDK setup/import time belongs to the original task allowance. Do
+            # not dispatch with the stale timeout computed before that setup.
+            outgoing.extensions["timeout"] = {key: min(value, remaining) for key, value in
+                                               outgoing.extensions["timeout"].items()}
+            try:
+                if (outgoing.method != "POST" or str(outgoing.url) != self.config.endpoint or
+                        len(outgoing.content) > MAX_REQUEST_BYTES or
+                        _canonical(_decode(outgoing.content)) != validated.body):
+                    raise AdapterRequestError("sdk_prepared_request_changed")
+            except AdapterError:
+                raise
+            except (TypeError, ValueError, UnicodeError, RecursionError):
+                raise AdapterRequestError("sdk_prepared_request_changed") from None
+
+        def bound_response(incoming: httpx.Response) -> None:
+            # The SDK normally reads HTTP error bodies before raising. Refuse
+            # those before that unbounded read or private error text can escape.
+            if not 200 <= incoming.status_code < 300:
+                incoming.close()
+                raise AdapterTransportError("provider_http_error")
+            if incoming.headers.get("Content-Encoding", "identity").lower() not in ("identity", ""):
+                incoming.close()
+                raise AdapterResponseError("unsupported_response_encoding")
+            length = incoming.headers.get("Content-Length")
+            if length is not None and length.isdecimal() and int(length) > MAX_RESPONSE_BYTES:
+                incoming.close()
+                raise AdapterResponseError("response_byte_limit")
+            incoming.stream = _BoundedResponseStream(cast(httpx.SyncByteStream, incoming.stream), admitted.deadline)
+
+        payload = _decode(validated.body)
+        extra_body = {"thinking": payload.pop("thinking")} if "thinking" in payload else {}
+
+        def sdk_client(http_client: httpx.Client) -> OpenAI:
+            client = OpenAI(api_key=credential, base_url=self.config.endpoint[:-len("/chat/completions")],
+                            organization="", project="", max_retries=0, timeout=timeout,
+                            default_headers={"Accept-Encoding": "identity"}, http_client=http_client)
+            # Explicit empty arguments prevent SDK environment fallback; public
+            # None attributes then omit these unrelated optional vendor headers.
+            client.organization = None
+            client.project = None
+            return client
+
         try:
-            # Creating the real transport is inside the host gate, never in profile
-            # reconstruction, prepare, validate or constructor. HTTPX's default
-            # certificate verification remains enabled; retries and proxy env are off.
+            # No private SDK API or hand-written POST. The standard SDK resource
+            # serializes the Chat API call; hooks verify its frozen JSON meaning.
             transport = self._cloud_transport or httpx.HTTPTransport(retries=0, trust_env=False)
-            with (httpx.Client(transport=transport, timeout=timeout, follow_redirects=False, trust_env=False) as client,
-                  client.stream("POST", self.config.endpoint, content=validated.body.encode("utf-8"),
-                                headers={"Content-Type": "application/json", "Accept": "application/json",
-                                         "Accept-Encoding": "identity", "Authorization": "Bearer " + credential})
-                  as response):
-                if not 200 <= response.status_code < 300:
-                    raise AdapterTransportError("provider_http_error")
-                if response.headers.get("Content-Encoding", "identity").lower() not in ("identity", ""):
-                    raise AdapterResponseError("unsupported_response_encoding")
-                length = response.headers.get("Content-Length")
-                if length is not None and length.isdecimal() and int(length) > MAX_RESPONSE_BYTES:
-                    raise AdapterResponseError("response_byte_limit")
-                chunks: list[bytes] = []
-                size = 0
-                for chunk in response.iter_bytes():
-                    if time.monotonic() >= admitted.deadline:
-                        raise AdapterTransportError("provider_timeout")
-                    size += len(chunk)
-                    if size > MAX_RESPONSE_BYTES:
-                        raise AdapterResponseError("response_byte_limit")
-                    chunks.append(chunk)
-                raw = b"".join(chunks)
+            with (_private_sdk_call(),
+                  httpx.Client(transport=transport, timeout=timeout, follow_redirects=False, trust_env=False,
+                               event_hooks={"request": [check_request], "response": [bound_response]}) as http_client,
+                  sdk_client(http_client) as client,
+                  client.chat.completions.with_streaming_response.create(
+                      **cast(Any, payload), extra_body=extra_body) as response):
+                raw = response.read()
+                if time.monotonic() >= admitted.deadline:
+                    raise AdapterTransportError("provider_timeout")
+                if credential.encode("utf-8") in raw:
+                    raise AdapterResponseError("provider_credential_exposed")
+                result = _decode(raw)
+                if credential in _canonical(result):
+                    raise AdapterResponseError("provider_credential_exposed")
+                # SDK response models retain provider extension fields such as
+                # DeepSeek reasoning_content. The raw certification also rejects
+                # duplicate JSON keys and preserves invalid/missing usage facts.
+                message = _response_message(result)
+                sdk_result = response.parse().model_dump(mode="json", exclude_unset=True)
+                if _canonical(sdk_result) != _canonical(result):
+                    raise AdapterResponseError("sdk_response_changed")
+                return message
         except AdapterError:
             raise
-        except httpx.TimeoutException:
+        except (APITimeoutError, httpx.TimeoutException):
             raise AdapterTransportError("provider_timeout") from None
-        except Exception:  # noqa: BLE001 - Never expose transport/response text or authorization headers.
+        except APIConnectionError as error:
+            if isinstance(error.__cause__, AdapterError):
+                raise error.__cause__ from None
             raise AdapterTransportError("provider_transport_error") from None
-        try:
-            if time.monotonic() >= admitted.deadline:
-                raise AdapterTransportError("provider_timeout")
-            if credential.encode("utf-8") in raw:
-                raise AdapterResponseError("provider_credential_exposed")
-            result = _decode(raw)
-            # JSON escapes must not disguise a credential in a persisted response.
-            if credential in _canonical(result):
-                raise AdapterResponseError("provider_credential_exposed")
-            return _response_message(result)
-        except AdapterError:
-            raise
+        except APIStatusError:
+            raise AdapterTransportError("provider_http_error") from None
         except (TypeError, ValueError, UnicodeError, RecursionError):
             raise AdapterResponseError("invalid_response_json") from None
+        except Exception:  # noqa: BLE001 - Provider internals may contain private body/header text.
+            raise AdapterTransportError("provider_transport_error") from None
 
 
 def adapter_from_profile(profile: dict[str, Any]) -> ChatCompletionsAdapter:
@@ -706,9 +833,31 @@ def adapter_from_profile(profile: dict[str, Any]) -> ChatCompletionsAdapter:
                 raise AdapterRequestError("provider_readonly")
 
             adapter: ChatCompletionsAdapter = ChatCompletionsAdapter(settings, httpx.MockTransport(never))
-        elif value["transport"] == "cloud-httpx":
+        elif value["transport"] in ("cloud-httpx", "openai-sdk"):
             adapter = CloudChatCompletionsAdapter(settings, CloudProviderConfig(
                 endpoint=value["endpoint"], credential_env=value["credential_env"]), allow_network=False)
+            if value["transport"] == "cloud-httpx":
+                expected = {"schema_version": 1, "wire_profile": WIRE_PROFILE, "transport": "cloud-httpx",
+                            "endpoint": adapter.config.endpoint, "credential_env": adapter.config.credential_env,
+                            "settings": settings.model_dump(mode="json"), "max_request_bytes": MAX_REQUEST_BYTES,
+                            "max_response_bytes": MAX_RESPONSE_BYTES, "automatic_retries": 0,
+                            "follow_redirects": False, "trust_env": False,
+                            "input_token_estimator": INPUT_TOKEN_ESTIMATOR}
+                if _canonical(value) != _canonical(expected):
+                    raise ValueError("historical provider profile differs")
+                adapter._profile_override = expected
+            else:
+                sdk = value.get("sdk")
+                if not isinstance(sdk, dict) or set(sdk) != {"package", "version", "api", "request_identity"} or (
+                        sdk["package"] != "openai" or sdk["api"] != "chat.completions" or
+                        sdk["request_identity"] != "canonical-json" or not isinstance(sdk["version"], str) or
+                        not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", sdk["version"])):
+                    raise ValueError("SDK provider profile differs")
+                expected = adapter.profile()
+                expected["sdk"] = sdk
+                if _canonical(expected) != _canonical(value):
+                    raise ValueError("SDK provider profile differs")
+                adapter._profile_override = expected
         else:
             raise ValueError("unsupported provider profile")
         if _canonical(adapter.profile()) != _canonical(value):
@@ -737,8 +886,12 @@ def _response_message(result: Any) -> AIMessage:
         message["content"] is not None and not isinstance(message["content"], str)
     ):
         raise AdapterResponseError("invalid_response_message")
-    if set(message) - {"role", "content", "reasoning_content", "tool_calls"}:
+    if set(message) - {"role", "content", "reasoning_content", "tool_calls", "refusal", "annotations",
+                       "audio", "function_call"} or message.get("annotations") not in (None, []) or (
+            message.get("audio") is not None or message.get("function_call") is not None):
         raise AdapterResponseError("unsupported_response_message_attachment")
+    if message.get("refusal") is not None and not isinstance(message["refusal"], str):
+        raise AdapterResponseError("invalid_response_refusal")
     kwargs: dict[str, Any] = {}
     if "reasoning_content" in message:
         if message["reasoning_content"] is not None and not isinstance(message["reasoning_content"], str):
@@ -782,6 +935,9 @@ def _response_message(result: Any) -> AIMessage:
         raise AdapterResponseError("missing_response_tool_calls")
     metadata: dict[str, Any] = {"model_name": result["model"], "finish_reason": choice["finish_reason"],
                                "wire_profile": WIRE_PROFILE}
+    if message.get("refusal"):
+        metadata["dfx_provider_refusal"] = message["refusal"]
+        metadata["dfx_provider_incomplete"] = True
     if incomplete and not wire_calls:
         # A truncated text-only response must not be a normal SDK finish. This
         # marker applies to newly parsed responses, not historical observations.

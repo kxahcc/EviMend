@@ -1,6 +1,6 @@
 # 应用软件代码故障精准定位与自修复：开发设计草案
 
-状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-11。
+状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-12。
 职责：维护架构、核心算法及后端抽象。实现状态见 [STATUS](../STATUS.md)，字段与规则见 [模块规格](../design-contracts.md)，阶段见 [实施计划](../project-work-plan.md)。
 
 ## 1. 核心决策
@@ -48,13 +48,13 @@
 | 编排 | deepagents 的 create_deep_agent，底层 LangChain/LangGraph | 实际复用模型/工具循环、消息状态和 middleware；当前默认摘要/卸载关闭，上下文由本项目适配，不再嵌套第二套循环 |
 | 状态恢复 | langgraph-checkpoint-sqlite；首版单本地主进程写入 | run_id 对应独立 thread_id，保存最小状态和产物引用；SQLite 位于本地磁盘 |
 | 数据校验 | Pydantic 2；关键外部字段严格校验，JSON Schema 导出 | 诊断、义务、动作、补丁和验证对象；GraphState 用可序列化 TypedDict/dict，不存 SDK 会话或进程句柄 |
-| 模型 | langchain-core + ChatCompletionsAdapter / CloudChatCompletionsAdapter；HTTPX 显式传输 | AccountedProviderModel 经同一账本对实际发送体记账；Mock 与云端 profile 分开冻结，真实提供方兼容性与计费仍待实测，禁止绕过记账及隐藏重试 |
+| 模型 | langchain-core + 官方 OpenAI SDK 2.30.0 的 chat.completions；项目保留调用预算和领域解析适配 | AccountedProviderModel 经同一账本记录规范请求和实际响应；同协议提供方配置 model/base URL/key 环境名，Mock 与云端 profile 分开冻结，真实兼容性与计费仍待实测 |
 | 检索与修改 | 受控源码/日志读取和检索；文本替换委托锁定 SDK FilesystemBackend.edit | 临时草稿的虚拟根与原子切换由领域适配管理；可按已登记 candidate_id 回读冻结源码。默认原生文件动作仍排除，不开放原版写入或任意 shell；本次委托验收见 STATUS |
 | 本地轨迹 | SQLite 检查点 + 文件产物；CLI 有限活动侧录 | 展示层保持薄，优先复用原生 stream/callback 与标准日志；不新增通用状态数据库、事件总线或自研追踪平台 |
 | 配置与 Skills | 现有冻结配置、Pydantic 元数据、静态 RuleCard 与 SQLite 经验索引；批准人工条目的完整静态 Skill 正文和独立沙盒演进 | consult_rule 读取规则卡；普通经验检索由主机批准 run 内快照后向 SDK 提供完整指导，静态目录和完整读取已接受管程序/CLI 入口。复用 SDK Skills 扩展，独立版本/验证/判定及沙盒别名核验来源与权限，版本启动经独立程序入口认证原批准，验收见 STATUS；不加载 data_B 构造说明，不以经验代替业务验收 |
 | 命令行 | 沿用 argparse | 单例、批量、恢复和报告入口；先不另引 Typer 或 Web UI |
-| 应用作业 | LocalApplicationExecutor + 命名 Windows Job + 文件意图/阶段回执；HTTPX/FastAPI 保留既有模拟原型 | 完整工程与候选分别冻结，主机固定四类检查命令，未知结果不重启；未接设备恢复或常驻服务 |
-| 应用执行 | 本机受管命令通道已实现；HarmonyOS SDK、Hvigor、ohpm、hdc 及设备/模拟器按项目需要准备 | 当前只运行短时模拟程序；实际工具链、签名、设备和独立业务判据须先盘点及验收，Hypium 按案例需要接入 |
+| 应用作业 | LocalApplicationExecutor + Python 标准库调用 Windows Job + 文件意图/阶段回执；HTTPX/FastAPI 保留既有模拟原型 | 完整工程与候选分别冻结，主机固定项目依赖准备及四类检查命令，未知结果不重启；未接设备恢复或常驻服务 |
+| 应用执行 | ApplicationProfile 只读预检、本机受管命令通道；HarmonyOS SDK、Hvigor、ohpm、hdc 及设备按项目准备 | 平台工具链、签名和设备先由人完成一次接纳；Agent 自动准备项目依赖、构建和执行已批准检查。当前只运行短时模拟程序，模板不等于真实案例适配 |
 | 开发质量 | pytest、Ruff、Pyright | 单元/契约/状态恢复检查和静态质量；模型与应用实验单独运行 |
 
 Deep Agents 依赖 LangChain Agent 和 LangGraph；模型入口沿用 langchain-core。真实提供方可采用经核验的适配包，也可复用显式序列化边界，选择服从实际协议与记账要求。[ChatOpenAI](https://docs.langchain.com/oss/python/integrations/chat/openai) 与 [ChatAnthropic](https://docs.langchain.com/oss/python/integrations/chat/anthropic) 提供工具调用及 usage 接口；第三方 OpenAI-compatible 服务不能默认视为完全兼容，必须核对动作、推理相关协议字段与成本字段。当前没有新增提供方依赖。
@@ -79,15 +79,15 @@ Deep Agents 依赖 LangChain Agent 和 LangGraph；模型入口沿用 langchain-
 
 SDK 维护模型消息和工具循环；工具边界转换为我们自己的 ActionProposal/ModelObservation，业务策略不依赖 AIMessage 内部字段。优先使用原生工具调用，返回后再做本地 Pydantic 校验。供应商格式约束不能代替业务校验，格式修复同样记为模型调用。
 
-只由一层负责语义重试和预算，关闭或显式计入 SDK 的自动重试；不允许 SDK、图节点和控制器各重试一轮却只记录一次。`ModelCallStore` 已接入固定响应及模拟请求模型，覆盖调用前登记、Graph 落盘前的完整响应回放、未知发送停止、格式错误和 usage 分类。`PreparedRequest` 以唯一规范化 JSON 发送体固定消息、工具、参数及 profile 哈希；实际发送前重核，不能只给发送前另一份对象留指纹。SDK 的中性 `tool_choice=None` 由模型入口省略，其余不支持字段明确拒绝。
+只由一层负责语义重试和预算，关闭或显式计入 SDK 的自动重试；不允许 SDK、图节点和控制器各重试一轮却只记录一次。`ModelCallStore` 已接入固定响应及模拟请求模型，覆盖调用前登记、Graph 落盘前的完整响应回放、未知发送停止、格式错误和 usage 分类。`PreparedRequest` 以唯一规范化 JSON 固定消息、工具、参数及 profile 哈希；官方 SDK 负责发送序列化，发送前 hook 重核实际请求的规范 JSON 与冻结请求一致，不声称 HTTP 原字节与 JSON 排版相同。SDK 的中性 `tool_choice=None` 由模型入口省略，其余不支持字段明确拒绝。
 
-Chat Completions 有两个独立冻结的传输 profile。`ChatCompletionsAdapter` 保留 exact MockTransport、固定 model.invalid 端点及无凭据的旧路径；`CloudChatCompletionsAdapter` 使用主机配置的规范 HTTPS 端点和凭据环境变量名，构造、prepare、validate 及只读 profile 恢复均不读取密钥或建立网络客户端。发送前按剩余时间及输入估计与完整输出额度准入，再从环境读取密钥；真实 HTTP 只在主机网络许可内单次 POST，关闭自动重试、重定向和环境代理。凭据值不进入配置、profile、请求/响应原件或错误报告，并从应用检查子进程环境排除。软件验收以同一云端适配器注入 MockTransport，真实实验仍禁用。
+Chat Completions 有独立冻结的 mock 与云端传输 profile。`ChatCompletionsAdapter` 保留 exact MockTransport、固定 model.invalid 端点及无凭据的旧路径；`CloudChatCompletionsAdapter` 调用官方 OpenAI SDK 2.30.0 的 `chat.completions`，新 profile 使用 schema 2、transport=openai-sdk，并固定 SDK 版本和规范请求身份。主机配置规范 HTTPS 端点与凭据环境名，构造、prepare、validate 和只读 profile 恢复不读取密钥或建立网络客户端。发送前按剩余时间、输入估计与完整输出额度准入，再读取当前密钥；SDK 和底层传输的重试均为零，关闭重定向和环境代理，响应读取仍受字节和截止时间限制。凭据值不进入配置、profile、请求/响应原件或错误报告，并从应用检查子进程环境排除。历史 cloud-httpx profile 只按原身份回读核验，不迁移为新 SDK 发送资格。软件验收以官方 SDK 通道注入 MockTransport，真实实验仍禁用。
 
-两个 profile 共用有限文字/工具协议：文本、原生工具调用和显式 reasoning_content 有限支持；SDK SkillsMiddleware 的纯文本 system blocks 按原顺序拼接，附件、流式响应、未声明选项或不完整工具调用不静默降级。混合有效/无效工具调用的整个响应停止，不执行其中有效子集。原始 usage 保存，合法计数另做归一化；缺失/错误用量保持未知，云端路径有未知 usage 时停止新发送。输入 Token 预留使用规范请求 UTF-8 字节和消息开销估计，不是提供方 tokenizer 的精确计数；估计准入、输出设置及 max_known_tokens 都不能证明实际总 Token 或计费硬上限。该协议参考 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，查阅日期 2026-10-02；这不是已选择 DeepSeek 或已验证其真实兼容性。
+mock 与云端共用有限文字/工具协议：文本、原生工具调用和显式 reasoning_content 有限支持；SDK SkillsMiddleware 的纯文本 system blocks 按原顺序拼接。标准 nullable refusal/audio/function_call 与空 annotations 可解析，真实拒答保存后标为不完整；非空附件、流式响应、未声明选项或不完整工具调用不静默降级。混合有效/无效工具调用的整个响应停止，不执行其中有效子集。原始 usage 保存，合法计数另做归一化；缺失/错误用量保持未知，云端路径有未知 usage 时停止新发送。输入 Token 预留使用规范请求 UTF-8 字节和消息开销估计，不是提供方 tokenizer 的精确计数；估计准入、输出设置及 max_known_tokens 都不能证明实际总 Token 或计费硬上限。该协议参考 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，查阅日期 2026-10-02；这不是已选择 DeepSeek 或已验证其真实兼容性。
 
-用户目前候选为 deepseek-flash，账号、模式和预算待定。2026-10-10 查阅 [DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)：当前默认开启思考；携带 tools 时要求所有历史轮次完整回传 reasoning_content，包括无工具调用的 assistant。ProviderSettings 已增加显式 thinking_mode（enabled/disabled）与 reasoning_effort（low/high/max），发送为顶层 thinking/type 与 reasoning_effort；缺省未声明时保持旧 profile 形状，不推断实际提供方默认模式。effort 仅允许显式 enabled，启用思考不接 temperature 或强制工具选择。合法 nullable reasoning/tool_calls 及 aborted 终态已编码，不完整文本/工具生成保存 usage 后停止。多轮/恢复 fixture 的软件验收结果见 STATUS；真实服务兼容性仍须接入核验。
+用户目前候选为 deepseek-flash，账号、模式和预算待定。2026-10-10 查阅 [DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)：当前默认开启思考；携带 tools 时要求所有历史轮次完整回传 reasoning_content，包括无工具调用的 assistant。ProviderSettings 已增加显式 thinking_mode（enabled/disabled）与 reasoning_effort（none/minimal/low/medium/high/xhigh/max），发送为顶层 thinking/type 与 reasoning_effort；缺省未声明时保持旧 profile 形状，不推断实际提供方默认模式。OpenAI 可独立设置 effort，其他提供方只允许显式 enabled 下设置；启用思考不接 temperature 或强制工具选择。合法 nullable reasoning/tool_calls 及 aborted 终态已编码，不完整文本/工具生成保存 usage 后停止。多轮/恢复 fixture 的软件验收结果见 STATUS；真实服务兼容性仍须接入核验。
 
-思考工具模式暂用完整历史并在上限停止：发送边界拒绝启用摘要，核对第一条历史 assistant 起的全部轮次未被视图裁剪，并要求各 assistant 的 reasoning_content 完整回传；拒绝发生在新调用预留/发送前，不隐式切模式。有限历史先在显式 disabled 下验收，使用 repair_relevance；真实配置须显式决定模式，不能直接依赖模板的通用缺省。实际协议 smoke 后再按开发结果选比赛模式，各比较组保持一致；若思考模式仍须完整历史，就只主张义务/经验组织，不能宣称该模式有历史裁剪收益。整个适配沿已有 HTTPX/profile/账本，无新增协议栈或请求任意扩展字段。
+思考工具模式暂用完整历史并在上限停止：发送边界拒绝启用摘要，核对第一条历史 assistant 起的全部轮次未被视图裁剪，并要求各 assistant 的 reasoning_content 完整回传；拒绝发生在新调用预留/发送前，不隐式切模式。有限历史先在显式 disabled 下验收，使用 repair_relevance；真实配置须显式决定模式，不能直接依赖模板的通用缺省。实际协议 smoke 后再按开发结果选比赛模式，各比较组保持一致；若思考模式仍须完整历史，就只主张义务/经验组织，不能宣称该模式有历史裁剪收益。官方 SDK 使用明确 extra_body 传递已支持的 DeepSeek thinking 字段，项目仍保留 profile/账本边界，不开放请求任意扩展字段。
 
 求解、格式修复、上下文压缩及 SDK 重试均须穿过同一计数边界；当前云端 HTTP 传输的自动重试为零。原始响应中可获得的 usage/消息标识保留，适配器不支持的字段保持未知，不静默删除后称计费完整。提供方的格式、usage、上下文和工具兼容性仍须实测后核定；具体模型账号和型号不是框架选择的前提。
 
@@ -112,7 +112,7 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 
 若这些边界需要大范围修改 SDK 源码才能满足，就不继续加框架补丁；回到本节比较的轻量主循环方案评估。先使用公开工具/中间件扩展点，不 fork SDK，也不并行实现备选引擎。
 
-当前 uv.lock 由受管 uv 0.12.9 解析，记录 Python 3.13.5、Deep Agents 0.7.18、Pydantic 2.13.5、SQLite checkpoint 3.1.1、HTTPX 0.28.1、FastAPI 0.141.1、Uvicorn 0.54.0 等依赖；使用 `uv sync --locked`。升级任何框架依赖需重跑受影响的固定响应、恢复及质量检查。锁定语义见 [uv 文档](https://docs.astral.sh/uv/concepts/projects/sync/)。
+当前 uv.lock 由受管 uv 0.12.9 解析，记录 Python 3.13.5、Deep Agents 0.7.18、OpenAI SDK 2.30.0、Pydantic 2.13.5、SQLite checkpoint 3.1.1、HTTPX 0.28.1、FastAPI 0.141.1、Uvicorn 0.54.0 等依赖；使用 `uv sync --locked`。升级任何框架依赖需重跑受影响的固定响应、恢复及质量检查。锁定语义见 [uv 文档](https://docs.astral.sh/uv/concepts/projects/sync/)。
 
 #### 执行来源怎样冻结与恢复
 
@@ -345,13 +345,17 @@ Agent 的工作记录包括当前假设、支持/反驳事实、修复义务、�
 
 ## 6. 本机应用执行与模型接入
 
-竞赛入口复用已有 SDK 修复循环、模型调用账本和候选工作区。`CloudChatCompletionsAdapter` 提供显式 HTTPS 请求通道，`LocalApplicationExecutor` 提供完整工程上的受管本机检查，检查意图、阶段回执和最终结果保存为 run 内文件；不要求 HTTP 应用服务或远程主机。`scripts/local.ps1 Run -Task competition` 冻结任务与竞赛配置，工作根为 `.dfx-local/work/competition-<ID>`。`configs/competition-demo.json` 使用模拟传输和短时 toy 工程；`configs/competition-cloud.template.json` 是须由主机填写和审查的配置模板，端点、模型、工程、命令及 oracle 摘要占位值不代表已接纳环境。真实模型与应用开关仍为 false，本批软件证据与未通过项统一见 STATUS。
+竞赛入口复用已有 SDK 修复循环、模型调用账本和候选工作区。`CloudChatCompletionsAdapter` 通过官方 SDK 提供云端请求，`LocalApplicationExecutor` 提供完整工程上的受管本机检查，意图、阶段回执和最终结果保存为 run 内文件；不要求 HTTP 应用服务或远程主机。`dfx --target TASK --config CONFIG` 经 Python 管理器冻结任务与竞赛配置，工作根为 `.dfx-local/work/competition-<ID>`。`configs/competition-demo.json` 使用模拟传输和短时 toy 工程；`configs/competition-cloud.template.json` 与 `configs/harmonyos-app.template.json` 是须填写和审查的配置模板。端点、模型、工程、命令、设备及 oracle 的占位值不代表已接纳环境。真实模型与应用开关仍为 false，软件证据与未通过项统一见 STATUS。
+
+`ApplicationProfile` 固定完整工程、工具路径、四类命令、设备类型/序列号、签名文件和独立 oracle 文件声明。`dfx doctor --application PROFILE` 只读核对路径、工程构建文件、命令占位值、oracle 文件字节及真机限制，返回具体缺项；configured 仅表示这些声明可读取，不证明设备已连接、SDK 版本匹配或签名可用。`dfx configure` 通过提供方/model/base URL/key 环境名与该执行配置生成竞赛配置，不读取密钥、不调用模型，也不改变实验开关。平台 SDK、设备配对和签名条件由人完成一次接纳；Agent 负责之后项目副本的依赖准备、构建和批准的部署/回放/业务检查。实际 Hvigor/hdc 场景 runner 和设备复位仍须本机接入，模型不能自行安装平台、改写外部环境或生成验收答案。
 
 主机提供完整 `project_root`，执行器冻结全部普通文件的路径、原字节摘要和大小，以及目录清单。`source_mapping` 显式给出分析快照每个文件到完整工程的唯一映射；空映射表示相同相对路径。绑定时必须覆盖完整分析基准、映射目标不重合且原字节一致，拒绝链接、重解析点和不安全路径。run 内保存独立的完整工程基准，原版和候选分别复制它，候选覆盖来自已登记的完整冻结源码和 diff；映射外的工程资源随副本保留。显式映射不接纳未映射新增源码；同路径模式也不允许新增源码覆盖无关工程资源。执行不修改 data_B 或主机原工程。
 
 主机固定 `build`、`target`、`behavior`、`regression` 四项 argv，模型不能修改命令或取得任意 shell 权限。子进程使用 `shell=False`，合成模式只允许当前受管 Python，拒绝 shell 脚本入口。原版先在独立副本执行 build 和 target：构建须成功，target 须返回预定非零退出码，并在配置了故障串时从实际捕获输出匹配 `baseline_fault_pattern` 的字面串；application 模式必须给该串及每项命令的 `oracle_sha256`。oracle_sha256 只固定主机事前声明的 oracle 身份/审阅信息，执行器不读取外部 oracle 文件核对该值，不能认证测试语义。原故障未复现时停止候选检查；候选四项都以零退出码完成并确认子树停止，才可能通过。
 
-每项启动前保存 `before_launch` 意图，回执明确 baseline/candidate、stage、状态、退出码、时间及有界 stdout/stderr 文件的摘要。超时取阶段配置、整次检查上限及 Agent 剩余墙钟的较严值，耗尽后不再启动；输出超限、停止、捕获异常或子树状态未知均为 inconclusive。每项之后重新核对映射源码，检查命令不能悄悄改写候选。候选失败反馈包含具体阶段、原因、退出码和有限输出片段，供下一轮修订。
+可选 `preparation` 在原版和候选的独立工程副本中各执行一次批准的项目依赖命令，完成后核对映射源码；不复制依赖产物来替代候选自己的准备。该命令复用相同 Job、截止时间、停止、输出和阶段回执，非零或未知结果为环境不可用/inconclusive，不当作补丁功能失败。未配置时省略该字段，保留旧协议序列化形状。npm 的进程缓存指向副本 `.dfx-tool-cache/npm`，批准 runner 可读取 `DFX_PROJECT_CACHE_ROOT`；不改 HOME/USERPROFILE，ohpm/hvigor 其他缓存必须使用核定参数或事先接纳路径，不能声称 npm 配置已覆盖所有工具写入。
+
+每项准备/检查启动前保存 `before_launch` 意图，回执明确 baseline/candidate、stage、状态、退出码、时间及有界 stdout/stderr 文件的摘要。超时取阶段配置、整次检查上限及 Agent 剩余墙钟的较严值，耗尽后不再启动；输出超限、停止、捕获异常或子树状态未知均为 inconclusive。每项之后重新核对映射源码，命令不能悄悄改写候选。候选失败反馈包含具体阶段、原因、退出码和有限输出片段，供下一轮修订。准备与检查的已完成结果只回读，未知结果均不重发。
 
 执行器核对受管标记、owner 与持久 active lease，打开该 lease 的唯一命名 Windows Job，验证当前进程确属该 Job、父进程身份及生效限额与 lease 完全一致；不能以外层 Job 的限制代替本项目限制。每个检查子进程挂起创建，加入嵌套 Job 后再恢复，退出、超时或停止时终止该子树并有界核实零活动进程。主机 API 凭据环境名与配置排除名不传给子进程，临时目录留在工程副本。application 模式还须同时满足主机 `allow_application` 和资源策略 `execution.allow_application_experiments`，当前不具备放行条件。
 

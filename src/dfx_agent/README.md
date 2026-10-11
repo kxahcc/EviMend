@@ -1,6 +1,6 @@
 # 竞赛与离线修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-11。
+状态：当前使用说明。最后维护：2026-10-12。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
 当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 保留固定响应和模拟模型协议，把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。新增 `competition` 统一主机配置、云端请求适配器、完整工程的本机检查、正式通用领域 Skill 和竞赛交付。统一入口的软件验收证据和未通过项见 [STATUS](../../docs/STATUS.md)。本批只用 MockTransport 与短时合成程序，不运行真实云端或 HarmonyOS 实验；合成 `offline_checked` 或 `synthetic_checked` 不能解释为应用修复成功。公开脱敏、真实环境接纳及修复效果仍待验证。
@@ -71,7 +71,7 @@ events.jsonl 是容量有限的操作侧录：不输出模型正文、源码、�
 
 真实模式须由主机先审阅任务快照、完整工程及业务判据，再固定配置 `execution` 中的 `project_root`、`source_mapping` 和 `commands`。分析快照排除了运行资源，不能拿它充当完整工程。映射为空时按相同相对路径绑定；非空映射须覆盖分析基线的全部源码，原字节必须匹配。四个固定命令键为 `build`、`target`、`behavior`、`regression`；原版先完成构建和指定故障复现，候选再完成这四项检查。实际应用协议须固定故障标记及各命令 oracle 哈希；模型不能改写 oracle、工程路径、命令或接受条件。环境和业务协议的接纳不等于已通过应用验证。
 
-CloudProviderConfig 只保存 HTTPS endpoint 与凭据环境名；endpoint 不允许 userinfo、query 或 fragment，凭据在准入及发送时从环境读取，不保存到 profile、请求体、异常或日志。本机应用子进程排除模型凭据环境变量。Cloud 适配器共用原严格序列化/解析器，显式网络准入后只发一次请求，禁用自动重试、重定向和环境代理并限制响应大小；本批所有调用仍使用 MockTransport。发送前预留保守输入估计与最坏输出 Token，超时受剩余任务时间约束，未知 usage 后停止新发送；这一估计不是供应商 Tokenizer 的精确硬上限，型号兼容性仍待实测。
+CloudProviderConfig 只保存 HTTPS endpoint 与凭据环境名；endpoint 不允许 userinfo、query 或 fragment，凭据在准入及发送时读取，不保存到 profile、请求体、异常或日志。应用子进程排除模型 Key。Cloud 通过官方 SDK 执行 Chat Completions，SDK/传输重试均为零；保留一次请求、截止时间、响应大小和未知结果边界。冻结 canonical 请求用于账本身份，SDK 序列化前须核对相同语义，不要求 JSON 字段顺序相同。标准 nullable 响应支持，拒答或非文本结果不能变成修复成功。旧 cloud-httpx profile 仅保留只读历史语义，不能静默恢复成新传输。发送前预留输入估计与最坏输出 Token；未知 usage 后停止新发送，这不是供应商 Tokenizer 的精确硬上限，真实型号仍待核验。
 
 四份正式过程为 `resources/skills/bounds.json`、`lifecycle.json`、`recursion.json`、`dynamic_pattern.json`，分别针对边界、生命周期、递归进展和动态模式。每份 ExperienceContent 保存 trigger、premises/unknown_question、procedure/branches、preserves、counterexamples 和 exit_conditions；提供完整诊断修复过程，不含 data_B 实际答案或任务身份，也不声称收益。competition 以主机批准冻结其原字节、知识快照与静态选择，复用 search_experience、三态交接及 read_skill，不自动学习或晋升。
 

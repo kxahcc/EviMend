@@ -82,6 +82,9 @@ class LocalCheckConfig(BaseModel):
     project_root: str
     source_mapping: dict[str, str] = Field(default_factory=dict)
     commands: dict[str, LocalCommand]
+    # A host-approved dependency command runs in each independent project copy.
+    # Omitting it preserves serialized identities of existing check protocols.
+    preparation: LocalCommand | None = Field(default=None, exclude_if=lambda value: value is None)
     baseline_target_exit_codes: list[int] = Field(min_length=1)
     baseline_fault_pattern: str | None = None
     max_project_bytes: int = Field(default=268435456, ge=1)
@@ -501,10 +504,18 @@ class LocalApplicationExecutor:
     def _environment(self, project: Path) -> dict[str, str]:
         # Credentials for the cloud provider never reach build/test processes.
         environment = {name: value for name, value in os.environ.items()
-                       if name.casefold() not in self.excluded_env_names and not name.startswith("DFX_COMPETITION_")}
+                       if name.casefold() not in self.excluded_env_names and
+                       name.casefold() not in {"npm_config_cache", "dfx_project_cache_root"} and
+                       not name.startswith("DFX_COMPETITION_")}
         temporary = project / ".dfx-command-tmp"
         temporary.mkdir(exist_ok=True)
-        environment.update({"TEMP": str(temporary), "TMP": str(temporary), "PYTHONDONTWRITEBYTECODE": "1"})
+        cache = project / ".dfx-tool-cache"
+        (cache / "npm").mkdir(parents=True, exist_ok=True)
+        # npm documents npm_config_* as process-local settings. HarmonyOS's
+        # other tools must use reviewed cache arguments/provisioning; this
+        # project variable is for the approved runner, not a guessed SDK API.
+        environment.update({"TEMP": str(temporary), "TMP": str(temporary), "PYTHONDONTWRITEBYTECODE": "1",
+                            "npm_config_cache": str(cache / "npm"), "DFX_PROJECT_CACHE_ROOT": str(cache)})
         return environment
 
     def _stopped(self, lease: dict[str, Any]) -> bool:
@@ -517,7 +528,9 @@ class LocalApplicationExecutor:
 
     def _stage(self, stage: str, role: str, project: Path, receipt_root: Path,
                lease: dict[str, Any], deadline: float) -> dict[str, Any]:
-        command = self.config.commands[stage]
+        command = self.config.preparation if stage == "prepare" else self.config.commands[stage]
+        if command is None:
+            raise ValueError("project dependency preparation is not configured")
         executable = _checked(Path(command.argv[0]))
         if self.config.mode == "synthetic" and executable != _checked(Path(sys.executable)):
             raise ValueError("synthetic checks only allow the current managed Python executable")
@@ -742,6 +755,17 @@ class LocalApplicationExecutor:
                 sort_keys=True, separators=(",", ":")).encode())
             baseline_stages: list[dict[str, Any]] = []
             record["baseline"] = {"fault_reproduced": False, "stages": baseline_stages}
+            if self.config.preparation is not None:
+                record["preparation"] = []
+                for role, prepared, manifest, deleted in (
+                        ("baseline", base, base_manifest, set()),
+                        ("candidate", project, candidate_manifest, removed)):
+                    preparation = self._stage("prepare", role, prepared, receipt_root, lease, deadline)
+                    record["preparation"].append(preparation)
+                    self._record_source_binding(preparation, prepared, manifest, deleted, receipt_root, record, path)
+                    if preparation["status"] != "pass":
+                        raise ValueError(f"{role} project dependency preparation unavailable: "
+                                         f"{preparation['reason']}, exit_code={preparation['exit_code']}")
             build = self._stage("build", "baseline", base, receipt_root, lease, deadline)
             baseline_stages.append(build)
             self._record_source_binding(build, base, base_manifest, set(), receipt_root, record, path)
@@ -821,12 +845,18 @@ class LocalApplicationExecutor:
         schema = record.get("schema_version")
         if schema not in (1, 2):
             raise ValueError("unsupported local execution evidence schema")
-        results = [*(record.get("baseline") or {}).get("stages", []), *record["stages"]]
+        preparations = record.get("preparation", [])
+        if self.config.preparation is None and preparations:
+            raise ValueError("unexpected project preparation evidence")
+        if preparations and [item["role"] for item in preparations] not in (["baseline"], ["baseline", "candidate"]):
+            raise ValueError("invalid project preparation order")
+        results = [*preparations, *(record.get("baseline") or {}).get("stages", []), *record["stages"]]
         captured: dict[tuple[str, str], str] = {}
         for result in results:
             stage, role = result["stage"], result["role"]
-            if stage not in STAGES or role not in ("baseline", "candidate") or result["argv_sha256"] != digest(
-                    json.dumps(self.config.commands[stage].argv, separators=(",", ":")).encode()):
+            command = self.config.preparation if stage == "prepare" else self.config.commands.get(stage)
+            if command is None or role not in ("baseline", "candidate") or result["argv_sha256"] != digest(
+                    json.dumps(command.argv, separators=(",", ":")).encode()):
                 raise ValueError("local stage command identity changed")
             expected_status = ("pass" if result["exit_code"] == 0 else "fail") if result["reason"] == "exited" else "inconclusive"
             if result["status"] != expected_status or (result["reason"] == "exited" and not result["subtree_stopped"]):
@@ -861,7 +891,12 @@ class LocalApplicationExecutor:
                 (self.config.baseline_fault_pattern is None or self.config.baseline_fault_pattern in captured.get(("baseline", "target"), "")))
             if baseline["fault_reproduced"] is not reproduced:
                 raise ValueError("baseline fault reproduction disagrees with fixed protocol")
-        passed = (record["status"] == "pass" and (record.get("baseline") or {}).get("fault_reproduced") is True and
+        preparation_passed = (self.config.preparation is None or
+            (len(preparations) == 2 and all(result["stage"] == "prepare" and result["status"] == "pass" and
+                                          result["subtree_stopped"] and result.get("source_binding_verified") is True
+                                          for result in preparations)))
+        passed = (record["status"] == "pass" and preparation_passed and
+                  (record.get("baseline") or {}).get("fault_reproduced") is True and
                   [result["stage"] for result in record["stages"]] == list(STAGES) and
                   (schema == 1 or all(result["source_binding_verified"] for result in record["stages"])) and
                   all(result["role"] == "candidate" and result["status"] == "pass" and result["subtree_stopped"] for result in record["stages"]))

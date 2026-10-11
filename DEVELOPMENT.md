@@ -1,6 +1,6 @@
 # 项目蓝图与开发导览
 
-状态：当前开发入口。最后维护：2026-10-11。
+状态：当前开发入口。最后维护：2026-10-12。
 职责：先用通俗语言说明要做什么、如何做和重点在哪，再提供文件导航。这里是设计的概览；具体技术决策以开发设计为准，实际进度以 STATUS 为准。
 
 ## 1. 我们最终要做出什么
@@ -80,13 +80,13 @@ flowchart LR
 
 ## 5. 开发框架和资源
 
-**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。HTTPX 云端请求适配器和本机受管子进程执行器已实现；软件验收以 MockTransport 和短时合成程序走同一调用路径，当前源码的实际结果见 STATUS。真实云端提供方和型号仍须兼容性验证，应用检查仍须接纳匹配的 **HarmonyOS 工具链与设备/模拟器**。详细选择理由、恢复边界和依赖接入门槛统一见 [开发设计](docs/development/system-design-draft.md)。
+**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。云端通信复用锁定的官方 OpenAI Python SDK；同类 Chat Completions 服务配置地址、模型名和 Key 环境变量即可接入，不自研供应商通信库。软件验收以 SDK MockTransport 和短时合成程序走同一调用路径，当前结果见 STATUS。真实服务及型号仍须小额兼容性核验，应用检查仍须接纳匹配的 **HarmonyOS 工具链与设备/模拟器**。详细选择与边界见 [开发设计](docs/development/system-design-draft.md)。
 
 | 部分 | 用什么 | 为什么 |
 |---|---|---|
 | Agent 流程 | Deep Agents SDK / LangGraph | 实际复用工具循环、消息状态、middleware 和 SQLite 检查点；文件工具与上下文当前由项目适配，不能声称已全部复用 SDK 默认能力 |
 | 输入输出 | Pydantic 2 | 检查模型动作、证据、候选与验证结果的结构 |
-| 模型 | langchain-core 模型入口、持久调用账本与显式 HTTPS 请求适配器 | 冻结消息、工具、参数与响应；凭据仅从指定环境名读取，发送前预留输入估计及最坏输出预算；实际提供方和型号兼容性待验证，不在本机部署权重 |
+| 模型 | langchain-core 模型入口 + 官方 OpenAI SDK + 既有预算账本 | SDK 负责请求与响应通信；项目负责领域消息、上下文和预算。OpenAI/DeepSeek 有配置预设，其余同协议服务指定 base URL；不要求本机模型权重，不把所有型号视为已验证 |
 | 状态与轨迹 | SQLite 检查点、有限活动侧录、文件产物；按需接原生 stream/callback | 不新增通用会话数据库、事件总线或自研追踪平台；外部 tracing 是可选观测 |
 | 环境管理 | uv + pyproject.toml + uv.lock | 项目内隔离依赖并锁定版本；固定响应 SDK 切片已做合成验证 |
 | 代码工具 | 受控读取/检索、SDK FilesystemBackend.edit、Git CLI | 原版、草稿和冻结候选明确区分；替换执行复用 SDK，领域适配负责临时草稿切换和候选登记；验收见 STATUS |
@@ -261,8 +261,8 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `models.py` | 固定响应、模拟及云端适配模型经账本接入同一 Deep Agents 循环；云端发送前预留保守输入估计和最坏输出预算、压紧剩余时间，未知 usage 后停止；估计不等于供应商 Tokenizer 的精确硬上限 |
 | `context_compaction.py` | 主机选择闭合历史前缀、冻结原始来源和摘要、保存实际发送视图并回读核验；摘要始终是模型推断，不修改 Graph 历史或原版 |
 | `working_context.py` | 独立从显式主机焦点和已登记记录构建只读上下文包，复核来源/版本和引用闭包；实际发送与历史材料由 working_context_plan/materials/projection 接入 |
-| `model_provider.py` | 共用严格 Chat Completions 序列化/解析；原模拟适配器保持 mock-only，Cloud 适配器使用 HTTPS、环境名凭据及显式网络准入，单次有界调用无自动重试/重定向/环境代理；profile 可只读重建而不读凭据或联网 |
-| `local_execution.py` | 主机固定完整工程、source_mapping 和 build/target/behavior/regression 命令；绑定原版复现及冻结候选，受管子进程保存有界输出和意图/结果，未知执行不重做；真实环境尚未验证 |
+| `model_provider.py` | 官方 OpenAI SDK 的薄接入、模型配置预设及领域消息/预算边界；单次有界调用，旧 profile 只读回放；不自写 HTTP 请求协议或声明所有服务均已实测 |
+| `local_execution.py` | 固定完整工程、source_mapping、可选依赖准备及四项检查；独立原版/候选副本保存受管回执，未知执行不重做；真实环境尚未验证 |
 | `domain_skills.py` | 读取四份正式通用过程，以主机批准固定原字节、知识快照和静态选择；不学习、晋升或声明收益 |
 | `competition.py` | 统一任务、配置、模型、本机检查和领域资源；保留失败修订及恢复原件，生成 competition-report.json、result.md 和私有 delivery.zip；mock_demo 只用模拟模型和合成判据 |
 | `offline_script.py` | 校验固定响应及模拟协议 JSON 脚本、策略与限额，建立隔离响应流；期望答案只供合成执行器 |

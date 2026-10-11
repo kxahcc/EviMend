@@ -12,6 +12,7 @@ import pytest
 from deepagents.backends import FilesystemBackend
 from deepagents.backends.protocol import EditResult
 
+from dfx_agent import workspace as workspace_module
 from dfx_agent.task import PROFILE, digest, snapshot_digest
 from dfx_agent.workspace import CandidateWorkspace, TextEdit
 
@@ -266,3 +267,104 @@ def test_public_reopen_rejects_workspace_owner_changes(tmp_path: Path, field: st
     path.write_text(json.dumps(metadata), encoding="utf-8")
     with pytest.raises(ValueError, match="workspace owner or source snapshot differs"):
         CandidateWorkspace.reopen(task, workspace.root, "run1")
+
+
+def _windows_rename_error(code: int) -> OSError:
+    error = OSError(13, "synthetic Windows filesystem contention")
+    error.winerror = code
+    return error
+
+
+@pytest.mark.parametrize("code", [5, 32])
+def test_windows_transient_owned_rename_retries_same_move_without_repeating_edit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: int,
+) -> None:
+    workspace = CandidateWorkspace(task_snapshot(tmp_path), tmp_path / "work", "run1")
+    workspace.start_draft()
+    original_rename = Path.rename
+    original_baseline = (workspace.base / "src/main.ets").read_bytes()
+    original_edit = FilesystemBackend.edit
+    attempts: dict[tuple[Path, Path], int] = {}
+    sleeps, edits = [], []
+
+    def transient(source: Path, destination: Path) -> Path:
+        key = (source, destination)
+        attempts[key] = attempts.get(key, 0) + 1
+        if attempts[key] == 1:
+            raise _windows_rename_error(code)
+        return original_rename(source, destination)
+
+    def edit_once(backend, *args, **kwargs):
+        edits.append(True)
+        return original_edit(backend, *args, **kwargs)
+
+    monkeypatch.setattr(workspace_module, "_WINDOWS", True)
+    monkeypatch.setattr(Path, "rename", transient)
+    monkeypatch.setattr(workspace_module.time, "sleep", sleeps.append)
+    monkeypatch.setattr(FilesystemBackend, "edit", edit_once)
+    workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="good")])
+    candidate = workspace.register_candidate(1)
+    assert len(edits) == 1
+    assert len(attempts) == 3 and set(attempts.values()) == {2}
+    assert sleeps == [0.025, 0.025, 0.025]
+    assert (workspace.require_registered(candidate.candidate_id) / "src/main.ets").read_bytes() == b"value=good\n"
+    assert (workspace.base / "src/main.ets").read_bytes() == original_baseline
+
+
+@pytest.mark.parametrize("stage", ["draft_swap", "candidate_freeze"])
+def test_windows_persistent_rename_denial_preserves_draft_and_does_not_publish_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stage: str,
+) -> None:
+    workspace = CandidateWorkspace(task_snapshot(tmp_path), tmp_path / "work", "run1")
+    workspace.start_draft()
+    if stage == "candidate_freeze":
+        workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="good")])
+    before = (workspace.draft / "src/main.ets").read_bytes()
+    original_rename = Path.rename
+    denied, sleeps = [], []
+
+    def persistent(source: Path, destination: Path) -> Path:
+        selected = ((source.name.startswith("candidate-temp-") and destination == workspace.draft)
+                    if stage == "draft_swap" else source.parent == workspace.candidates)
+        if selected:
+            denied.append((source, destination))
+            raise _windows_rename_error(5)
+        return original_rename(source, destination)
+
+    monkeypatch.setattr(workspace_module, "_WINDOWS", True)
+    monkeypatch.setattr(Path, "rename", persistent)
+    monkeypatch.setattr(workspace_module.time, "sleep", sleeps.append)
+    with pytest.raises(OSError):
+        if stage == "draft_swap":
+            workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="good")])
+        else:
+            workspace.register_candidate(1)
+    assert len(denied) == 5 and len(set(denied)) == 1
+    assert sleeps == [0.025, 0.05, 0.075, 0.1]
+    assert (workspace.draft / "src/main.ets").read_bytes() == before
+    assert not (workspace.root / "draft-backup").exists()
+    assert not list(workspace.root.glob("candidate-temp-*"))
+    assert not list(workspace.candidates.iterdir())
+
+
+def test_other_rename_errors_are_not_retried_and_leave_the_complete_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = CandidateWorkspace(task_snapshot(tmp_path), tmp_path / "work", "run1")
+    workspace.start_draft()
+    before = (workspace.draft / "src/main.ets").read_bytes()
+    attempts = []
+
+    def missing(source: Path, destination: Path) -> Path:
+        attempts.append((source, destination))
+        raise _windows_rename_error(2)
+
+    monkeypatch.setattr(workspace_module, "_WINDOWS", True)
+    monkeypatch.setattr(Path, "rename", missing)
+    monkeypatch.setattr(workspace_module.time, "sleep", lambda _: pytest.fail("other filesystem errors must not retry"))
+    with pytest.raises(OSError):
+        workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="good")])
+    assert attempts == [(workspace.draft, workspace.root / "draft-backup")]
+    assert (workspace.draft / "src/main.ets").read_bytes() == before
+    assert not list(workspace.root.glob("candidate-temp-*"))
+    assert not list(workspace.candidates.iterdir())

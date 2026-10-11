@@ -35,6 +35,7 @@ from dfx_agent.model_provider import (
     PreparedRequest,
     ProviderSettings,
     adapter_from_profile,
+    provider_connection,
 )
 from dfx_agent.models import AccountedProviderModel, FixedResponseModel, ModelLimit
 
@@ -98,12 +99,17 @@ def test_exact_cloud_wire_tools_usage_and_credential_isolation(
     model = adapter(monkeypatch, handle, max_output_tokens=77, timeout_seconds=30.0)
     request = prepare(model)
     profile_bytes = canonical(model.profile())
-    admitted = model.admission(request, remaining_tokens=1_000_000, remaining_seconds=2.0)
+    # The first official SDK resource import also runs inside the task deadline.
+    # Leave enough fixture time under the managed CPU cap; deadline exhaustion is
+    # separately tested with a deterministic clock and bounded stream.
+    admitted = model.admission(request, remaining_tokens=1_000_000, remaining_seconds=10.0)
     message = model.invoke(request, admission=admitted)
     assert len(received) == 1 and str(received[0].url) == ENDPOINT
-    assert received[0].content.decode("utf-8") == request.body
+    # The SDK owns byte serialization; persisted identity freezes the exact JSON
+    # meaning, checked again by the request hook before transport dispatch.
+    assert canonical(json.loads(received[0].content)) == request.body
     assert received[0].headers["Authorization"] == "Bearer " + SECRET
-    assert all(0 < value <= 2.0 for value in received[0].extensions["timeout"].values())
+    assert all(0 < value <= 10.0 for value in received[0].extensions["timeout"].values())
     assert message.tool_calls[0]["args"] == {"path": "src/中文.ets"}
     assert message.usage_metadata == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
     assert message.response_metadata["dfx_provider_usage_raw"]["total_tokens"] == 15
@@ -111,6 +117,7 @@ def test_exact_cloud_wire_tools_usage_and_credential_isolation(
     assert SECRET not in profile_bytes + request.model_dump_json() + admitted.model_dump_json()
     assert SECRET not in message.model_dump_json() + caplog.text
     assert model.profile()["automatic_retries"] == 0
+    assert model.profile()["transport"] == "openai-sdk" and model.profile()["sdk"]["package"] == "openai"
     assert model.profile()["follow_redirects"] is False and model.profile()["trust_env"] is False
 
 
@@ -474,5 +481,157 @@ def test_mock_profile_roundtrip_keeps_its_original_shape_and_readonly_never_disp
     with pytest.raises(AdapterRequestError, match="provider_readonly"):
         readonly.invoke(request)
     profile["automatic_retries"] = 1
+    with pytest.raises(AdapterRequestError, match="unsupported_model_profile"):
+        adapter_from_profile(profile)
+
+
+@pytest.mark.parametrize("provider,url,key", [
+    ("openai", "https://api.openai.com/v1/chat/completions", "OPENAI_API_KEY"),
+    ("deepseek", "https://api.deepseek.com/chat/completions", "DEEPSEEK_API_KEY"),
+    ("compatible", "https://gateway.invalid/v1/chat/completions", "DFX_PROVIDER_API_KEY"),
+])
+def test_provider_presets_configure_sdk_connection_without_guessing_model_or_key(
+        provider: Any, url: str, key: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(type(os.environ), "get", lambda *_: pytest.fail("configuration must not read credentials"))
+    config, settings = provider_connection(provider, "user-chosen-model", base_url=(
+        "https://gateway.invalid/v1" if provider == "compatible" else None))
+    assert config.endpoint == url and config.credential_env == key
+    assert settings.model_id == "user-chosen-model" and settings.provider_id == provider
+    assert settings.thinking_mode is None
+
+
+def test_provider_presets_custom_url_and_explicit_mode_are_not_implicit_protocol_fallbacks() -> None:
+    config, settings = provider_connection("deepseek", "future-model", base_url="https://gateway.invalid/v1/",
+                                           credential_env="PROJECT_KEY", thinking_mode="disabled")
+    assert config.endpoint == "https://gateway.invalid/v1/chat/completions"
+    assert config.credential_env == "PROJECT_KEY" and settings.thinking_mode == "disabled"
+    with pytest.raises(AdapterRequestError, match="provider_base_url_required"):
+        provider_connection("compatible", "model")
+    with pytest.raises(AdapterRequestError, match="unsupported_provider_preset"):
+        provider_connection("anthropic", "model")  # type: ignore[arg-type]
+    with pytest.raises(AdapterRequestError, match="provider_thinking_mode_unsupported"):
+        provider_connection("openai", "model", thinking_mode="disabled")
+
+
+def test_official_sdk_resource_handles_tool_result_roundtrip_and_usage(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from openai.resources.chat.completions import Completions
+
+    sdk_calls: list[dict[str, Any]] = []
+    requests: list[dict[str, Any]] = []
+    original = Completions.create
+
+    def sdk_create(self: Any, **kwargs: Any) -> Any:
+        sdk_calls.append(kwargs)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(Completions, "create", sdk_create)
+    monkeypatch.setenv("OPENAI_ORG_ID", "unrelated-global-org")
+    monkeypatch.setenv("OPENAI_PROJECT_ID", "unrelated-global-project")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        assert "OpenAI-Organization" not in request.headers
+        assert "OpenAI-Project" not in request.headers
+        assert request.headers["x-stainless-retry-count"] == "0"
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json=response(tool=len(requests) == 1))
+
+    cloud = adapter(monkeypatch, handle)
+    ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
+    model = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+                                   max_calls=3, max_known_tokens=100_000, deadline=time.monotonic() + 10.0)
+    model.bind_tools(tools(), tool_choice="auto")
+    initial = HumanMessage(content="inspect failure")
+    first = model.invoke([initial])
+    assert isinstance(first, AIMessage) and first.tool_calls[0]["name"] == "read_source"
+    second = model.invoke([initial, first, ToolMessage(content="source evidence", tool_call_id="cloud-tool-1")])
+    assert isinstance(second, AIMessage) and second.content == "done"
+    assert len(sdk_calls) == len(requests) == 2
+    assert requests[1]["messages"][-1] == {"role": "tool", "content": "source evidence",
+                                         "tool_call_id": "cloud-tool-1"}
+    assert ledger.usage_summary("task1", "run1")["known_total_tokens"] == 30
+
+
+def test_sdk_accepts_explicit_completion_token_parameter_without_changing_historical_settings(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    received: list[dict[str, Any]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        received.append(json.loads(request.content))
+        return httpx.Response(200, json=response())
+
+    cloud = adapter(monkeypatch, handle, max_output_tokens=55, max_output_parameter="max_completion_tokens")
+    request = prepare(cloud)
+    invoke(cloud, request)
+    assert received[0]["max_completion_tokens"] == 55 and "max_tokens" not in received[0]
+    assert "max_output_parameter" not in ProviderSettings(provider_id="legacy", model_id="model").model_dump()
+
+
+def test_standard_sdk_optional_response_fields_and_usage_details_do_not_break_text_tools(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    body = response(tool=True)
+    body.update(created=1700000000, object="chat.completion", system_fingerprint=None)
+    body["choices"][0].update(logprobs=None)
+    body["choices"][0]["message"].update(refusal=None, annotations=[], audio=None, function_call=None)
+    body["usage"].update(prompt_tokens_details={"cached_tokens": 0},
+                         completion_tokens_details={"reasoning_tokens": 0})
+    cloud = adapter(monkeypatch, lambda _: httpx.Response(200, json=body))
+    message = invoke(cloud, prepare(cloud))
+    assert message.tool_calls[0]["name"] == "read_source"
+    assert message.usage_metadata == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+    assert message.response_metadata["dfx_provider_usage_raw"] == body["usage"]
+
+
+def test_openai_effort_is_sdk_parameter_without_deepseek_thinking_extension() -> None:
+    connection, settings = provider_connection("openai", "chosen-reasoning-model", reasoning_effort="medium",
+                                               max_output_parameter="max_completion_tokens")
+    cloud = CloudChatCompletionsAdapter(settings, connection, transport=httpx.MockTransport(
+        lambda _: pytest.fail("preparation must not send")))
+    request = prepare(cloud)
+    assert request.parameters["reasoning_effort"] == "medium" and "thinking" not in request.parameters
+    assert request.parameters["max_completion_tokens"] == settings.max_output_tokens
+
+
+def test_sdk_refusal_is_saved_format_failure_and_no_tool_is_executed(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    body = response()
+    body["choices"][0]["message"].update(content=None, refusal="provider declined this request")
+    cloud = adapter(monkeypatch, lambda _: httpx.Response(200, json=body))
+    ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
+    model = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+                                   max_calls=2, max_known_tokens=100_000, deadline=time.monotonic() + 10.0)
+    with pytest.raises(ModelLimit, match="provider_format_error"):
+        model.invoke([HumanMessage(content="request")])
+    record = ledger.get("model-1")
+    assert record is not None and record.state == "completed" and record.observation is not None
+    assert record.observation.format_status == "format_error" and record.observation.usage_status == "known"
+
+
+def test_historical_httpx_profile_remains_readonly_original_identity(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    cloud = adapter(monkeypatch)
+    profile = cloud.profile()
+    profile.pop("sdk")
+    profile.update(schema_version=1, transport="cloud-httpx")
+    readonly = adapter_from_profile(profile)
+    assert readonly.profile() == profile
+    request = prepare(readonly)
+    assert readonly.validate(request) == request
+    with pytest.raises(AdapterRequestError, match="provider_readonly"):
+        readonly.invoke(request)
+    profile["automatic_retries"] = 1
+    with pytest.raises(AdapterRequestError, match="unsupported_model_profile"):
+        adapter_from_profile(profile)
+
+
+def test_sdk_future_version_profile_can_be_audited_but_profile_changes_are_rejected(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    profile = adapter(monkeypatch).profile()
+    profile["sdk"]["version"] = "2.31.0"
+    readonly = adapter_from_profile(profile)
+    assert readonly.profile() == profile
+    with pytest.raises(AdapterRequestError, match="provider_readonly"):
+        readonly.invoke(prepare(readonly))
+    profile["sdk"]["api"] = "responses"
     with pytest.raises(AdapterRequestError, match="unsupported_model_profile"):
         adapter_from_profile(profile)
