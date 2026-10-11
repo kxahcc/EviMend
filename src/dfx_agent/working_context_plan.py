@@ -49,6 +49,7 @@ from .decisions import DecisionRecord
 from .model_calls import ModelCallIntent, ModelCallStore, canonical, sha256
 from .model_provider import AdapterError, PreparedRequest
 from .policies import Counterexample
+from .repair_context_layout import build_decision_context, restore_decision_context
 from .task import digest, snapshot_digest
 from .verification import CheckLedger, CheckResult
 from .working_context import (
@@ -85,13 +86,27 @@ class WorkingContextPolicy(BaseModel):
     max_packet_bytes: int = Field(default=131_072, ge=128, le=524_288)
     max_view_bytes: int = Field(default=786_432, ge=512, le=1_048_576)
     retain_groups: int = Field(default=2, ge=1, le=20)
-    history_selection: Literal["legacy_refill", "repair_relevance"] = "legacy_refill"
+    history_selection: Literal["legacy_refill", "repair_relevance", "repair_frontier"] = "legacy_refill"
+    exploration_read_groups: int = Field(default=6, ge=1, le=20)
+    context_layout: Literal["record_panel", "decision_layers"] = "record_panel"
+
+    @model_validator(mode="after")
+    def frontier_parameter(self) -> WorkingContextPolicy:
+        if self.history_selection != "repair_frontier" and self.exploration_read_groups != 6:
+            raise ValueError("exploration_read_groups requires repair_frontier")
+        if self.context_layout == "decision_layers" and self.history_selection != "repair_frontier":
+            raise ValueError("decision_layers requires repair_frontier")
+        return self
 
     @model_serializer(mode="wrap")
     def serialized(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
         value = handler(self)
         if self.history_selection == "legacy_refill":
             value.pop("history_selection", None)
+        if self.history_selection != "repair_frontier":
+            value.pop("exploration_read_groups", None)
+        if self.context_layout == "record_panel":
+            value.pop("context_layout", None)
         return value
 
 
@@ -384,7 +399,7 @@ def _proof_packet(packet: WorkingContextPacket, receipts: list[dict[str, Any]],
 def _select_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
                      receipts: list[dict[str, Any]], policy: WorkingContextPolicy, *,
                      projection: SolverContextProjection | None = None) -> tuple[list[BaseMessage], dict[str, Any]]:
-    if policy.history_selection == "repair_relevance":
+    if policy.history_selection in {"repair_relevance", "repair_frontier"}:
         return _select_repair_messages(messages, packet, receipts, policy, projection=projection)
     pinned, boundaries = _groups(messages)
     starts = [pinned] + boundaries[:-1] if boundaries else []
@@ -418,7 +433,7 @@ def _select_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
         if not represented:
             mandatory.add(item["group_start"])
     required = [group for group in groups if group[0] in mandatory]
-    panel = {"packet": value, "required_unrepresented_groups": [
+    panel: dict[str, Any] = {"packet": value, "required_unrepresented_groups": [
         {"range": list(group), "messages": _load(_serialized(messages[group[0]:group[1]]))} for group in required]}
     startup = [message.model_copy(deep=True) for message in messages[:pinned]]
     task = startup[-1]
@@ -590,6 +605,42 @@ def _repair_knowledge(item: dict[str, Any], value: dict[str, Any]) -> tuple[str,
         proposal["content_sha256"], proposal["projection_sha256"], focus]), "current_complete_applicability_review"
 
 
+def _exploration_read(item: dict[str, Any], value: dict[str, Any], edit_epoch: int) -> tuple[str, str] | None:
+    """Unabsorbed observations are optional data, not support for the current root."""
+    answer = _answer(item)
+    if answer is None:
+        return None
+    tool, args = item["action"]["tool_name"], item["tool_call"]["args"]
+    if tool == "read_log":
+        return canonical([tool, answer]), canonical([tool, "input"])
+    if tool == "read_source":
+        version = ["draft", edit_epoch] if args.get("draft", False) else ["source", value["source_snapshot_sha256"]]
+        return canonical([tool, version, answer]), canonical([tool, version, answer["path"]])
+    if tool == "search_source":
+        versions = {value["source_snapshot_sha256"]} | {
+            candidate["candidate_snapshot_sha256"] for candidate in value["candidates"].values()}
+        if answer["snapshot_sha256"] in versions:
+            return canonical([tool, answer]), canonical([tool, answer["snapshot_sha256"], args.get("query")])
+    return None
+
+
+def _latest_failure(receipts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    failure = None
+    for item in receipts:
+        answer = _answer(item)
+        if item["action"]["tool_name"] != "run_check" or answer is None:
+            continue
+        if answer["status"] == "fail":
+            failure = item
+        elif answer["status"] == "pass" and failure is not None:
+            previous = _answer(failure)
+            assert previous is not None
+            if (answer["protocol_sha256"] == previous["protocol_sha256"] and
+                    answer.get("level", "offline_synthetic") == previous.get("level", "offline_synthetic")):
+                failure = None
+    return failure
+
+
 def _select_repair_messages(messages: list[BaseMessage], packet: WorkingContextPacket,
                            receipts: list[dict[str, Any]], policy: WorkingContextPolicy, *,
                            projection: SolverContextProjection | None = None) -> tuple[list[BaseMessage], dict[str, Any]]:
@@ -637,6 +688,27 @@ def _select_repair_messages(messages: list[BaseMessage], packet: WorkingContextP
     epoch = 0
     epochs: dict[str, int] = {}
     positions = {item["action"]["action_id"]: position for position, item in enumerate(receipts)}
+    frontier = policy.history_selection == "repair_frontier"
+    historical_failure = None
+    if frontier:
+        fault_reads = [item for item in receipts if item["action"]["tool_name"] == "read_log" and _answer(item) is not None]
+        if fault_reads:
+            required_reasons[fault_reads[-1]["group_start"]] = "latest_fault_log"
+        failed = _latest_failure(receipts)
+        if failed is not None:
+            result = _answer(failed)
+            assert result is not None
+            original = next((item for item in reversed(receipts) if item["action"]["tool_name"] == "register_candidate"
+                             and (answer := _answer(item)) is not None and answer["candidate_id"] == result["candidate_id"]), None)
+            if original is None:
+                raise WorkingContextError("working_context_failure_registration_missing")
+            for item in (original, failed):
+                mandatory.add(item["group_start"])
+                required_reasons[item["group_start"]] = "latest_failure_original_candidate"
+            historical_failure = {"candidate_id": result["candidate_id"],
+                "diagnosis_id": original["tool_call"]["args"].get("diagnosis_id") or None,
+                "check_result": result, "is_current_candidate_observation": result["candidate_id"] == value["focus"]["current_candidate_id"],
+                "causal_relevance": "unknown"}
     for position, item in enumerate(receipts):
         if (item["action"]["tool_name"] == "edit_source" and item["action"]["authorization"] == "allowed" and
                 item["receipt"]["content"] == "draft updated; register a candidate before any check"):
@@ -649,6 +721,7 @@ def _select_repair_messages(messages: list[BaseMessage], packet: WorkingContextP
             required_reasons[item["group_start"]] = "current_unrepresented_domain_record"
     # Most recent equivalent data wins; immutable versions and draft edit epochs
     # form part of the key. Selection never changes the historical messages.
+    exploring: dict[int, tuple[str, str]] = {}
     for item in reversed(receipts):
         group = by_start[item["group_start"]]
         knowledge = _repair_knowledge(item, value)
@@ -666,6 +739,16 @@ def _select_repair_messages(messages: list[BaseMessage], packet: WorkingContextP
             continue
         related = _repair_read(item, value, anchors, epochs[item["action"]["action_id"]])
         if related is None:
+            if frontier and positions[item["action"]["action_id"]] > latest_diagnosis:
+                observation = _exploration_read(item, value, epochs[item["action"]["action_id"]])
+                if observation is not None:
+                    key, subject = observation
+                    if key in duplicate_keys:
+                        reasons[group] = "duplicate_versioned_read"
+                    else:
+                        duplicate_keys.add(key)
+                        if group[0] not in required_reasons:
+                            exploring.setdefault(group[0], (key, subject))
             continue
         priority, key, reason = related
         if key in duplicate_keys:
@@ -676,9 +759,28 @@ def _select_repair_messages(messages: list[BaseMessage], packet: WorkingContextP
         candidate = (priority, key, reason)
         if group[0] not in optional or candidate < optional[group[0]]:
             optional[group[0]] = candidate
+    # Diversity before repeated chunks of the same file/query, then recency.
+    # This cannot displace registered contradictions or direct evidence.
+    subjects: set[str] = set()
+    ranking: list[tuple[int, int]] = []
+    for start in sorted(exploring, reverse=True):
+        subject = exploring[start][1]
+        ranking.append((3 if subject in subjects else 2, start))
+        subjects.add(subject)
+    for priority, start in sorted(ranking, key=lambda row: (row[0], -row[1]))[:policy.exploration_read_groups]:
+        optional.setdefault(start, (priority, exploring[start][0], "unabsorbed_exploration_read"))
     required = [group for group in groups if group[0] in mandatory]
-    panel = {"packet": value, "required_unrepresented_groups": [
+    panel: dict[str, Any] = {"packet": value, "required_unrepresented_groups": [
         {"range": list(group), "messages": _load(_serialized(messages[group[0]:group[1]]))} for group in required]}
+    if policy.context_layout == "decision_layers":
+        del panel["packet"]
+        compiled = build_decision_context(value, latest_failure=historical_failure,
+            draft_unregistered="unregistered_draft_edit" in required_reasons.values())
+        if canonical(restore_decision_context(compiled)) != canonical(value):
+            raise WorkingContextError("working_context_layout_content_loss")
+        panel["decision_context"] = compiled
+    elif frontier:
+        panel["latest_failure"] = historical_failure
     startup = [message.model_copy(deep=True) for message in messages[:pinned]]
     if type(startup[-1]) is not HumanMessage or not isinstance(startup[-1].content, str):
         raise ValueError("working context startup must be text")
@@ -709,15 +811,16 @@ def _select_repair_messages(messages: list[BaseMessage], packet: WorkingContextP
         selected.add(group)
         if len(_serialized(view()).encode("utf-8")) > policy.max_view_bytes:
             selected.remove(group)
-            reasons[group] = "related_evidence_exceeds_view_limit"
+            reasons[group] = ("exploration_exceeds_view_limit" if optional[start][0] >= 2 else
+                              "related_evidence_exceeds_view_limit")
         else:
             reasons[group] = optional[start][2]
     final = view()
     _groups(final)
-    return final, {"history_selection": "repair_relevance", "pinned_count": pinned,
+    return final, {"history_selection": policy.history_selection, "pinned_count": pinned,
         "retained_ranges": [list(group) for group in groups if group in selected],
         "omitted_ranges": [list(group) for group in groups if group not in selected],
-        "omitted_reason": "repair_relevance" if len(selected) != len(groups) else None,
+        "omitted_reason": policy.history_selection if len(selected) != len(groups) else None,
         "recent_required_ranges": [list(group) for group in groups[-policy.retain_groups:]],
         "required_unrepresented_ranges": [list(group) for group in required],
         "group_decisions": [{"range": list(group), "retained": group in selected, "reason": reasons[group]} for group in groups],

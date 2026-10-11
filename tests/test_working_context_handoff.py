@@ -94,6 +94,38 @@ def test_mock_sdk_request_is_bound_to_augmented_messages_and_offered_tools(tmp_p
     assert checked_completion(task, work) == report["completion"]
 
 
+def test_decision_layers_replace_flat_packet_on_actual_sdk_wire_and_resume(tmp_path: Path) -> None:
+    task, work = task_snapshot(tmp_path), tmp_path / "run"
+    good = candidate_id(task, tmp_path / "derive", "good")
+    requests: list[dict] = []
+    scripted = [wire_response(1, [("read_log", {})]), wire_response(2, [("record_diagnosis", {
+        "path": "src/main.ets", "line": 1, "reason": "unknown bad value"})]),
+        wire_response(3, [("edit_source", {"path": "src/main.ets", "old": "bad", "new": "good"})]),
+        wire_response(4, [("register_candidate", {"diagnosis_id": "diagnosis-1"})]),
+        wire_response(5, [("run_check", {"candidate_id": good})]), wire_response(6)]
+    policy = WorkingContextPolicy(enabled=True, history_selection="repair_frontier", context_layout="decision_layers")
+    adapter = scripted_adapter(scripted, requests, configuration=settings(thinking_mode="disabled"))
+    executor = FixedTextExecutor("src/main.ets", "value=good\n")
+    report = run_provider_agent(task, work, "run1", adapter, executor, working_context_policy=policy)
+    assert report["status"] == "offline_checked", report["stopped_reason"]
+    assert len(requests) == report["model_calls"] == 6
+    panels = [json.loads(body["messages"][1]["content"].split(WORKING_CONTEXT_PROMPT + "\n", 1)[1]) for body in requests]
+    assert all("packet" not in panel and "decision_context" in panel for panel in panels)
+    contexts = [panel["decision_context"] for panel in panels]
+    assert all(context["layout"] == "repair_decision_slots_v1" for context in contexts)
+    assert contexts[0]["decision_board"]["phase"] == "exploration"
+    assert contexts[-1]["decision_board"]["phase"] == "delivery_review"
+    assert all(context["decision_board"]["execution_permission"] == "not_granted" and
+               context["decision_board"]["repair_acceptance"] == "not_assessed" for context in contexts)
+    assert contexts[-1]["evidence_by_producer"]["model"]
+    assert all(fact["producer"] == "model" for fact in contexts[-1]["evidence_by_producer"]["model"].values())
+    assert report["application_verification"] == "not_run"
+    assert checked_completion(task, work) == report["completion"]
+    resumed = run_provider_agent(task, work, "run1", adapter, executor, resume=True, working_context_policy=policy)
+    assert resumed["model_calls_this_turn"] == 0 and len(requests) == 6
+    assert resumed["completion"] == report["completion"]
+
+
 def test_unknown_mock_result_keeps_the_same_frozen_plan_without_resending(tmp_path: Path) -> None:
     task, work = task_snapshot(tmp_path), tmp_path / "run"
     sent = []

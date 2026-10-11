@@ -542,7 +542,14 @@
       "read_level": "Methods, experimental setup/baselines and limitations; targeted reading",
       "use": "Incremental experience/context maintenance precedent; reported gains not transferred to this project",
       "accessed": "2026-10-03",
-      "reproduced": false
+      "reproduced": false,
+      "rechecks": [
+        {
+          "date": "2026-10-11",
+          "scope": "v1 method HTML and v3 abstract page; not a new full-text survey",
+          "purpose": "Check structured entries and incremental context updates as precedents for bounded task context construction"
+        }
+      ]
     },
     {
       "id": "S42",
@@ -555,6 +562,42 @@
       "read_level": "Abstract, methods, experiment conditions and version/context interference example",
       "use": "Skill applicability and negative-transfer risk; requirement-driven tasks differ from log-driven fault repair",
       "accessed": "2026-10-03",
+      "reproduced": false
+    },
+    {
+      "id": "S43",
+      "title": "Effective context engineering for AI agents",
+      "type": "official engineering guidance",
+      "url": "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents",
+      "status": "Primary guidance read; no implementation or performance reproduced",
+      "version": "Live page accessed 2026-10-11",
+      "read_level": "Just-in-time retrieval, progressive disclosure, compaction and structured notes",
+      "use": "External originals and task working sets; storage and summarization are generic foundations",
+      "accessed": "2026-10-11",
+      "reproduced": false
+    },
+    {
+      "id": "S44",
+      "title": "Deep Agents context engineering",
+      "type": "official documentation",
+      "url": "https://docs.langchain.com/oss/python/deepagents/context-engineering",
+      "status": "Online documentation read; not proof of locked SDK compatibility",
+      "version": "Live page accessed 2026-10-11",
+      "read_level": "Memory/skills, state, offloading and summarization",
+      "use": "Reuse existing runtime/storage; separate framework primitives from domain context method",
+      "accessed": "2026-10-11",
+      "reproduced": false
+    },
+    {
+      "id": "S45",
+      "title": "Deep Agents memory",
+      "type": "official documentation",
+      "url": "https://docs.langchain.com/oss/python/deepagents/memory",
+      "status": "Online documentation read; not proof of locked SDK compatibility",
+      "version": "Live page accessed 2026-10-11",
+      "read_level": "Task state, cross-thread memory and backend/namespace boundaries",
+      "use": "Keep existing Graph/SQLite/material storage without new automatic long-term memory platform",
+      "accessed": "2026-10-11",
       "reproduced": false
     }
   ]

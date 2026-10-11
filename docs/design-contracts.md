@@ -413,7 +413,11 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 `working_context_plan.py` 的 WorkingContextStore 在模型边界组织上下文；WorkingContextPolicy 默认关闭，字节预算与近期组数在该对象定义并由 session 冻结。焦点只取当前输入中已完成、授权、有有效回执的工具动作，按可见顺序推导并保留水位。packet 中诊断、候选、检查、条件、决策和反馈也须有可见来源，磁盘上已经完成但当前消息尚未见到的检查不能提前进入包。没有诊断的候选和未纳入闭包的领域结果保持通用路径，相关完整工具组另作为必要材料。
 
-代码处理顺序是原 Graph 历史 → 完整 packet 与材料核验 → 有界求解投影和必要组组织 → 可选通用压缩 → 实际发送。投影与尚未由它表达的必要完整组作为引用数据附入原 startup HumanMessage，保留原任务文本和其他字段；覆盖判断使用实际投影全文，不能只凭记录 ID 丢掉原文。通用压缩保留这段 startup，不能把必要原文替换成摘要。原历史的 assistant 多工具调用与全部回执是一组，孤立、重复或未完成组拒绝。startup、必要投影、必要组及近期组先占组织视图预算，超过必需额度明确停止，不截断义务。默认 legacy_refill 保留原近期回填和序列化；显式 repair_relevance 依当前引用选择可选材料并记录每组理由，不自动填满旧历史。新策略原件和身份不套用于旧计划；具体算法见设计第 7.1 节。只有模型发送视图改变，Graph 原历史保留；消息字节不等于提供方 Token 窗口。
+代码处理顺序是原 Graph 历史 → 完整 packet 与材料核验 → 有界求解投影和必要组组织 → 可选通用压缩 → 实际发送。投影与尚未由它表达的必要完整组作为引用数据附入原 startup HumanMessage，保留原任务文本和其他字段；覆盖判断使用实际投影全文，不能只凭记录 ID 丢掉原文。通用压缩保留这段 startup，不能把必要原文替换成摘要。原历史的 assistant 多工具调用与全部回执是一组，孤立、重复或未完成组拒绝。startup、必要投影、必要组及近期组先占组织视图预算，超过必需额度明确停止，不截断义务。默认 legacy_refill 保留原近期回填和序列化；显式 repair_relevance 依当前引用选择可选材料并记录每组理由，不自动填满旧历史。repair_frontier 在同一边界保留最新故障日志，增加有界探索和最近实际失败的原候选材料；三种冻结身份独立，新参数不倒填旧 profile。具体算法见设计第 7.1 节。只有模型发送视图改变，Graph 原历史保留；消息字节不等于提供方 Token 窗口。
+
+repair_frontier 的探索只从最近诊断后已授权成功的日志页/源码/搜索读取选择，尚未诊断时覆盖已读历史；去重、主题多样性、完整组数及共同字节预算同时限制。它们保持未被诊断吸收的观察，不能自动成为当前假设的支持证据。最近实际 fail 的 run_check 和对应 register_candidate 为必要组，缺原登记停止；面板 latest_failure 保留原 candidate_id、原诊断、原检查及是否属于当前候选，causal_relevance 始终 unknown。换诊断、未知结果或模型声称成功都不清除，后续同协议同证据级别的实际 pass 才清除。该数据不改写 packet 的当前候选/义务/反馈，不能把旧版本失败或 synthetic 级别转成新版本的 application 事实。
+
+context_layout 缺省 record_panel 保持旧 profile 形状；显式 decision_layers 仅用于 repair_frontier，将原 packet 面板替换成 repair_decision_slots_v1。纯编译分槽保留全部原字段、备选、矛盾、未知、义务和版本，restore_decision_context 的 canonical 回组须与编译输入完全相同，否则在新预留/发送前拒绝。decision_board 的阶段/问题、关系索引和回读提示均不赋予因果、可见性或执行权限；它们不是第二个控制器。完整原工具/知识组与候选检查仍经已有账本和实际请求核验；startup 与冻结 stage 相同才按现有可见性门接纳完整语义。布局不截断必要数据、不隐式启用摘要、不改默认模型模式。实际发送中必须只有一份主决策面板，不能通过追加整个旧 packet 凑信息完整。
 
 软件包 A 的有限选择契约如下，实际算法归属设计第 7.1 节，实现/验收状态只见 STATUS：
 

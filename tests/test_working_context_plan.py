@@ -24,6 +24,7 @@ from pydantic import ValidationError
 from test_agent_loop import task_snapshot
 from test_decisions import FULL, decision_request, diagnosis_submission
 
+from dfx_agent import working_context_plan
 from dfx_agent.actions import ToolActionStore
 from dfx_agent.agent import _tools
 from dfx_agent.context_compaction import CompactionPolicy, CompactionStore
@@ -39,7 +40,7 @@ from dfx_agent.model_provider import (
     PreparedRequest,
     ProviderSettings,
 )
-from dfx_agent.task import verify_task
+from dfx_agent.task import digest, snapshot_digest, verify_task
 from dfx_agent.verification import CheckLedger, FixedTextExecutor
 from dfx_agent.working_context import WorkingContextError, WorkingContextPacket
 from dfx_agent.working_context_plan import (
@@ -47,6 +48,7 @@ from dfx_agent.working_context_plan import (
     WorkingContextPlan,
     WorkingContextPolicy,
     WorkingContextStore,
+    _latest_failure,
     _select_messages,
 )
 from dfx_agent.working_context_projection import project_working_context
@@ -71,8 +73,30 @@ def fixed_intent(plan: WorkingContextPlan, view: list[BaseMessage], names: list[
 
 class SyntheticHost:
     def __init__(self, root: Path, *, max_view_bytes: int = 786_432,
-                 history_selection: Literal["legacy_refill", "repair_relevance"] = "legacy_refill"):
+                 history_selection: Literal["legacy_refill", "repair_relevance", "repair_frontier"] = "legacy_refill",
+                 exploration_read_groups: int = 6, extra_sources: dict[str, str] | None = None,
+                 crash_text: str | None = None, context_layout: Literal["record_panel", "decision_layers"] = "record_panel"):
         self.task = task_snapshot(root)
+        if crash_text is not None:
+            (self.task / "crash.log").write_bytes(crash_text.encode("utf-8"))
+            identity_path = self.task / "task.json"
+            identity = json.loads(identity_path.read_text(encoding="utf-8"))
+            identity["crash_sha256"] = digest(crash_text.encode("utf-8"))
+            identity_path.write_text(json.dumps(identity), encoding="utf-8")
+        if extra_sources:
+            manifest_path = self.task / "source-manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            for relative, content in extra_sources.items():
+                target = self.task / "source" / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content.encode("utf-8"))
+                manifest.append({"path": relative, "sha256": digest(content.encode("utf-8"))})
+            manifest.sort(key=lambda row: row["path"])
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            task_path = self.task / "task.json"
+            identity = json.loads(task_path.read_text(encoding="utf-8"))
+            identity["source_snapshot_sha256"] = snapshot_digest(manifest)
+            task_path.write_text(json.dumps(identity), encoding="utf-8")
         self.workspace = CandidateWorkspace(self.task, root / "run", "run1")
         self.ledger = CheckLedger(self.workspace, FixedTextExecutor("src/main.ets", "value=good\n"))
         self.tools = {tool.name: tool for tool in _tools(self.workspace, self.ledger, 5, self.task, "crash.log",
@@ -80,7 +104,8 @@ class SyntheticHost:
         self.actions = ToolActionStore(self.workspace.root / "tool-actions.sqlite")
         self.calls = ModelCallStore(self.workspace.root / "model-calls.sqlite")
         self.policy = WorkingContextPolicy(enabled=True, max_view_bytes=max_view_bytes, retain_groups=1,
-                                           history_selection=history_selection)
+                                           history_selection=history_selection, exploration_read_groups=exploration_read_groups,
+                                           context_layout=context_layout)
         self.store = WorkingContextStore(self.workspace, self.task, self.ledger, self.policy, FIXED)
         self.messages: list[BaseMessage] = [SystemMessage(content="synthetic host policy"),
             HumanMessage(content="Repair the synthetic task; application verification is unavailable.")]
@@ -310,6 +335,175 @@ def test_repair_selection_removes_repeated_and_unrelated_history_with_large_surp
     assert len(selected.stage_messages_json.encode("utf-8")) < host.policy.max_view_bytes // 2
     assert len(decisions) == 6
     assert WorkingContextPlan.model_validate_json(selected.model_dump_json()) == selected
+
+
+def test_frontier_preserves_cross_file_exploration_before_first_diagnosis(tmp_path: Path) -> None:
+    sources = {"src/caller.ets": "invoke producer then consumer\n", "src/producer.ets": "allocate buffer\n",
+               "src/consumer.ets": "check complete result\n"}
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier", extra_sources=sources)
+    host.step("read_log", {})
+    for path in ["src/main.ets", *sources]:
+        host.step("read_source", {"path": path})
+    host.step("read_source", {"path": "src/main.ets"})
+    for _ in range(3):
+        host.step(None, text="unconfirmed reasoning is not a substitute for observations")
+    original = message_json(host.messages)
+    selected = host.plan()
+    calls = [call for message in selected.view_messages() if type(message) is AIMessage for call in message.tool_calls]
+    assert {call["args"]["path"] for call in calls if call["name"] == "read_source"} == {"src/main.ets", *sources}
+    assert [call["id"] for call in calls if call["name"] == "read_source" and call["args"]["path"] == "src/main.ets"] == ["tool-6"]
+    assert [call["name"] for call in calls].count("read_log") == 1
+    assert packet(selected)["focus"]["diagnosis_id"] is None
+    assert message_json(host.messages) == original
+    assert WorkingContextPlan.model_validate_json(selected.model_dump_json()) == selected
+
+
+def test_frontier_exploration_after_diagnosis_is_not_assumed_to_support_it(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier",
+                         extra_sources={"src/other.ets": "independent unexplained behavior\n"})
+    host.diagnosis()
+    host.step("read_source", {"path": "src/other.ets"})
+    for _ in range(3):
+        host.step(None, text="the registered focus may be wrong")
+    selected = host.plan()
+    assert "independent unexplained behavior" in selected.stage_messages_json
+    assert all(fact["location"] is None or fact["location"]["path"] != "src/other.ets"
+               for fact in packet(selected)["evidence"].values())
+    assert any(row["reason"] == "unabsorbed_exploration_read" and row["retained"]
+               for row in json.loads(selected.selection_json)["group_decisions"])
+
+
+def test_frontier_preserves_early_fault_page_before_later_trace_page(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier",
+                         crash_text="first page: observed failure\nsecond page: surrounding trace\n")
+    host.step("read_log", {"start_line": 1, "end_line": 1})
+    host.step("read_log", {"start_line": 2, "end_line": 2})
+    host.step("read_source", {"path": "src/main.ets"})
+    for _ in range(3):
+        host.step(None, text="a later trace does not replace the original fault")
+    selected = host.plan()
+    calls = [call for message in selected.view_messages() if type(message) is AIMessage for call in message.tool_calls]
+    assert [call["args"]["start_line"] for call in calls if call["name"] == "read_log"] == [1, 2]
+    assert "observed failure" in selected.stage_messages_json and "surrounding trace" in selected.stage_messages_json
+
+
+def test_frontier_cap_and_common_byte_budget_do_not_refill_every_old_read(tmp_path: Path) -> None:
+    sources = {f"src/file{index}.ets": f"observed file {index}\n" for index in range(4)}
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier", exploration_read_groups=2, extra_sources=sources)
+    host.step("read_log", {})
+    for path in sources:
+        host.step("read_source", {"path": path})
+    host.step(None, text="current unknown")
+    selected = host.plan()
+    calls = [call for message in selected.view_messages() if type(message) is AIMessage for call in message.tool_calls]
+    assert [call["args"]["path"] for call in calls if call["name"] == "read_source"] == ["src/file2.ets", "src/file3.ets"]
+    base = [message for message in selected.view_messages() if not (
+        type(message) is AIMessage and any(call["name"] == "read_source" for call in message.tool_calls) or
+        type(message) is ToolMessage and message.name == "read_source")]
+    policy = host.policy.model_copy(update={"max_view_bytes": len(message_json(base).encode("utf-8"))})
+    audit_packet = WorkingContextPacket.model_validate_json(selected.packet_json)
+    projection = project_working_context(audit_packet, max_bytes=policy.max_packet_bytes)
+    view, selection = _select_messages(host.messages, audit_packet,
+                                      json.loads(selected.visible_receipts_json), policy, projection=projection)
+    assert not any(message.name == "read_source" for message in view if type(message) is ToolMessage)
+    assert "synthetic crash" in message_json(view)
+    assert any(row["reason"] == "exploration_exceeds_view_limit" and not row["retained"]
+               for row in selection["group_decisions"])
+    with pytest.raises(WorkingContextError, match="working_context_required_limit"):
+        _select_messages(host.messages, audit_packet, json.loads(selected.visible_receipts_json),
+                         policy.model_copy(update={"max_view_bytes": 512}), projection=projection)
+
+
+def test_frontier_keeps_original_failure_when_root_and_obligation_focus_change(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier")
+    host.diagnosis()
+    old = host.candidate("almost")
+    observed = host.step("run_check", {"candidate_id": old})
+    latest = host.step("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "different root, still unknown"})
+    for _ in range(3):
+        host.step(None, text="new focus does not erase the old observed business failure")
+    selected = host.plan()
+    assert packet(selected)["focus"]["diagnosis_id"] == latest["diagnosis_id"]
+    assert old not in packet(selected)["candidates"] and not packet(selected)["obligations"]
+    panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
+    failure = panel["latest_failure"]
+    assert failure["candidate_id"] == old and failure["diagnosis_id"] == "diagnosis1"
+    assert failure["check_result"] == observed and failure["causal_relevance"] == "unknown"
+    assert failure["is_current_candidate_observation"] is False
+    names = [group["messages"][0]["tool_calls"][0]["name"] for group in panel["required_unrepresented_groups"]]
+    assert names == ["register_candidate", "run_check"]
+    assert "record_diagnosis" not in names
+    assert WorkingContextPlan.model_validate_json(selected.model_dump_json()) == selected
+
+
+def test_frontier_failure_history_is_bounded_and_cleared_only_by_actual_pass(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier")
+    host.diagnosis()
+    first = host.candidate("almost")
+    host.step("run_check", {"candidate_id": first})
+    last = host.candidate("wrong")
+    host.step("run_check", {"candidate_id": last})
+    host.step("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "start a new focus"})
+    host.step(None, text="do not retain every previous failure")
+    selected = host.plan()
+    calls = [call for message in selected.view_messages() if type(message) is AIMessage for call in message.tool_calls]
+    assert [call["args"]["candidate_id"] for call in calls if call["name"] == "run_check"] == [last]
+    good = host.candidate("good")
+    host.step("run_check", {"candidate_id": good})
+    host.step("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "later unknown focus"})
+    host.step(None, text="a model thought alone did not clear the failure")
+    selected = host.plan()
+    panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
+    assert panel["latest_failure"] is None
+    assert not any(call["name"] == "run_check" for message in selected.view_messages()
+                   if type(message) is AIMessage for call in message.tool_calls)
+
+
+def test_frontier_parameters_are_frozen_without_changing_old_profile_shapes() -> None:
+    old = WorkingContextPolicy(history_selection="repair_relevance").model_dump(mode="json")
+    assert "exploration_read_groups" not in old
+    assert WorkingContextPolicy.model_validate_json(canonical(old)).model_dump(mode="json") == old
+    current = WorkingContextPolicy(history_selection="repair_frontier", exploration_read_groups=3)
+    assert WorkingContextPolicy.model_validate_json(current.model_dump_json()) == current
+    assert current.model_dump(mode="json")["exploration_read_groups"] == 3
+    with pytest.raises(ValidationError, match="exploration_read_groups requires repair_frontier"):
+        WorkingContextPolicy(exploration_read_groups=3)
+    with pytest.raises(ValidationError, match="decision_layers requires repair_frontier"):
+        WorkingContextPolicy(context_layout="decision_layers")
+
+
+def test_decision_layers_cannot_hide_a_required_behavior_before_plan_or_reservation(tmp_path: Path, monkeypatch) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier", context_layout="decision_layers")
+    host.diagnosis()
+    original = working_context_plan.build_decision_context
+
+    def incomplete(value, **kwargs):
+        layout = original(value, **kwargs)
+        layout["obligations_by_kind"]["business_behavior"].clear()
+        return layout
+
+    monkeypatch.setattr(working_context_plan, "build_decision_context", incomplete)
+    before = frozen_files(host.workspace.root)
+    usage = host.calls.usage_summary("task1", "run1")
+    with pytest.raises(WorkingContextError, match="working_context_layout_content_loss"):
+        host.plan()
+    assert frozen_files(host.workspace.root) == before and host.calls.usage_summary("task1", "run1") == usage
+
+
+@pytest.mark.parametrize("status,protocol,level", [
+    ("inconclusive", "same", "application_execution"),
+    ("pass", "different", "application_execution"),
+    ("pass", "same", "offline_synthetic"),
+])
+def test_frontier_unknown_or_incompatible_pass_does_not_clear_failure(status: str, protocol: str, level: str) -> None:
+    # Pure selection helper: not an application execution or SDK authentication fixture.
+    def receipt(answer: dict[str, Any]) -> dict[str, Any]:
+        return {"action": {"authorization": "allowed", "tool_name": "run_check"},
+                "receipt": {"content": canonical(answer)}}
+
+    failure = receipt({"status": "fail", "protocol_sha256": "same", "level": "application_execution"})
+    following = receipt({"status": status, "protocol_sha256": protocol, "level": level})
+    assert _latest_failure([failure, following]) is failure
 
 
 def test_repair_selection_prioritizes_frozen_contradicting_read_under_limit(tmp_path: Path) -> None:
