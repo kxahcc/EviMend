@@ -57,7 +57,7 @@
 | 应用执行 | ApplicationProfile 只读预检、本机受管命令通道；HarmonyOS SDK、Hvigor、ohpm、hdc 及设备按项目准备 | 平台工具链、签名和设备先由人完成一次接纳；Agent 自动准备项目依赖、构建和执行已批准检查。当前只运行短时模拟程序，模板不等于真实案例适配 |
 | 开发质量 | pytest、Ruff、Pyright | 单元/契约/状态恢复检查和静态质量；模型与应用实验单独运行 |
 
-Deep Agents 依赖 LangChain Agent 和 LangGraph；模型入口沿用 langchain-core。真实提供方可采用经核验的适配包，也可复用显式序列化边界，选择服从实际协议与记账要求。[ChatOpenAI](https://docs.langchain.com/oss/python/integrations/chat/openai) 与 [ChatAnthropic](https://docs.langchain.com/oss/python/integrations/chat/anthropic) 提供工具调用及 usage 接口；第三方 OpenAI-compatible 服务不能默认视为完全兼容，必须核对动作、推理相关协议字段与成本字段。当前没有新增提供方依赖。
+Deep Agents 依赖 LangChain Agent 和 LangGraph；模型入口沿用 langchain-core。云端传输使用已锁定的官方 OpenAI SDK，而不是继续维护手写 HTTP 协议客户端；项目适配只负责冻结调用、预算、有限文本/工具格式与业务交接。同类 Chat Completions 服务配置模型、base URL 与 Key 环境名即可建立连接配置，实际工具续轮、推理字段和 usage 仍须实测核对。不把 Anthropic Messages、Gemini 或 Responses API 自动视为同一协议，也不承诺任意提供方兼容。
 
 #### 竞赛实现的复用与范围边界
 
@@ -155,7 +155,8 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 | policies.py / domain_skills.py | 四类规则提示和正式通用 Skill、候选义务与分 scope 失败关联、同修法直接修和有区分力才查证的可关闭建议 | 主机整理的指导保持未验证范围，真实业务语义和方法效果未知 |
 | acceptance.py | 候选无关的共同协议、候选运行版本绑定、执行记录和保守接受门 | 已做隔离合成契约；真实 oracle、打包证明及执行适配待接入 |
 | verification.py | 候选绑定的检查意图、幂等回读及 CheckResult 实际执行级别 | 同一 run_check 接口调用固定文本或受管本机检查；竞赛接受由 competition 汇总，acceptance.py 的正式对象协议仍独立 |
-| local_execution.py / competition.py | 完整工程冻结及候选覆盖、受管四阶段检查、统一竞赛入口和最终接受报告 | Mock 与短时模拟程序验收；真实实验关闭，设备恢复和正式效果评测另验 |
+| application_profile.py / local_execution.py / competition.py | 平台条件只读预检、完整工程冻结及候选覆盖、可选项目依赖准备、受管四阶段检查和竞赛报告 | 模板明确缺项；只准备项目副本，不安装平台 SDK 或配置设备/签名；真实实验关闭，设备恢复和正式效果评测另验 |
+| managed_runtime.py / managed_bootstrap.py / windows_job.py | Python 标准库受管启动、固定版本项目环境、Windows Job/停止与清理 | 生产运行不依赖 PowerShell 或 Codex；自卸载使用外部独立 Python，不删除其他环境 |
 | backends.py | 已有版本绑定 HTTP 模拟客户端、意图、提交/查询/取消及产物校验 | 保留通用模拟协议；本机竞赛路径使用 LocalApplicationExecutor |
 | remote_service.py | 已有 SQLite 持久化的模拟 FastAPI 服务和显式测试工作者 | 保留合成反例测试，不作为本机真实运行服务 |
 
@@ -611,19 +612,21 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 
 本机承担 Agent 控制、代码工作副本、HarmonyOS 构建、设备/模拟器回放和效果评测，不使用远程应用执行主机。基础模型拟由本机受管程序调用云端大模型 API；当前不安装模型权重、不安排小模型微调，也不启动真实调用。模型账号、具体型号、请求参数、外发数据边界和费用预算待确定。本机 SDK/模拟器是后续执行条件，不代表现在可以安装：先盘点容量、依赖和设备，再实现受管安装、运行、停止、证据保留和清理。现有轻量配置不能直接作为大型 SDK 或模拟器任务的已验收限额。
 
-采用一个项目专属运行目录和标准 `dfx` 用户入口。参考 [Strix 官方 CLI](https://docs.strix.ai/usage/cli) 的目标参数、会话和实时反馈形式，用户直接提供任务/配置并追踪进度；内部仍由 PowerShell 7 管理器与 Windows Job 保护执行。初始 setup.cmd 进入受管 Prepare/Init，项目环境安装 console entry 后由 dfx.cmd 调用；完整部署仍须保留项目源码、锁、配置、正式 Skills 和后端脚本。独立 wheel、取消 PowerShell 或跨平台部署不在本次实现范围。安装后的帮助和版本命令须通过，才记录真实环境身份；缺依赖/资源盘点不完整时拒绝，不伪改摘要。
+采用一个项目专属运行目录和标准 `dfx` 用户入口。参考 [Strix 官方 CLI](https://docs.strix.ai/usage/cli) 的目标参数、会话和实时反馈形式，用户直接提供任务/配置并追踪进度；生产管理器由 Python 标准库调用 Windows Job，不依赖 PowerShell/.NET 版本、Codex 安装或其个人路径。首次 `setup.cmd` 需要 Windows x64 和已有普通 Python 3.11+ 启动器，经受管 Prepare/Init 建立锁定项目 Python 3.13.5、uv 及 console entry；`dfx.cmd` 是无需修改全局 PATH 的仓库快捷入口。完整项目分发须保留源码、锁、配置、正式 Skills 与 bootstrap 资源，单独 wheel 和跨平台安装尚不是当前形态。安装后的帮助和版本命令须通过，才记录真实环境身份；缺依赖/资源盘点不完整时拒绝，不伪改摘要。
 
 用户可按会话查看活动、停止、恢复和取得报告，并通过 env 查看占用或按计划清理。前端使用参数列表启动固定后端，有限量地收集输出，执行子树仍须先发布活动凭据再恢复工作进程。Ctrl+C 若早于凭据发布，等待本次 PID/业务 ID 的凭据后请求停止；停止只发给已核对的 manager GUID。专属停止文件避免延迟请求影响下一任务，旧 Stop 通道保留兼容。前端/主机管理器本身不在工作 Job 的限额声明内。
 
 反馈来自模型/工具账本提交边界、原版/候选实际检查阶段和最终报告。ContextVar 随 SDK 执行上下文传播，侧录在同一任务串行追加；events.jsonl 的容量由 progress 模块的固定上限限制，不输出源码、日志、模型正文、工具参数或凭据。不显示虚构完成百分比或预计剩余时间。侧录失败或到限只影响追踪，原接受、预算、幂等和恢复语义保持原义；只读展示不认证其字节或结果。详细契约与输出模式见模块规格和 Agent 说明，实际验收见 STATUS。
 
-源码、Git、原始数据和已导出证据不被普通清理删除。W01/W02/W03 已有目录清理、Job/Stop 和安装/开发检查通道，W05/W09/W10 复用这些保护；competition 继续接入同一受管 Run。真实模型与应用开关仍为 false，不因命令外观改变而解锁。
+源码、Git、原始数据和已导出证据不被普通清理删除。生产 competition、安装及有限开发检查使用 Python 管理器；历史离线/聚合/Export 的 PowerShell 入口保留为研究开发兼容工具，不是使用修复 Agent 的前置条件。两类入口继续使用原资源配置和 owner 边界，但其清理计划不可互换。真实模型与应用开关仍为 false，不因命令外观改变而解锁。
+
+Windows 管理器用扩展路径执行深层目录的元数据读取、盘点和清理，保存的 owner、计划指纹和活动身份仍使用原规范路径；不修改系统长路径设置或 ACL。深层任务/导出证据继续要求明确丢弃，路径转换不授予额外清理范围。受管测试复用独立 pytest 子进程，进程退出释放 SQLite 等句柄后，管理工作进程才核对和删除本次新建临时树；旧失败目录保留，不为重跑自动清理。该管理路径的验收不能推定所有 HarmonyOS 工具都支持任意长源码路径。
 
 “集中目录”不等于进程隔离，Python 虚拟环境不限制 CPU/内存。操作系统限制只覆盖管理入口创建的工作进程树，不覆盖 Codex、编辑器、用户其他程序，以及未纳入 Job 的既有设备服务；我们不能保证整台电脑绝不满载。Job Object 不提供 GPU 显存硬配额；若模拟器需要 GPU，必须另有监测与可确认停止机制才运行。磁盘采用容量预检与监测，不是内核硬配额；任意恶意代码不在本机执行，Job Object 也不是安全沙箱。
 
 ### 9.2 文件归属与安装边界
 
-受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。`execution.application_target=local` 是后续位置决定；`allow_local_harmony_sdk=false`、`allow_model_experiments=false` 和 `allow_application_experiments=false` 仍是当前禁用状态，不能解释成“应用话在远程跑”。`enforcement_status=offline_agent_guarded` 保留现有配置标记；固定合成 Run、Init、pytest、质量检查、离线 Agent、competition 软件路径、只读聚合和 Export 使用相同 Job 保护，不能由标记或代码通道推定真实实验已解锁。运行时生效限制写入本地活动记录，不另维护一份项目进度台账。
+受跟踪的 [本机策略配置](../../configs/local-runtime.json) 是资源数值与开关的唯一来源。`execution.application_target=local` 是后续位置决定；`allow_local_harmony_sdk=false`、`allow_model_experiments=false` 和 `allow_application_experiments=false` 仍是当前禁用状态，不能解释成在远程执行应用。`enforcement_status=offline_agent_guarded` 保留配置标记；Python 生产入口和历史开发兼容入口均须建立并核验 Job 保护，不能由标记或代码通道推定真实实验已解锁。运行时生效限制写入本地活动记录，不另维护一份项目进度台账。
 
 | 位置 | 内容 | 清理性质 |
 |---|---|---|
@@ -638,7 +641,7 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 
 默认管理目录固定在仓库内；首次实现不支持随意更改为任意盘符根目录。若 SDK/构建缓存实测超出受管目录和磁盘预算，须先设计并验收项目专属的新位置与清理边界，再修改配置；不能直接改全局安装器或借用其他盘根目录。虚拟环境不承诺复制后可用。项目总占用报告分开列管理目录、未来项目专属 SDK/缓存、保留数据和导出包，不能只报 .dfx-local 造成“已全部清理”的误解。
 
-入口脚本 scripts/local.ps1 提供 Prepare/Status/Clean/Stop/Init、固定合成/仓库测试/质量检查/离线 Agent/competition/只读聚合的 Run，以及本机私有 Export/Verify；scripts/local_job.cs 创建和核验 Windows Job，scripts/local_export.ps1 在 Job 内调用固定导出接口。Prepare 不下载依赖；Init 只在 Job 内通过固定来源和 SHA-256 安装便携 uv/CPython 并同步锁定环境。Run 接受固定任务、仓库测试路径或已审查快照与固定脚本，不接受任意 shell。互操作代码使用系统 PowerShell/.NET 在当前进程编译，随后把 TEMP/TMP 指向受管 tmp；不安装全局 Python 包、系统工具或后台服务。导出内部使用 Windows 长路径接口，不改注册表或用户 PATH。competition 已建立唯一命名 Job 并保存 job_name，执行器据此核验实际所属限制；真实模型/应用仍禁用，各入口软件验收证据见 STATUS。
+生产入口由 `managed_runtime.py` 提供 Prepare/Status/Clean/Stop/Init、competition 及有限测试/质量检查的受管 Run，`windows_job.py` 通过 ctypes 调用 Windows Job API，`managed_bootstrap.py` 在保护器内安装项目环境；不编译 PowerShell/.NET 互操作代码。Prepare 不下载依赖；Init 按固定来源与 SHA-256 安装便携 uv/CPython 并同步锁定环境，不安装全局包或后台服务。Run 接受固定任务、仓库测试路径和已审查竞赛快照，不接受任意 shell。历史 `scripts/local.ps1`、`local_job.cs` 与 `local_export.ps1` 继续支持离线研究、聚合及私有 Export 的原契约，仅需在使用这些兼容工具时满足其开发依赖；生产 CLI 不调用它们。competition 保存唯一 job_name，执行器据此核验实际所属限制；真实模型/应用仍禁用，各入口实际验收见 STATUS。
 
 安装时通过显式子进程环境设置 UV_CACHE_DIR、UV_PROJECT_ENVIRONMENT、UV_PYTHON_INSTALL_DIR、UV_PYTHON_BIN_DIR、UV_TOOL_DIR/UV_TOOL_BIN_DIR、TEMP/TMP 与 PYTHONPYCACHEPREFIX；Pyright 后备 Node 目录和 Ruff 缓存也路由到项目根。pytest 使用受管 basetemp，关闭持久 pytest 缓存和字节码写入，并在退出时删除自己的临时目录，避免不同 Windows 账户交替运行时产生不可访问目录。变量只在该子进程树生效，不改用户级 PATH、注册表、Shell profile、Conda base 或全局 pip。uv 固定版本/下载哈希，关闭 Python 注册表安装；环境同步使用 `uv sync --locked` 和项目 Python。正式 Agent 任务也须遵循同样入口，不用普通 `uv run` 绕过限制。
 
@@ -652,14 +655,14 @@ SDK 负责模型/工具循环；policies.py 提供四类可迁移规则卡及可
 |---|---|---|
 | CPU、进程数 | Windows Job Object 对受管工作进程树设置 CPU hard cap 和活动进程数上限 | 无法建立/核验限制则拒绝工作进程继续运行，不能悄悄变为无限制 |
 | 内存 | Job 的 committed memory 上限取配置绝对上限与物理内存比例的较小值；启动预留系统可用内存，运行时监测 | 分配可能失败；记录资源原因并停止任务。它不是对全机 RSS 或系统文件缓存的硬限制 |
-| 并发 | 一个管理根的互斥锁与运行租约；合成、安装、测试、质量、离线 Agent、competition、聚合和 Export 串行 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
+| 并发 | 一个管理根的互斥锁与运行租约；生产任务及历史开发入口共享同一资源归属，禁止重叠执行 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
 | 磁盘 | 所有受管任务预检和监测 managed 与 exports 合计逻辑大小及卷剩余空间；下载前估算，uv ZIP 流式限定字节；Export 另估算完整包和暂存新增 | 超过共同预算、导出单包上限或预留线则拒绝；不能通过不断换 Export ID 绕过累计限制，未来应用副本仍须单独估算 |
 | 日志 | 受管任务的 stdout/stderr 经管道按字节上限保存，超额立即终止 Job 并继续排空 | 不在内存或磁盘无限堆积输出；留存日志标记截断 |
 | 时间 | 单调时钟截止时间 + 子命令超时，采用资源配置与任务预算中的较严值 | 先请求退出，宽限结束后终止本任务 Job，记录 timeout/inconclusive |
 
-生效计算：内存上限取 min(job_memory_cap_bytes, 总物理内存 × job_memory_fraction_of_physical)；磁盘预留取 max(min_free_disk_bytes, 卷总容量 × min_free_disk_fraction)。启动时要求可用物理内存足以容纳该内存预算和预留，运行时低于预留线则停止；CPU 配置百分比转换为 Windows CpuRate 时乘以 100。硬件容量通过 GlobalMemoryStatusEx 与 .NET DriveInfo 查询，避免依赖可能无权限的 WMI/CIM；读取失败保持未知并拒绝重任务。
+生效计算：内存上限取 min(job_memory_cap_bytes, 总物理内存 × job_memory_fraction_of_physical)；磁盘预留取 max(min_free_disk_bytes, 卷总容量 × min_free_disk_fraction)。启动时要求可用物理内存足以容纳该内存预算和预留，运行时低于预留线则停止；CPU 配置百分比转换为 Windows CpuRate 时乘以 100。生产管理器通过 GlobalMemoryStatusEx 与 Python 标准库磁盘查询读取容量，避免依赖 .NET、WMI/CIM；读取失败保持未知并拒绝重任务。
 
-受管任务启动顺序：读取并校验配置和 owner → 获取项目租约 → 检查空间/可用内存 → 创建并读回 Job 限制 → 以挂起状态创建工作进程 → 加入 Job → 将完整活动凭据写入本次独有临时文件并原子发布 active.json → 检查启动期间收到的 Stop → 恢复线程。凭据含 Job 名称、manager/child 身份和实际限制，工作进程开始读取时必须完整可见；发布或恢复失败终止该 Job，清理本次临时/活动标记，关闭挂起线程句柄。旧 Start API 保留为兼容封装，管理入口用显式 StartSuspended/Resume。子进程使用正常 CreateProcess 继承 Job，不允许 breakaway；不通过服务、计划任务或 WMI 绕过管理。启用 KILL_ON_JOB_CLOSE，Job 句柄不继承给工作进程；管理器异常退出后受管树退出已有合成测试，最新反例证据只见 STATUS。外层运行宿主若不支持 Job 嵌套，必须拒绝任务启动，不能无保护继续。
+受管任务启动顺序：读取并校验配置和 owner → 获取项目租约 → 检查空间/可用内存 → 创建并读回 Job 限制 → 以挂起状态创建工作进程 → 加入 Job → 将完整活动凭据写入本次独有临时文件并原子发布 active.json → 检查启动期间收到的 Stop → 恢复线程。凭据含 Job 名称、manager/child 身份和实际限制，工作进程开始读取时必须完整可见；发布或恢复失败终止该 Job，清理本次临时/活动标记，关闭挂起线程句柄。生产管理器使用 Python Windows API 封装的挂起启动/恢复；历史 Start API 仅保留原兼容契约。子进程使用正常 CreateProcess 继承 Job，不允许 breakaway；不通过服务、计划任务或 WMI 绕过管理。启用 KILL_ON_JOB_CLOSE，Job 句柄不继承给工作进程；管理器异常退出后受管树退出的最新反例证据只见 STATUS。外层运行宿主若不支持 Job 嵌套，必须拒绝任务启动，不能无保护继续。
 
 Stop 优先通过当前用户可访问的控制通道请求管理器停止，再使用经归属核对的 Job 终止受管进程。记录 PID、创建时间、可执行路径和实例 ID，不能按 python/node/java 进程名批量杀进程；PID 重用或失联时先核验，无法确认归属就报告，不扩大终止范围。默认前台运行，不遗留后台常驻进程；确需后台助手时隐藏窗口且纳入同一生命周期。
 
@@ -667,24 +670,22 @@ Stop 优先通过当前用户可访问的控制通道请求管理器停止，再
 
 ### 9.4 统一命令与清理协议
 
-下面列出统一接口。已有离线实现包括 Prepare/Status/Clean/Stop/Init、固定合成/测试/质量/离线 Agent/competition/聚合 Run 及私有 Export/Verify；是否完成相应验收以 STATUS 为准。Status 若遇到受管目录不可读，会保留 inaccessible_paths 并将 resource_accounting 标为 incomplete；任何新 Run 都拒绝启动，直到资源可完整盘点。competition 代码通道已接入；真实模型/应用开关仍禁用，软件通过不能作为效果证据。
+下表列出生产产品入口；实际验收以 STATUS 为准。Status 遇到受管目录不可读时保留 inaccessible_paths，并将 resource_accounting 标为 incomplete；新 Run 拒绝启动，直到资源可完整盘点。真实模型/应用开关仍禁用，软件通过不能作为效果证据。开发测试也必须通过 Python 管理入口执行，不直接运行 pytest 绕过资源限制。
 
 | 目标调用 | 行为 |
 |---|---|
-| .\scripts\local.ps1 Prepare | 建立或复核仓库内的 owner，不安装运行环境；同一 owner 重复调用幂等 |
-| .\scripts\local.ps1 Status | 无模型、无安装地报告路径、各类字节、受管进程和限制是否生效；旧远程作业标记若存在仍报告未知项 |
-| .\scripts\local.ps1 Init | 先检查容量和保护器，再建立固定版本 uv/Python/依赖环境；重复执行不重复安装 |
-| .\scripts\local.ps1 Run -Scenario idle -Seconds 3 | 运行固定合成任务并记录限额、日志和结束原因 |
-| .\scripts\local.ps1 Run -Task test -TestPath tests/test_sdk_compat.py | 在受管环境运行单个现存仓库测试文件；不接受任意命令或数据包脚本 |
-| .\scripts\local.ps1 Run -Task docs/ruff/pyright | 在受管环境运行固定文档、Lint 或类型检查 |
-| .\scripts\local.ps1 Run -Task offline -OfflineTaskPath TASK -OfflineScriptPath SCRIPT -OfflineWorkId ID | 在受管环境运行固定响应、合成判据的离线闭环；同一 ID 可加 -Resume 恢复，详情见原型说明 |
-| .\scripts\local.ps1 Run -Task competition -CompetitionConfigPath configs/competition-demo.json -CompetitionWorkId ID | 在受管环境运行独立 toy 软件路径并输出报告；mock_demo 自备任务，不提供数据任务。cloud 模式另需已审查的 -CompetitionTaskPath TASK 与完整配置，且真实开关当前禁止；同一 ID 可加 -Resume 核原件恢复 |
-| .\scripts\local.ps1 Stop | 停止本项目受管工作树并核验退出；保留文件和证据，释放进程资源 |
-| .\scripts\local.ps1 Export -EvaluationManifestPath MANIFEST -ExportId ID | 默认受管预览，披露私有内容范围与预计字节，保存固定计划并返回 PlanId；不创建最终包 |
-| .\scripts\local.ps1 Export -EvaluationManifestPath MANIFEST -ExportId ID -Apply -PlanId HASH | 复核计划和源树，在私有暂存区复制、核验并发布新 runs/exports/ID；不覆盖目标或删除源 |
-| .\scripts\local.ps1 Export -ExportId ID -Verify | 只从既有包核验完整清单与重聚合结果，不读取原输入，不执行模型或应用 |
-| .\scripts\local.ps1 Clean -Scope cache/testcache/tmp/work/env/all | 默认只生成路径、估算字节、保留项、阻塞项和 plan_id，不删除 |
-| .\scripts\local.ps1 Clean -Apply -PlanId ID | 执行仍有效、范围匹配的清理计划；资源/路径变化则要求重新生成计划 |
+| `setup.cmd` | 普通 Python 3.11+ 启动器在 Windows x64 上建立 owner、Job 保护及项目锁定环境；不需要 PowerShell/Codex |
+| `dfx env status` / `dfx env prepare` / `dfx env sync` | 只读盘点、归属核对和锁定依赖同步；sync 可加 `--offline`，缺缓存则明确失败 |
+| `dfx doctor --application PROFILE` | 只读检查声明的工程、工具、设备限制和独立 oracle 文件；不运行模型或设备 |
+| `dfx configure --provider PROVIDER --model MODEL --application PROFILE --save CONFIG` | 生成新竞赛配置，同协议服务可加 `--base-url` 和 `--key-env`；不覆盖旧文件、不读取密钥或解锁实验 |
+| `dfx --demo --name ID` | 无网络、无 HarmonyOS 的合成闭环，交出 synthetic_checked 或未解决结果 |
+| `dfx --target TASK --config CONFIG --name ID` / `dfx --resume ID` | 启动已审查任务或核原配置/预算恢复；真实实验须先接纳条件与放行 |
+| `dfx status ID` / `dfx logs ID --follow` / `dfx report ID` | 查看实际活动与最终结果，支持有限文本/JSON 输出；展示不代替接受证据 |
+| `dfx stop ID` | 核对会话及当前 manager 身份后停止对应 Job，保留文件和未知外部结果 |
+| `dfx env clean --scope cache` | 默认生成路径范围、估算字节和 plan_id；scope 也可选 testcache/tmp/work/env/all，缓存/临时/工作目录应用时另加 `--apply --plan-id ID` |
+| `setup.cmd --clean --scope env --apply --plan-id ID` | 退出 Agent 后由项目之外的普通 Python 清理环境；scope=all 清理整个受管根，丢弃证据还须 `--discard-evidence` |
+
+固定仓库测试和 docs/ruff/pyright 使用项目 Python 的 `-B -m dfx_agent.managed_runtime --workspace . Run -Task TASK`，测试另传 `-TestPath`；这些是受管开发调用。历史固定响应 offline、aggregate 和私有 Export/Verify 继续使用原 `scripts/local.ps1` 开发兼容入口，原计划/证据与恢复契约保留，不把它们作为生产 Agent 安装条件，也不把 Python 清理计划传给旧入口执行。
 
 cache 清理缓存及 tmp；testcache 仅清理旧 pytest/pycache，tmp 仅处理临时目录；work 要先核对每个工作项为终态，非空时还须在预览和 Apply 请求中明确使用 -DiscardEvidence。cache/tmp/all 检测到任务快照或未发布导出暂存时同样要求明确丢弃；env 删除 tools/python/env，不触碰用户其他环境。all 移除整个 .dfx-local，artifacts/state 等证据仍阻止无丢弃授权的清理。一个矩阵包不覆盖其他运行、管理日志和全部 state，Export 不自动放行任何证据清理；先核验需保留的包，再由具体清理请求决定是否丢弃原记录。不得因目录被 Git 忽略而推定授权。Stop 不等于 Clean；停止不会删除证据，删缓存也不保证释放运行内存。
 
@@ -696,13 +697,13 @@ Verify 的证据输入只取包内清单、哈希、源码/候选与账本以及
 
 清理必须在所有工作进程退出、设备动作结束、文件锁释放且历史未结作业已核对之后执行。先取得独占维护锁，阻止新任务进入；检查 owner、当前仓库、受管目录和目标真实绝对路径，拒绝路径链上的链接与目录外目标。目标内部可存在 uv/Python 安装生成的链接，但只接受解析后仍在管理根内的目标，清理时先删除链接本身，不跟随其遍历或删除目录外文件。计划绑定根 ID、范围、目标状态；执行前和递归遍历时再核验，遇到变化终止。不运行全局 pip/uv 缓存清理，也不使用 git clean -xfd。
 
-清理器必须从仓库脚本/系统 PowerShell 运行，不能由将被删除的虚拟环境执行自身卸载。失败时返回已清、未清和原因，后续可重试；不得报告全部成功。all 完成时将受限清理回执写入 runs/exports，说明仍保留的数据和导出占用。原有 runs/archive 与共享缓存不在默认计划内，若用户另要求清理，单独列出确切目录和证据保留影响。
+env/all 的实际清理由 `setup.cmd --clean` 启动项目目录之外的普通 Python，不能由将被删除的虚拟环境自卸载。生产 `dfx env clean` 可预览，但应用 env/all 时给出外部命令并结束，不在仍锁住项目解释器的 CLI 父进程下自动调用另一管理器。后端再次拒绝目标内解释器执行删除；其他文件锁或部分删除失败须如实报告，不能称全部成功。all 的受限清理回执保存在 runs/exports，说明保留数据与导出。历史 PowerShell 清理只保留原开发兼容契约；原有 runs/archive 与共享缓存不在默认计划内，另要求清理时须列确切范围。
 
 停止本机控制器不自动证明构建子进程和设备动作已结束；Stop 必须核对受管 Job、作业账本与设备状态，未能确认则保留 inconclusive 和相关产物，Clean 不清除恢复所需记录。旧本 `remote-jobs.json` 安全标记如存在仍阻止清理，待人工核对；新运行不创建远程作业。
 
 ### 9.5 必须先验证的保护与资料依据
 
-本机保护通过隔离合成树核验路径、清理、进程派生、管理器崩溃、内存分配失败、持续输出、超时、并发互斥及进程身份。清理反例现由受管 pytest 执行既有 W01 脚本，并覆盖终态记录、任务快照和未发布导出保留。导出还核对实际工作进程祖先，兼容 Windows 虚拟环境启动器增加的进程层级，不能仅凭直接父进程判断。具体通过数量和最近环境观察统一见 STATUS，历史证据保留在 sessions。临时测试阈值只缩小不放大；未启动真实模型或应用任务。保护器测试不证明未来 HarmonyOS 安装器、设备服务、模拟器或 GPU 任务已受其覆盖；这些在 W08 前单独验收。
+本机保护通过隔离合成树核验路径、清理、进程派生、管理器崩溃、内存分配失败、持续输出、超时、并发互斥及进程身份。生产管理器的 Job、启动/停止及清理必须各有受管反例，旧 W01 PowerShell 测试不替代新后端验收。历史导出继续核对实际工作进程祖先，兼容 Windows 虚拟环境启动器增加的进程层级，不能仅凭直接父进程判断。具体结果和最近环境观察统一见 STATUS，历史证据保留在 sessions。临时测试阈值只缩小不放大；未启动真实模型或应用任务。保护器测试不证明未来 HarmonyOS 安装器、设备服务、模拟器或 GPU 任务已受其覆盖；这些在 W08 前单独验收。
 
 2026-09-21 核对了 [uv 环境变量](https://docs.astral.sh/uv/reference/environment/)、[Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)、[CPU rate control](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_cpu_rate_control_information) 与 [扩展内存限制](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_extended_limit_information) 官方说明。2026-09-23 进一步核对了 [CreatePipe](https://learn.microsoft.com/en-us/windows/win32/api/namedpipeapi/nf-namedpipeapi-createpipe)、[ReadFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile) 和 [句柄继承](https://learn.microsoft.com/en-us/windows/win32/ipc/pipe-handle-inheritance) 的官方说明。资料说明所用机制；实际通过情况以本地合成测试记录为准。
 

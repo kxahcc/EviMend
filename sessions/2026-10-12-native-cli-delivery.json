@@ -1,0 +1,149 @@
+{
+  "date": "2026-10-12",
+  "mode": "independent_native_cli_delivery",
+  "base_commit": "d87f6f4",
+  "goal": "Deliver the finite competition CLI independently of PowerShell and Codex, preserving resource/budget protections.",
+  "changes": [
+    "Python standard-library Windows Job backend replaces the production PowerShell backend; retain owner, same named mutex, suspended startup, exact identities, limits/readback, stopping, inventory and preview cleanup.",
+    "setup.cmd/bootstrap.py use ordinary Python 3.11+ on Windows x64; project uv/Python/dependencies remain pinned and local, uv sync --locked; production CLI uses its actual base interpreter.",
+    "configure creates cloud/application profiles without reading credentials or sending requests; doctor declares missing prerequisites without claiming device/build verification.",
+    "Installed CLI refuses env/all apply before dispatch; after it exits, setup.cmd --clean uses ordinary external Python and the reviewed plan.",
+    "Windows metadata and cleanup use extended I/O paths with canonical owner identities, unchanged ACL/registry and explicit evidence discard.",
+    "Managed tests reuse a separate mature pytest process in the same bounded Job, then reclaim only their new checked temporary tree."
+  ],
+  "validation": {
+    "scope": "Synthetic official SDK transport and toy application checks only.",
+    "new_group_runs": [
+      {
+        "suite": "tests/test_managed_runtime.py",
+        "run_id": "03d16065-591a-4b73-a502-ea69dc60c40a",
+        "passed": 27
+      },
+      {
+        "suite": "tests/test_managed_bootstrap.py",
+        "run_id": "a9f04f40-e478-4385-85f9-f58f2938f2e2",
+        "passed": 6
+      },
+      {
+        "suite": "tests/test_product_cli.py",
+        "run_id": "4d5da723-2090-4689-b6e3-9f9088f6c86c",
+        "passed": 42
+      },
+      {
+        "suite": "tests/test_competition.py",
+        "run_id": "0e7a5619-e045-4c81-b620-b825e323b889",
+        "passed": 20
+      }
+    ],
+    "totals": {
+      "passed": 358,
+      "skipped": 2,
+      "suites": 9,
+      "basis": "263/2 from preceding model/application package plus 95/0 from these four groups; latest result per group, not full-repository/effect evaluation."
+    },
+    "ruff": "b06025d9-377b-4449-8541-7e79f2b4dcbe",
+    "pyright": "475b2ddd-806d-440c-9bfe-b52c57b909aa",
+    "docs_before_commit": "08ef8cb9-b1c6-4e15-810e-34689268e5f6",
+    "isolated_path_setup": {
+      "run_id": "e230d917-c05c-48ea-9433-32d10eb5ce6e",
+      "mode": "offline",
+      "path": "Windows system directories only",
+      "outcome": "finished"
+    },
+    "demo": {
+      "name": "native1012",
+      "manager_run": "f0c836f9-9467-4f12-9b96-b169e2fa3ef6",
+      "candidate_count": 2,
+      "model_calls": 15,
+      "synthetic_tokens": 225,
+      "status": "synthetic_checked",
+      "accepted": false,
+      "application_verification": "not_run"
+    },
+    "resume": {
+      "manager_run": "555fbe8f-6c95-430f-b006-85a1fbb09fef",
+      "report_bytes_unchanged": true,
+      "model_ledger_bytes_unchanged": true,
+      "additional_calls": 0,
+      "observation": ".dfx-local/artifacts/native1012-resume-observation.json"
+    },
+    "stop": {
+      "name": "native-stop1012",
+      "manager_run": "1038d36a-1c83-449e-a649-aebb74a47d0c",
+      "status": "canceled",
+      "reason": "stop_requested",
+      "frontend_stopped": true,
+      "active_run": false
+    },
+    "configuration": {
+      "provider": "deepseek",
+      "model": "MODEL_ID_NOT_YET_CONFIRMED",
+      "application_prerequisites": "blocked",
+      "model_verification": "not_run",
+      "experiments_enabled": false
+    },
+    "external_cleanup": {
+      "ordinary_python": "3.11.9",
+      "scopes": [
+        "env",
+        "all"
+      ],
+      "targets": "explicit fake environment files in new synthetic deployments",
+      "preserved": [
+        "original data sentinel",
+        "project sentinel",
+        "exports sentinel"
+      ],
+      "no_real_environment_removed": true
+    },
+    "first_failures": [
+      {
+        "run_id": "dd3d6020-4f84-4068-9a66-dd208c9283f4",
+        "reason": "Windows venv redirector child identity mismatch."
+      },
+      {
+        "run_id": "6310e32c-2031-4f80-9a69-4a7d51d310c8",
+        "reason": "Exact diagnostic; allow verified redirector ancestry while retaining actual named Job membership/readback."
+      },
+      {
+        "run_id": "a0d7de16-11fa-44ff-978c-1d0d5ad312c5",
+        "reason": "Test replaced Popen type before SDK/asyncio lazy import; preserve type and intercept constructor."
+      },
+      {
+        "run_id": "be0ae99f-3f88-441b-8267-db677c4d4241",
+        "reason": "20 assertions passed but managed temporary-tree fingerprint rejected a 262-character Windows path; run receipt failed."
+      },
+      {
+        "run_id": "9f3bd471-c5ce-4dff-b122-a815d29fa03a",
+        "reason": "Separate pytest alone did not resolve the path error; 20 assertions passed but managed receipt failed. Long-path I/O fix required."
+      },
+      {
+        "run_id": "37bf78ef-d94a-4733-85cd-f1abd145dd72",
+        "reason": "Incomplete-accounting mock intercepted normal path only; updated to intercept actual extended I/O without weakening required refusal."
+      }
+    ]
+  },
+  "environment": {
+    "managed_and_exports_bytes": 541826047,
+    "resource_accounting": "complete",
+    "inaccessible_paths": [],
+    "active_state": "none",
+    "real_model_runs": 0,
+    "real_harmonyos_runs": 0,
+    "global_environment_changes": false,
+    "limits_changed": false,
+    "old_failed_tmp_deleted": false
+  },
+  "limitations": [
+    "No cache-free clean-machine installation certification; project distribution is Windows x64 complete source, not standalone wheel/cross-platform.",
+    "Real model ID, provider behavior, SDK/device/signing and first-case build/replay/business/regression runners require acceptance.",
+    "Synthetic checks do not establish fault localization accuracy, repair success, stability, token savings or paper contribution."
+  ],
+  "sources_checked_on": "2026-10-11",
+  "product_references": [
+    "https://github.com/Yeti-791/Awesome-Offensive-AI-Agentic-Landscape",
+    "https://github.com/usestrix/strix/blob/main/docs/quickstart.mdx",
+    "https://github.com/m-sec-org/BreachWeave",
+    "https://github.com/chainreactors/tinyctfer"
+  ]
+}

@@ -7,11 +7,11 @@
 
 ### 标准用户命令与部署
 
-**以下是产品入口的使用方法；安装和验收状态以 STATUS 为准。** 受管安装必须先通过资源盘点，再实际同步依赖锁并生成 dfx.exe。Windows 当前需要已安装的 PowerShell 7（pwsh）、完整项目目录和项目环境；不是单独 wheel、纯 Python 或跨平台部署。内部管理/工作脚本仍保留，用户无需手写它们的长参数。本机不改全局 PATH、pip 或注册表。
+**产品入口是安装后的 dfx CLI：给它经审核的任务与配置，自动定位、改代码、检查和根据失败修订，输出补丁及报告。** 当前交付范围为 Windows x64 完整项目目录；首次安装需要普通 Python 3.11+ 引导，安装后使用项目环境中的标准 console entry。生产 CLI、安装、受管测试不依赖 PowerShell 或 Codex；不改全局 PATH、pip 或注册表。独立 wheel 和跨平台不在当前范围，具体验收见 STATUS。
 
-首次安装或清除项目环境后，从项目根目录执行 `setup.cmd`；已有环境且所有构建依赖已缓存时可用 `setup.cmd -OfflineSync`。实际 Init 核 uv/Python、执行 lock/sync、检查 SDK 和已安装 dfx 的 help/version 后才记录环境身份。资源不完整、构建包未缓存或同步失败时必须先处理具体原因，不能改 environment.json 冒充安装。
+首次安装从项目根执行 `setup.cmd`。它先建立原生 Windows Job 限额，再下载核对固定 uv/Python，执行 `uv sync --locked` 并检查 SDK、dfx help/version；完成后才记录环境身份。已有环境且依赖已缓存时用 `setup.cmd --offline`。安装产物集中在 `.dfx-local`；资源盘点不完整、包未缓存或同步失败时明确停止，不改身份文件冒充安装。不需要登录或安装 Codex。
 
-安装成功后的日常命令如下。PowerShell 在项目目录使用 `.\dfx`，已激活项目虚拟环境时也可使用裸 `dfx`：
+安装成功后，CMD 用 `dfx.cmd`；PowerShell 用 `.\dfx`。激活项目环境后也可使用裸 `dfx`：
 
 ```text
 .\dfx --demo --name trial01
@@ -25,6 +25,25 @@
 .\dfx env clean --scope cache
 .\dfx env clean --scope cache --apply --plan-id PREVIEW_PLAN_ID
 ```
+
+### 一次配置模型和应用
+
+模型请求由锁定的官方 OpenAI Python SDK 发起。OpenAI 与 DeepSeek 有地址/Key 环境名预设；通义百炼、智谱等同协议服务使用 `compatible`，指定服务的 Chat API base URL、模型 ID 和 Key 环境名。标准文本/工具调用有接入条件，具体型号、Token 字段和厂商思考扩展仍须核验；不声称所有国产型号均已实测，也不直接支持 Anthropic/Gemini 原生协议。项目代码只保留领域消息转换、预算与未知结果保护，不自写供应商 HTTP 客户端。
+
+先复制并填写 `configs/harmonyos-app.template.json`：完整工程、Node/ohpm/Hvigor/hdc 路径、设备/签名和独立业务检查只配置一次。用下面的命令生成运行配置；MODEL_ID 必须来自所选服务，不能把用户候选名当成已核验的 API 名称。
+
+```text
+dfx.cmd doctor --application configs/my-app.json
+dfx.cmd configure --provider deepseek --model MODEL_ID --application configs/my-app.json --save configs/my-run.json
+dfx.cmd configure --provider compatible --base-url https://SERVICE/v1 --model MODEL_ID --key-env DFX_PROVIDER_API_KEY --application configs/my-app.json --save configs/my-compatible-run.json
+dfx.cmd --target reviewed/task01 --config configs/my-run.json --name task01
+```
+
+Key 通过所选环境变量提供，不能写进配置或命令参数。`configure` 不读 Key、不联网、不打开实验开关，也不覆盖已有配置；可先保存尚缺环境的配置，并明确报告 blocked。`doctor` 只检查声明的本地文件和 oracle 字节，configured 不代表 SDK 版本、签名、设备连接或应用运行已验证。全局 `--output-format json` 放在 configure/doctor 前可读取结构化结果。
+
+DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；若选 `--thinking enabled`，配置保持完整历史并关闭裁剪。通用 compatible 预设不推测厂商思考模式；首次接入按官方协议核对，再固定模式与上下文策略。厂商特殊参数不能当成所有兼容服务的通用字段。模型通信测试使用官方 SDK 的 MockTransport；真实服务测试尚未开展。
+
+应用环境采用两层准备：SDK、签名和配对设备由人先提供；随后 Agent 自动执行固定的项目依赖准备、构建、部署/回放、业务与回归检查。可选 preparation 在独立原版和候选工程内执行，源码绑定与回执仍校验；失败报告环境问题，未知结果不重复安装。npm cache 指向受管目录，ohpm/Hvigor 的缓存参数须按实际工具版本明确配置。现模板中的回放/检查入口是占位值，真实 HarmonyOS 首例仍需接纳，不能把合成检查当作完成该适配。
 
 `--target` 是已经审核的任务快照目录，含 task.json、source、crash.log 和清单；不是直接传任意原工程即可实验。输入位于部署项目中且不得来自原始 data_B、archive 或指令目录；完整工程、验证命令和业务判据通过 --config 绑定。真实配置尚未接纳时只运行 --demo。省略 --name 时自动生成会话名；工作目录和批准路径自动派生。`--resume NAME` 消费该新运行保存的原位置/profile，并继续原准入和预算检查，不自动替换配置。旧运行没有新位置文件时沿下面兼容入口显式提供参数；源码/依赖变更仍可能使恢复被拒绝，不能通过新前端绕过。
 
@@ -78,6 +97,8 @@ CloudProviderConfig 只保存 HTTPS endpoint 与凭据环境名；endpoint 不�
 `-Resume` 必须沿用相同工作 ID、任务和配置，保留原完整工程、work 内全部原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原批准。恢复消费 run 内原知识和静态资源，不能重建缺失工程、重新生成批准或把新资源加入旧运行。执行源码/依赖身份、配置、工程、映射、协议和批准有漂移时拒绝；恢复准入拒绝返回 3 并保留原终态。已完成模型/检查调用只回放结果，已发出但结果未知的调用停止并不重发。无待执行工作的完成恢复即使用满额度也保留原结果和终态观察计时；仍有待执行工作时不能重置原预算/截止时间。旧报告没有可信完成时间且无新进展时耗时保持未知，不能把空闲和恢复时间算成旧修复耗时；首次报告观察区间也不等于定位/修复阶段耗时。字段与旧代回读边界见[规格第 1.3.1 节](../../docs/design-contracts.md#131-案例接纳与协议冻结)，实际通过范围见 STATUS。
 
 Stop 终止当前受管 Job，Status 查看状态。Clean 默认只预览，示例仅预览缓存；预览 work 可用 `Clean -Scope work`，保留条件、PlanId 和显式丢弃要求沿用 [本机管理协议](../../docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。需要恢复时须保留原工程、任务、work 与 state 原批准；mock_demo 的原工程和任务位于 `.dfx-local/tmp/`，不能先清掉再续跑。交付包不会自动授权清理，也不能代替恢复原件。
+
+删除整个环境时，先用 `dfx.cmd env clean --scope env` 预览，再退出 Agent，使用独立普通 Python 的 `setup.cmd --clean --scope env --apply --plan-id PLAN_ID`。all 还须明确丢弃运行证据；预览和应用都带相同 `--discard-evidence`。安装后的 dfx 在 env/all 应用前拒绝并给出指引，因为仍运行的 CLI 会锁住自身解释器；不做后台自删或部分清理。外部入口继续核对 owner、实际路径、活动状态和预览指纹，保留 data_B、Git 文件和 runs/exports。
 
 ### 既有离线证据与脚本入口
 

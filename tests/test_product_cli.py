@@ -1,4 +1,4 @@
-"""Product command behavior without launching PowerShell, models or applications."""
+"""Product command behavior without launching models or applications."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     work.mkdir(parents=True)
     config = tmp_path / "configs"
     config.mkdir()
+    (tmp_path / "src").mkdir()
     (config / "competition-demo.json").write_text('{"model_mode":"mock_demo"}', encoding="utf-8")
     monkeypatch.setattr(cli, "_workspace", lambda _: tmp_path)
     return tmp_path
@@ -288,3 +289,143 @@ def test_json_run_emits_only_terminal_result_and_never_invokes_shell(
     assert len(launches) == 1
     assert launches[0][1]["shell"] is False
     assert "-CompetitionWorkId" in launches[0][0]
+
+
+@pytest.fixture
+def application_template(workspace: Path) -> Path:
+    source = Path(__file__).parents[1] / "configs/harmonyos-app.template.json"
+    target = workspace / "configs/application.json"
+    target.write_bytes(source.read_bytes())
+    return target
+
+
+def _configure_arguments(destination: str = "configs/cloud.json", *options: str) -> list[str]:
+    return ["--output-format", "json", "configure", "--provider", "deepseek", "--model", "chosen-model",
+            "--application", "configs/application.json", "--save", destination, *options]
+
+
+def _reject_external_actions(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    def reject(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("configuration/preflight must not start a process or send a network request")
+
+    monkeypatch.setattr(cli, "_invoke", reject)
+    # Keep Popen's type intact: asyncio and SDK modules may import it lazily
+    # for runtime typing/subclass declarations. Only actual construction fails.
+    monkeypatch.setattr(cli.subprocess.Popen, "__init__", reject)
+    monkeypatch.setattr(httpx.Client, "request", reject)
+    monkeypatch.setattr(httpx.Client, "send", reject)
+    monkeypatch.setattr(httpx.AsyncClient, "request", reject)
+    monkeypatch.setattr(httpx.AsyncClient, "send", reject)
+
+
+def test_cloud_configuration_saves_unready_application_without_network_or_reading_key(
+    workspace: Path, application_template: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    private = "PRIVATE_SECRET_NEVER_READ_OR_SAVED"
+    environment_name = "DFX_TEST_PROVIDER_SECRET"
+    monkeypatch.setenv(environment_name, private)
+    original = type(cli.os.environ).__getitem__
+
+    def guarded_key(environment: Any, key: str) -> str:
+        if key == environment_name:
+            pytest.fail("configure must save only the credential environment name")
+        return original(environment, key)
+
+    monkeypatch.setattr(type(cli.os.environ), "__getitem__", guarded_key)
+    original_application = application_template.read_bytes()
+    assert cli.main(_configure_arguments("configs/cloud.json", "--key-env", environment_name)) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["event"] == "configuration_created"
+    assert receipt["application_prerequisites"] == "blocked"
+    assert receipt["model_verification"] == "not_run"
+    assert receipt["experiments_enabled"] is False
+    assert receipt["credential_env"] == environment_name
+    saved_bytes = (workspace / "configs/cloud.json").read_bytes()
+    assert private.encode() not in saved_bytes
+    profile = json.loads(saved_bytes)
+    assert profile["provider"] == {"endpoint": "https://api.deepseek.com/chat/completions",
+                                   "credential_env": environment_name}
+    assert profile["model"]["thinking_mode"] == "disabled"
+    assert profile["working_context"]["enabled"] is True
+    assert profile["working_context"]["history_selection"] == "repair_frontier"
+    assert profile["working_context"]["context_layout"] == "decision_layers"
+    assert profile["execution"]["project_root"] == "SET_ABSOLUTE_FULL_PROJECT_ROOT"
+    assert application_template.read_bytes() == original_application
+
+
+def test_explicit_deepseek_thinking_keeps_full_history_without_working_context_selection(
+    workspace: Path, application_template: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    assert cli.main(_configure_arguments("configs/thinking.json", "--thinking", "enabled")) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["model_verification"] == "not_run"
+    saved = json.loads((workspace / "configs/thinking.json").read_bytes())
+    assert saved["model"]["thinking_mode"] == "enabled"
+    assert saved["working_context"]["enabled"] is False
+
+
+@pytest.mark.parametrize("destination", ["data_B/cloud.json", "archive/cloud.json", ".git/cloud.json", "../outside.json"])
+def test_cloud_configuration_refuses_original_data_archives_and_external_output(
+    workspace: Path, application_template: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str], destination: str,
+) -> None:
+    _reject_external_actions(monkeypatch)
+    target = workspace / destination
+    target.parent.mkdir(parents=True, exist_ok=True)
+    assert cli.main(_configure_arguments(destination)) == 1
+    assert json.loads(capsys.readouterr().out)["event"] == "error"
+    assert not target.exists()
+
+
+def test_cloud_configuration_never_overwrites_reviewed_output(
+    workspace: Path, application_template: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    saved = workspace / "configs/cloud.json"
+    original = b"previous approved configuration\n"
+    saved.write_bytes(original)
+    assert cli.main(_configure_arguments()) == 1
+    assert json.loads(capsys.readouterr().out)["event"] == "error"
+    assert saved.read_bytes() == original
+
+
+def test_application_doctor_is_read_only_and_does_not_probe_devices_or_model(
+    workspace: Path, application_template: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    before = {str(path.relative_to(workspace)): path.read_bytes() for path in workspace.rglob("*") if path.is_file()}
+    assert cli.main(["--output-format", "json", "doctor", "--application", "configs/application.json"]) == 1
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["event"] == "preflight"
+    assert receipt["status"] == "blocked"
+    assert receipt["observations"] == {"device_connection": "not_probed", "sdk_compatibility": "not_probed",
+                                        "signing_validity": "not_probed", "application_verification": "not_run"}
+    assert receipt["issues"]
+    after = {str(path.relative_to(workspace)): path.read_bytes() for path in workspace.rglob("*") if path.is_file()}
+    assert after == before
+
+
+@pytest.mark.parametrize("scope", ["env", "all"])
+@pytest.mark.parametrize("discard", [False, True])
+def test_environment_deletion_is_rejected_before_invoke_and_points_to_external_setup(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    scope: str, discard: bool,
+) -> None:
+    monkeypatch.setattr(cli, "_invoke", lambda *args: pytest.fail("running environment deletion must not invoke a manager"))
+    arguments = ["--output-format", "json", "env", "clean", "--scope", scope, "--apply", "--plan-id", "reviewed-plan"]
+    if discard:
+        arguments += ["--discard-evidence"]
+    assert cli.main(arguments) == 1
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["event"] == "external_cleanup_required"
+    assert receipt["scope"] == scope
+    assert receipt["command"] == f"setup.cmd --clean --scope {scope} --apply --plan-id reviewed-plan" + (
+        " --discard-evidence" if discard else "")

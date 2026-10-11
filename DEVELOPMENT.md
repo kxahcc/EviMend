@@ -90,7 +90,7 @@ flowchart LR
 | 状态与轨迹 | SQLite 检查点、有限活动侧录、文件产物；按需接原生 stream/callback | 不新增通用会话数据库、事件总线或自研追踪平台；外部 tracing 是可选观测 |
 | 环境管理 | uv + pyproject.toml + uv.lock | 项目内隔离依赖并锁定版本；固定响应 SDK 切片已做合成验证 |
 | 代码工具 | 受控读取/检索、SDK FilesystemBackend.edit、Git CLI | 原版、草稿和冻结候选明确区分；替换执行复用 SDK，领域适配负责临时草稿切换和候选登记；验收见 STATUS |
-| 应用执行 | 本机受管作业进程、持久检查意图/结果与四项固定命令 | 完整工程和候选映射由主机固定，保存原版复现及候选检查；软件通道已实现，真实工具链、设备与业务判据待接纳 |
+| 应用执行 | Python 标准库调用 Windows Job + 项目依赖准备 + 四项固定检查 | 先准备 SDK/设备/签名及独立判据，再由 Agent 为独立工程副本安装项目依赖、构建、回放、检查并根据失败修订；软件通道已实现，真实适配待接纳 |
 | 应用验证 | 本机项目匹配的 DevEco/SDK、Hvigor、ohpm、hdc，按需 Hypium | 先核对本机容量和设备/模拟器可用性，再受管构建、回放及业务验收 |
 | 开发检查 | pytest、Ruff、Pyright | 合成测试、接口检查、格式和类型检查 |
 
@@ -104,7 +104,11 @@ CLI 只承担传参、显示活动、停止/恢复与读取结果。后续需要
 
 本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；离线证据可通过受管 Export 保留到 runs/exports。日常只启动一个受管任务。真实应用阶段先盘点设备、SDK/构建缓存的占用，再为其建立同样受管的安装、运行和清理入口；当前方案没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-面向用户的 `dfx` 前端负责启动、进度和会话操作，`env` 管理安装、占用和按计划清理。Windows 当前部署形式是完整项目目录、项目专属环境和标准 console entry；初始入口为 setup.cmd，安装后的仓库快捷入口为 dfx.cmd，不改全局 PATH。内部 scripts/local.ps1 继续承担 Prepare、Status、Clean、Stop、Init、受限 Run 和私有 Export，仍依赖已安装 PowerShell 7/.NET；这次没有移植保护后端，也没有完成独立 wheel 或跨平台部署。任务先建立 Windows Job 限制再启动；项目环境与缓存集中在 .dfx-local，managed 与 exports 共同受磁盘预算约束。competition 工作目录固定，进度侧录只显示实际活动，不代替最终报告或接受证据。[本机配置](configs/local-runtime.json) 的真实模型/应用开关仍为 false；使用和安装状态见 [Agent 说明](src/dfx_agent/README.md) 与 STATUS，完整限制边界见 [设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+面向用户的 `dfx` 前端负责启动、配置、进度和会话操作，`env` 管理安装、占用和按计划清理。交付范围是 Windows x64 下的完整项目目录、项目专属环境和标准 console entry。一次 `setup.cmd` 使用普通 Python 3.11+ 引导并创建锁定环境；日常用 `dfx.cmd` 或环境内的 `dfx`，生产运行不依赖 PowerShell、Codex 安装或全局 PATH 修改。Python 管理入口直接调用 Windows Job，保留停止、归属核对和资源限额；历史研究/导出 PS 入口只作开发兼容，不是产品运行前置。项目资源集中在 .dfx-local；删除 env/all 时先退出 Agent，再用外部普通 Python 的 `setup.cmd --clean` 应用预览计划，避免删除正在使用的解释器。独立 wheel 和跨平台不在本轮范围。真实实验开关仍为 false；实际验收与命令见 [Agent 说明](src/dfx_agent/README.md) 和 STATUS，限制边界见 [设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+
+### 竞赛版的交付标准从哪里来
+
+2026-10-11 查阅用户提供的 [Agent 项目索引](https://github.com/Yeti-791/Awesome-Offensive-AI-Agentic-Landscape)，再核对项目本体：[Strix](https://github.com/usestrix/strix/blob/main/docs/quickstart.mdx) 的直接任务 CLI、[BreachWeave](https://github.com/m-sec-org/BreachWeave) 的 SDK 复用和事实/方向记忆分工、[tinyctfer](https://github.com/chainreactors/tinyctfer) 的显式模型及执行环境。它们的任务与本项目不同，仓库自述成绩不作为我们的效果证据。由这些产品形态得出的本项目验收标准是：明确前置环境，一次安装，轻量模型/应用配置，一个命令启动任务，自动执行与反馈修订，能看进度/停止/恢复，最后交出补丁和可信检查记录。无需先搭建 Web、调度平台或图数据库；方法收益仍须同预算真实比较。
 
 每次新运行保存执行源码指纹、依赖锁和实际 Python/依赖版本。恢复先核对兼容性，报告和聚合只读取当时保存的事实；旧记录的缺失版本保持未知。competition 还须保留原完整工程、原配置、run 原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原主机批准，不以新资源或新批准替换旧记录；已完成记录回放，未知发送不重做。Git 的初始观察与续跑身份分开，日常改文档不会改变执行源码的兼容身份。完整约束见 [模块规格](docs/design-contracts.md)。
 
@@ -154,8 +158,9 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
 | `src/dfx_agent/` | Python 证据与修复 Agent、候选工作区、SDK 闭环、云端请求和本机检查通道、竞赛交付及受控策略；实际验收见 STATUS，模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 competition / repair / resume / aggregate / export / verify-export 入口 |
+| `scripts/bootstrap.py`、`setup.cmd`、`dfx.cmd` | 无 PowerShell 的一次安装/外部环境清理、仓库快捷启动；初始安装需要普通 Python 3.11+，不借用 Codex 路径 |
 | `dfx.cmd`、`setup.cmd` | 安装后的标准命令快捷入口及首次受管安装入口；内部依赖既有 PowerShell 7 后端，实际安装验收状态见 STATUS |
-| `scripts/local.ps1` | 本机 Prepare、Status、Clean、Stop、Init、受限合成/测试/质量/离线 Agent/competition/聚合及私有 Export/Verify 入口；实际云端和应用实验开关仍关闭 |
+| `scripts/local.ps1` | 历史研究/导出及 PS 开发兼容入口；生产 competition、安装和基础检查已由 Python 管理入口承担，真实实验开关仍关闭 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
 | `scripts/local_bootstrap.ps1`、`scripts/local_test.ps1`、`scripts/local_quality.ps1` | Job 内的固定依赖安装、pytest 和文档/Ruff/Pyright 检查，不接受任意 shell 命令 |
 | `scripts/local_agent.ps1` | Job 内固定响应或模拟模型协议的离线 repair / resume 工作进程，输入由管理入口限定 |
@@ -200,6 +205,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_cloud_provider.py`、`tests/test_local_execution.py`、`tests/test_competition.py`、`tests/test_competition_process.py` | MockTransport 云端调用、短时本机程序、统一竞赛入口与不同进程原配置恢复的边界和输出软件验收；不调用真实 API 或 HarmonyOS，实际结果见 STATUS |
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
 | `tests/test_product_cli.py`、`tests/test_progress.py` | 用户参数、输出/分页、停止归属、中断及有界侧录的软件用例；组件与实际产品验收结果见 STATUS |
+| `tests/test_managed_runtime.py`、`tests/test_managed_bootstrap.py`、`tests/test_application_profile.py` | 原生 Job 身份/停止/清理、锁定安装隔离与只读应用前置检查的软件验收 |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
 | `tests/test_context_compaction.py`、`tests/test_compaction_loop.py` | 主机压缩的完整工具组、冻结来源、独立费用、格式失败、未知结果、恢复及实际 SDK 交接的合成验收 |
 | `tests/test_readonly_evidence.py`、`tests/test_metrics.py`、`tests/test_metrics_cli.py` | 不可变账本、完整分母/未知项/重复运行、配置漂移及受管聚合入口的合成验收 |
@@ -214,6 +220,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `data_B/` | 本地竞赛数据；Git 忽略 |
 | `configs/local-runtime.json` | 本机资源/清理策略；合成 Run、Init、测试、质量、离线 Agent、competition、聚合和 Export 的受管限制与共同磁盘预算，真实实验开关保持 false，字段语义见设计与契约 |
 | `configs/competition-demo.json`、`configs/competition-cloud.template.json` | mock_demo 软件演示配置与云端/完整工程接纳模板；模板不是当前获准的真实实验入口 |
+| `configs/harmonyos-app.template.json` | 一次配置完整工程、工具路径、设备/签名、项目依赖准备和独立检查；占位值须在真实接纳时填写 |
 | `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
 | `.dfx-local/` | 本机环境、缓存、任务/工作副本、导出暂存与运行状态根；Git 忽略，所有当前运行入口受管 |
 | `runs/` | 历史原型产物、管理工具接入前的临时材料及本机私有 exports；Git 忽略，普通清理保留导出包 |
@@ -228,7 +235,9 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 
 | 文件 | 职责与边界 |
 |---|---|
-| `product_cli.py` | 标准 dfx console entry、会话操作、有限输出和活动反馈；委托原受管后端，不直接运行求解器或放行真实实验 |
+| `product_cli.py` | 标准 dfx console entry、配置/只读前置检查、会话操作和活动反馈；委托 Python 受管后端，不直接放行真实实验 |
+| `managed_runtime.py`、`windows_job.py`、`managed_bootstrap.py` | 标准库管理入口、Windows 原生 Job 与锁定安装，保留限额/精确停止/预览清理；不引入另一套会话或调度服务 |
+| `application_profile.py` | 读取主机应用配置并报告缺失工具、工程、设备声明和独立判据；不联网、不安装、不探测实际设备 |
 | `progress.py` | 主机操作边界的容量有限事件侧录和只读分页；不包含私有正文、不重构历史时间，不充作接受/科研账本 |
 | `task.py` | 显式案例目录契约、日志/ZIP 成员与场景脚本哈希核对、分析快照和身份摘要；不生成完整运行工程 |
 | `logs.py` | 编码、错误字段与栈帧解析；不推理业务根因 |
@@ -290,19 +299,19 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 
 从仓库根目录运行：
 
-```powershell
-.\scripts\local.ps1 Status
-.\scripts\local.ps1 Init
-.\scripts\local.ps1 Run -Task test -TestPath tests/test_sdk_compat.py
-.\scripts\local.ps1 Run -Task docs
-.\scripts\local.ps1 Run -Task test -TestPath tests/test_cleanup.py
-.\scripts\local.ps1 Run -Task competition -CompetitionConfigPath configs/competition-demo.json -CompetitionWorkId demo01
-.\scripts\local.ps1 Run -Task competition -CompetitionConfigPath configs/competition-demo.json -CompetitionWorkId demo01 -Resume
-.\scripts\local.ps1 Stop
-.\scripts\local.ps1 Clean -Scope cache
+```text
+setup.cmd
+dfx.cmd --demo --name demo01
+dfx.cmd --resume demo01
+dfx.cmd status demo01
+dfx.cmd logs demo01 --follow
+dfx.cmd report demo01
+dfx.cmd env status
+.dfx-local\env\Scripts\python.exe -B -m dfx_agent.managed_runtime --workspace . Run -Task test -TestPath tests/test_sdk_compat.py
+.dfx-local\env\Scripts\python.exe -B -m dfx_agent.managed_runtime --workspace . Run -Task docs
 ```
 
-受管 pytest 可运行 `-Task test -TestPath tests/test_agent_loop.py` 检查闭环。competition 的 mock_demo 自建合成任务，不传真实任务；运行后从工作目录读取竞赛输出，不能把演示视为真实修复效果。Status、Stop 和默认预览的 Clean 共用同一管理入口，预览不会删除资源。恢复条件和两种演示的输入约定见 [原型说明](src/dfx_agent/README.md)。盘点工具用法见其 README，真实任务输入必须显式提供经核验的清单，并另行完成环境和协议接纳。
+受管 pytest 每次指定一个 tests 下的用例文件。competition 的 mock_demo 自建合成任务；运行后读取竞赛输出，不能把演示视为真实修复效果。状态、停止和默认清理预览共用原生管理入口。旧离线研究及 Export 命令保留 PS 兼容入口，详见 [使用说明](src/dfx_agent/README.md)。真实任务仍须经核验的快照、完整工程、独立检查和环境接纳。
 
 ## Git 与归档
 

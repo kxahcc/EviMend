@@ -696,7 +696,7 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 
 ## 5. 本机资源与清理契约
 
-本节规定目标字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。LocalOwner、CleanupPlan 与 CleanupReceipt 已由 W01 的 PowerShell 管理入口部分实现；W02/W03 已建立 Job 限制、活动标记与生效限额记录，并沿用到离线 Agent、competition、聚合及 Export。competition 的本机执行器读取真实 owner/active lease，核验唯一命名 Job 的成员与精确限制，设备动作尚未认证；实际验收见 STATUS，私有评测导出对象见第 1.3.4 节。下表完整的 ProcessLease/EffectiveResourcePolicy/LocalUsage schema 仍是目标契约，现有 PowerShell 活动记录不等于这些 Python 对象已实现，runtime.py 不包含完整能力。
+本节规定目标字段和行为；目录与资源机制见开发设计第 9 节，数值只读取 configs/local-runtime.json。生产 `managed_runtime.py`、`managed_bootstrap.py`、`windows_job.py` 用 Python 标准库实现项目 owner、固定版本安装、Windows Job、活动记录、停止与清理，不依赖 PowerShell/.NET 或 Codex。首次 setup 需要已有普通 Python 3.11+ 与 Windows x64，之后建立项目 Python 3.13.5 和锁定 uv/依赖。历史 W01 PowerShell 管理和离线/聚合/Export 入口保留开发兼容契约，不是生产运行前置。competition 继续读取有效 owner/active lease 并核验命名 Job 的成员及精确限制，设备动作尚未认证；实际验收见 STATUS，私有评测导出对象见第 1.3.4 节。下表完整目标 schema 不因管理器文件记录具有相近字段而自动视为全部实现；runtime.py 不是通用资源平台。
 
 | 对象 | 必须字段 / 约束 |
 |---|---|
@@ -713,7 +713,7 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 
 单个导出包的预计完整字节受 limits.max_export_package_bytes 约束，数值只在配置维护；所有受管任务的预检/监测把 managed 与 exports 合计纳入既有 managed_disk_budget_bytes，并核对卷空闲预留。Export 复制前预估完整包、清单和报告；逐次写入检查卷剩余空间及已写/待写账面量，完工再扫实际占用。已复制字节不能再次作为新增预留，分配失败或超限不发布包；磁盘监测不承诺内核硬配额。
 
-Stop 不隐式删除文件；Clean 不隐式杀未知进程。当前非空 work 即使全部终态，清理预览及 Apply 仍须明确 -DiscardEvidence；cache/tmp/all 检测到 task.json、source-manifest.json、package.json 或 ex-* 未发布导出目录时同样要求明确丢弃。all 中 artifacts/state 证据仍阻止无丢弃授权的清理。Export 仅覆盖 manifest 声明范围，不覆盖所有其他运行和管理记录，不自动解锁整树清理；用户应先核验需保留的包，再在具体清理请求中决定是否丢弃原记录，不能先清证据再补报告。已导出包由普通清理保留。受管 Job 外的既有设备服务须单独核验归属和停止能力；云端模型请求已发送但本机失联时仍按模型账本保留未知费用与结果，不假定 Stop 能撤销请求。
+Stop 不隐式删除文件；Clean 不隐式杀未知进程。当前非空 work 即使全部终态，清理预览及应用仍须明确 `--discard-evidence`（内部为 DiscardEvidence）；cache/tmp/all 检测到 task.json、source-manifest.json、package.json 或 ex-* 未发布导出目录时同样要求明确丢弃。all 中 artifacts/state 证据仍阻止无丢弃授权的清理。生产 `dfx env clean` 默认预览并绑定 python_win32 后端的 plan_id、实例、scope、指纹和丢弃决定；旧 PowerShell 计划不可互换。env/all 应用必须退出 Agent，再用 `setup.cmd --clean` 的项目之外普通 Python 执行；CLI 不在仍锁住项目解释器的父进程下自动转发，后端也拒绝目标内解释器自卸载。路径/状态变化或仍有文件锁必须失败并保留事实，不称全部释放。Export 仅覆盖 manifest 声明范围，不自动解锁整树清理；先核验需保留的包，再决定具体范围的丢弃，不能先清证据再补报告。已导出包由普通清理保留。受管 Job 外的设备服务须单独核验归属和停止能力；云端请求失联仍保留未知费用与结果，不假定 Stop 能撤销请求。
 
 ## 6. 关联与待完成规格
 

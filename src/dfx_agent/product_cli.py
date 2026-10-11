@@ -7,9 +7,9 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
+import sys
 import threading
 import time
 from datetime import UTC, datetime
@@ -21,10 +21,6 @@ from .progress import read_progress
 
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _CAPTURE_BYTES = 32768
-
-
-class _MissingBackend(ValueError):
-    """A safe readiness reason without any private backend diagnostics."""
 
 
 def _name(value: str) -> str:
@@ -62,13 +58,13 @@ def _workspace(value: Path | None) -> Path:
         value = Path(os.environ["DFX_PROJECT_ROOT"])
     if value is None:
         for candidate in (Path.cwd(), *Path.cwd().parents):
-            if (candidate / "configs/local-runtime.json").is_file() and (candidate / "scripts/local.ps1").is_file():
+            if (candidate / "configs/local-runtime.json").is_file() and (candidate / "pyproject.toml").is_file():
                 value = candidate
                 break
     if value is None:
         raise ValueError("specify --workspace with the deployed DFX project directory")
     root = _checked(value)
-    for relative in ("configs/local-runtime.json", "scripts/local.ps1"):
+    for relative in ("configs/local-runtime.json", "pyproject.toml"):
         _checked(root / relative)
     return root
 
@@ -92,11 +88,19 @@ def _work(root: Path, name: str) -> Path:
 def _backend(root: Path, arguments: list[str]) -> list[str]:
     if os.name != "nt":
         raise ValueError("this deployment currently requires Windows")
-    executable = shutil.which("pwsh")
-    if executable is None:
-        raise _MissingBackend
-    return [str(_checked(Path(executable))), "-NoProfile", "-NonInteractive", "-File",
-            str(_checked(root / "scripts/local.ps1")), *arguments]
+    # Launch the actual Python image rather than the Windows venv redirector,
+    # so the process observed by this frontend is the exact lease manager.
+    executable = Path(getattr(sys, "_base_executable", sys.executable))
+    return [str(_checked(executable)), "-B", "-m", "dfx_agent.managed_runtime", "--workspace", str(root), *arguments]
+
+
+def _backend_environment(root: Path) -> dict[str, str]:
+    environment = os.environ.copy()
+    # The independent setup interpreter need not have Agent dependencies or
+    # this package installed; its manager uses only the distributed stdlib code.
+    environment["PYTHONPATH"] = str(_checked(root / "src"))
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return environment
 
 
 class _Capture:
@@ -142,6 +146,7 @@ def _active(root: Path) -> dict[str, Any] | None:
 def _invoke(root: Path, arguments: list[str]) -> tuple[int, dict[str, Any]]:
     process = subprocess.Popen(_backend(root, arguments), cwd=root, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, shell=False,
+                               env=_backend_environment(root),
                                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     output, errors = _Capture(process.stdout), _Capture(process.stderr)
     interrupted = False
@@ -173,6 +178,7 @@ def _stop_own_manager(root: Path, pid: int) -> bool:
     # is written only to that manager's private request channel.
     process = subprocess.Popen(_backend(root, ["Stop", "-ExpectedRunId", active["run_id"]]),
                                cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
+                               env=_backend_environment(root),
                                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     output, errors = _Capture(process.stdout), _Capture(process.stderr)
     process.wait(timeout=30)
@@ -276,6 +282,7 @@ def _run(root: Path, task: str, config: str, name: str, resume: bool, mode: str)
         args += ["-Resume"]
     process = subprocess.Popen(_backend(root, args), cwd=root, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, shell=False,
+                               env=_backend_environment(root),
                                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     output, errors = _Capture(process.stdout), _Capture(process.stderr)
     if mode != "json":
@@ -366,6 +373,21 @@ def parser() -> argparse.ArgumentParser:
     clean.add_argument("--apply", action="store_true")
     clean.add_argument("--plan-id")
     clean.add_argument("--discard-evidence", action="store_true")
+    configure = sub.add_parser("configure", help="create a cloud/application profile without sending a model request")
+    configure.add_argument("--provider", choices=("openai", "deepseek", "compatible"), required=True)
+    configure.add_argument("--model", required=True)
+    configure.add_argument("--base-url", help="Chat API base URL for a compatible service")
+    configure.add_argument("--key-env", help="name of the environment variable containing the key")
+    configure.add_argument("--application", type=Path, required=True, help="host-owned application profile")
+    configure.add_argument("--save", type=Path, required=True, help="new profile inside the project")
+    configure.add_argument("--thinking", choices=("enabled", "disabled"))
+    configure.add_argument("--max-calls", type=int, default=40)
+    configure.add_argument("--max-tokens", type=int, default=256000)
+    configure.add_argument("--max-output-tokens", type=int, default=4096)
+    configure.add_argument("--max-seconds", type=int, default=900)
+    configure.add_argument("--output-parameter", choices=("max_tokens", "max_completion_tokens"))
+    doctor = sub.add_parser("doctor", help="check declared local prerequisites without a model/device call")
+    doctor.add_argument("--application", type=Path, required=True)
     return result
 
 
@@ -377,11 +399,59 @@ def main(argv: list[str] | None = None) -> int:
         if args.command:
             if args.target or args.demo or args.resume or args.config or args.name:
                 cli.error("launch flags cannot be combined with a management command")
+            if args.command in {"configure", "doctor"}:
+                from .application_profile import (
+                    application_preflight,
+                    load_application_profile,
+                )
+                application = load_application_profile(root / _relative(root, args.application))
+                observation = application_preflight(application)
+                if args.command == "doctor":
+                    _emit({"event": "preflight", **observation}, args.output_format)
+                    return 0 if observation["status"] == "configured" else 1
+                from .competition import CompetitionConfig
+                from .model_provider import provider_connection
+                from .working_context_plan import WorkingContextPolicy
+                settings: dict[str, Any] = {"max_output_tokens": args.max_output_tokens}
+                if args.output_parameter:
+                    settings["max_output_parameter"] = args.output_parameter
+                if args.thinking is not None:
+                    settings["thinking_mode"] = args.thinking
+                elif args.provider == "deepseek":
+                    settings["thinking_mode"] = "disabled"
+                connection, model = provider_connection(args.provider, args.model,
+                    base_url=args.base_url, credential_env=args.key_env, **settings)
+                profile = CompetitionConfig(provider=connection, model=model, model_mode="cloud",
+                    execution=application.execution, max_calls=args.max_calls,
+                    max_known_tokens=args.max_tokens, max_seconds=args.max_seconds,
+                    working_context=WorkingContextPolicy(enabled=False) if args.thinking == "enabled"
+                        else WorkingContextPolicy(enabled=True, history_selection="repair_frontier",
+                                                  context_layout="decision_layers"))
+                destination = _checked(args.save if args.save.is_absolute() else root / args.save, exists=False)
+                if (not destination.is_relative_to(root) or destination == root or
+                        any(part.casefold() in {"data_b", "archive", ".git", ".agents", ".codex"}
+                            for part in destination.relative_to(root).parts)):
+                    raise ValueError("configuration output must be inside the deployed project")
+                # Exclusive creation keeps an existing reviewed profile intact.
+                with destination.open("x", encoding="utf-8") as output:
+                    output.write(profile.model_dump_json(indent=2) + "\n")
+                _emit({"event": "configuration_created", "path": str(destination),
+                    "provider": model.provider_id, "model": model.model_id,
+                    "credential_env": connection.credential_env,
+                    "application_prerequisites": observation["status"],
+                    "model_verification": "not_run", "experiments_enabled": False}, args.output_format)
+                return 0
             if args.command == "env":
                 backend = [{"status": "Status", "prepare": "Prepare", "sync": "Init", "clean": "Clean"}[args.action]]
                 if args.action == "sync" and args.offline:
                     backend += ["-OfflineSync"]
                 if args.action == "clean":
+                    if args.apply and args.scope in {"env", "all"}:
+                        _emit({"event": "external_cleanup_required", "scope": args.scope,
+                            "note": "DFX cannot delete its running interpreter. Exit DFX, then use the independent Python setup launcher.",
+                            "command": f"setup.cmd --clean --scope {args.scope} --apply --plan-id {args.plan_id or 'PREVIEW_PLAN_ID'}"
+                                + (" --discard-evidence" if args.discard_evidence else "")}, args.output_format)
+                        return 1
                     backend += ["-Scope", args.scope]
                     if args.apply:
                         if not args.plan_id:
@@ -452,10 +522,6 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except subprocess.TimeoutExpired:
         _emit({"event": "manager_unknown", "note": "backend exit or stop could not be confirmed; inspect managed status before starting another task"}, args.output_format)
-        return 1
-    except _MissingBackend:
-        _emit({"event": "dependency_missing", "dependency": "PowerShell 7 (pwsh)",
-               "note": "make the existing installation available; DFX does not install it automatically"}, args.output_format)
         return 1
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         _emit({"event": "error", "note": "command rejected or backend unavailable; check workspace, input paths, environment and saved state"}, args.output_format)
