@@ -1,6 +1,6 @@
 # 竞赛与离线修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-10。
+状态：当前使用说明。最后维护：2026-10-11。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
 当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 保留固定响应和模拟模型协议，把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。新增 `competition` 统一主机配置、云端请求适配器、完整工程的本机检查、正式通用领域 Skill 和竞赛交付。统一入口的软件验收证据和未通过项见 [STATUS](../../docs/STATUS.md)。本批只用 MockTransport 与短时合成程序，不运行真实云端或 HarmonyOS 实验；合成 `offline_checked` 或 `synthetic_checked` 不能解释为应用修复成功。公开脱敏、真实环境接纳及修复效果仍待验证。
@@ -31,6 +31,8 @@
 `--workspace` 可显式指定完整部署目录；没有时从当前目录向上寻找，或读取 DFX_PROJECT_ROOT。`--config` 包含 provider/model、应用检查和预算，凭据只通过其中指定的环境名读取，不放命令参数。普通命令不会自动修改真实实验开关。
 
 `working_context.history_selection` 可选 `legacy_refill`（缺省，保留旧计划语义）或 `repair_relevance`（新运行按当前修复引用选择有限历史）。演示配置使用后者；必要义务、相关实际失败、尚未冻结的编辑、完整知识读取及近期工具组优先保留，无关旧思考和重复读取可移出。必要内容超过预算停止，Graph 原历史不删除；新增分支的运行验收状态见 STATUS。`competition-report.json` schema 3 的 `localization_result.final.selected` 是最新候选实际关联的所选根因，alternatives 单列；位置缺项会使最终接受保持 false，实际应用检查结果仍独立保存。非空根因行不表示定位正确。
+
+候选 DeepSeek 协议可在 model 中显式写 `thinking_mode: "disabled"` 以测试有限历史；思考模式写 `thinking_mode: "enabled"`，可配 `reasoning_effort: "low"/"high"/"max"`，并使用完整历史（working_context.enabled=false、不启用主机压缩）。enabled 不接 temperature 或强制工具选择，历史 reasoning 缺项/裁剪会在发送前停止。未声明模式仍是旧通用配置语义，不能据此判断提供方的实际默认。协议适配源码和 Mock 用例已写但未运行，也未请求真实服务；最终模式由接纳和同模式比较决定，云端模板仍需主机填写实际参数。
 
 运行中显示实际模型派发/回执、工具授权/结果保存、原版和候选的 build/target/behavior/regression 阶段、源码绑定观察以及最终报告。工具结果保存不是业务通过，阶段退出成功不等于修复被接受；定位推断及完整补丁通过 result.md 查看。默认文本逐条反馈；`--output-format json` 只输出一个最终结果/观察，`stream-json` 每个事件一行，可用于其他界面。`logs NAME --after N --follow --output-format stream-json` 接续序号；查看日志时 Ctrl+C 只退出查看，运行时 Ctrl+C 请求停止本次 manager。缺身份或停止未确认保持 unknown，不停止其他任务。
 

@@ -9,7 +9,7 @@ import os
 import re
 import time
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 from langchain_core.messages import (
@@ -19,7 +19,7 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 
 from .contracts import IDENTIFIER, require_hash
 
@@ -120,6 +120,18 @@ class ProviderSettings(BaseModel):
     max_output_tokens: int = Field(default=2048, ge=1, le=131_072)
     temperature: float | None = Field(default=None, ge=0, le=2)
     timeout_seconds: float = Field(default=30.0, gt=0, le=600)
+    thinking_mode: Literal["enabled", "disabled"] | None = None
+    reasoning_effort: Literal["low", "high", "max"] | None = None
+
+    @model_serializer(mode="wrap")
+    def serialized(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        value = handler(self)
+        # Preserve the exact settings shape of historical profiles that never
+        # declared a thinking mode; an explicit mode has a distinct identity.
+        for field in ("thinking_mode", "reasoning_effort"):
+            if value.get(field) is None:
+                value.pop(field, None)
+        return value
 
     @model_validator(mode="after")
     def valid_settings(self) -> ProviderSettings:
@@ -131,6 +143,10 @@ class ProviderSettings(BaseModel):
             self.temperature is not None and not math.isfinite(self.temperature)
         ):
             raise ValueError("non-finite provider setting")
+        if self.reasoning_effort is not None and self.thinking_mode != "enabled":
+            raise ValueError("reasoning effort requires explicit thinking mode")
+        if self.thinking_mode == "enabled" and self.temperature is not None:
+            raise ValueError("temperature is not supported in explicit thinking mode")
         return self
 
 
@@ -282,7 +298,7 @@ def _message_payload(messages: list[BaseMessage]) -> list[dict[str, Any]]:
             item = {"role": "assistant", "content": message.content}
             if "reasoning_content" in message.additional_kwargs:
                 reasoning = message.additional_kwargs["reasoning_content"]
-                if not isinstance(reasoning, str):
+                if reasoning is not None and not isinstance(reasoning, str):
                     raise AdapterRequestError("invalid_reasoning_content")
                 item["reasoning_content"] = reasoning
             calls: list[dict[str, Any]] = []
@@ -364,7 +380,7 @@ def _wire_messages_valid(messages: Any) -> bool:
             return False
         if role == "assistant":
             allowed |= {"reasoning_content", "tool_calls"}
-            if "reasoning_content" in item and not isinstance(item["reasoning_content"], str):
+            if "reasoning_content" in item and item["reasoning_content"] is not None and not isinstance(item["reasoning_content"], str):
                 return False
             calls = item.get("tool_calls", [])
             if not isinstance(calls, list):
@@ -417,6 +433,10 @@ class ChatCompletionsAdapter:
             body["tools"] = descriptors
         if self.settings.temperature is not None:
             body["temperature"] = self.settings.temperature
+        if self.settings.thinking_mode is not None:
+            body["thinking"] = {"type": self.settings.thinking_mode}
+        if self.settings.reasoning_effort is not None:
+            body["reasoning_effort"] = self.settings.reasoning_effort
         if stop is not None:
             if not isinstance(stop, list) or not 1 <= len(stop) <= 16 or any(
                 not isinstance(item, str) or not item for item in stop
@@ -425,6 +445,7 @@ class ChatCompletionsAdapter:
             body["stop"] = list(stop)
         body.update(_options({} if bind_options is None else bind_options,
                              {} if generate_options is None else generate_options, descriptors))
+        self._validate_thinking(body)
         try:
             encoded = _canonical(body)
             if len(encoded.encode("utf-8")) > MAX_REQUEST_BYTES:
@@ -440,6 +461,20 @@ class ChatCompletionsAdapter:
         if type(self._transport) is not httpx.MockTransport:
             raise AdapterRequestError("mock_transport_required")
 
+    def _validate_thinking(self, body: dict[str, Any]) -> None:
+        expected = None if self.settings.thinking_mode is None else {"type": self.settings.thinking_mode}
+        if body.get("thinking") != expected or (expected is None and "thinking" in body) or (
+                body.get("reasoning_effort") != self.settings.reasoning_effort or
+                (self.settings.reasoning_effort is None and "reasoning_effort" in body)):
+            raise AdapterRequestError("thinking_profile_changed")
+        if self.settings.thinking_mode == "enabled":
+            choice = body.get("tool_choice")
+            if choice is not None and choice not in ("auto", "none"):
+                raise AdapterRequestError("thinking_tool_choice_unsupported")
+            if body.get("tools") and any(item.get("role") == "assistant" and
+                    not isinstance(item.get("reasoning_content"), str) for item in body["messages"]):
+                raise AdapterRequestError("thinking_history_requires_reasoning")
+
     def validate(self, request: PreparedRequest) -> PreparedRequest:
         """Pure admission before ledger dispatch; invoke repeats it at the wire boundary."""
         self._validate_transport()
@@ -449,7 +484,7 @@ class ChatCompletionsAdapter:
                 raise ValueError("profile differs")
             body = _decode(validated.body)
             allowed = {"model", "messages", "tools", "max_tokens", "stream", "temperature", "stop",
-                       "tool_choice", "parallel_tool_calls"}
+                       "tool_choice", "parallel_tool_calls", "thinking", "reasoning_effort"}
             if set(body) - allowed or body["model"] != self.settings.model_id or body["stream"] is not False or (
                 type(body["max_tokens"]) is not int or body["max_tokens"] != self.settings.max_output_tokens or
                 body.get("temperature") != self.settings.temperature or
@@ -459,6 +494,7 @@ class ChatCompletionsAdapter:
                 raise ValueError("request parameters differ")
             if not _wire_messages_valid(body["messages"]):
                 raise ValueError("message profile differs")
+            self._validate_thinking(body)
             tools = _tool_descriptors(body.get("tools", []))
             _options({}, {key: body[key] for key in ("tool_choice", "parallel_tool_calls") if key in body}, tools)
             if "stop" in body and (not isinstance(body["stop"], list) or not 1 <= len(body["stop"]) <= 16 or
@@ -686,7 +722,7 @@ def _response_message(result: Any) -> AIMessage:
         raise AdapterResponseError("invalid_response_choices")
     choice = choices[0]
     if type(choice.get("index")) is not int or choice["index"] != 0 or choice.get("finish_reason") not in (
-        "stop", "tool_calls", "length", "content_filter", "insufficient_system_resource"
+        "stop", "tool_calls", "length", "content_filter", "insufficient_system_resource", "aborted"
     ):
         raise AdapterResponseError("invalid_response_finish")
     message = choice.get("message")
@@ -698,16 +734,18 @@ def _response_message(result: Any) -> AIMessage:
         raise AdapterResponseError("unsupported_response_message_attachment")
     kwargs: dict[str, Any] = {}
     if "reasoning_content" in message:
-        if not isinstance(message["reasoning_content"], str):
+        if message["reasoning_content"] is not None and not isinstance(message["reasoning_content"], str):
             raise AdapterResponseError("invalid_response_reasoning")
         kwargs["reasoning_content"] = message["reasoning_content"]
-    wire_calls = message.get("tool_calls", [])
+    wire_calls = message.get("tool_calls")
+    if wire_calls is None:
+        wire_calls = []
     if not isinstance(wire_calls, list):
         raise AdapterResponseError("invalid_response_tool_calls")
     calls: list[Any] = []
     invalid: list[Any] = []
     seen_call_ids: set[str] = set()
-    incomplete = choice["finish_reason"] in ("length", "content_filter", "insufficient_system_resource")
+    incomplete = choice["finish_reason"] in ("length", "content_filter", "insufficient_system_resource", "aborted")
     for call in wire_calls:
         function = call.get("function") if isinstance(call, dict) else None
         if not isinstance(function, dict) or set(function) != {"name", "arguments"} or (
@@ -737,6 +775,10 @@ def _response_message(result: Any) -> AIMessage:
         raise AdapterResponseError("missing_response_tool_calls")
     metadata: dict[str, Any] = {"model_name": result["model"], "finish_reason": choice["finish_reason"],
                                "wire_profile": WIRE_PROFILE}
+    if incomplete and not wire_calls:
+        # A truncated text-only response must not be a normal SDK finish. This
+        # marker applies to newly parsed responses, not historical observations.
+        metadata["dfx_provider_incomplete"] = True
     usage = result.get("usage")
     usage_metadata: Any = None
     if usage is not None:

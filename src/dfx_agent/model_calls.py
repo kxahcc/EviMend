@@ -178,6 +178,8 @@ def normalize_message(intent: AnyModelCallIntent, message: AIMessage) -> ModelOb
     seen_ids: set[str] = set()
     if message.invalid_tool_calls:
         errors.append("invalid_tool_call_syntax")
+    if message.response_metadata.get("dfx_provider_incomplete") is True:
+        errors.append("incomplete_generation")
     for call in message.tool_calls:
         call_id = call.get("id")
         name = call.get("name", "")

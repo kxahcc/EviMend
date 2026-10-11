@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-11",
+  "mode": "package_B_provider_preparation_pending_acceptance",
+  "base_commit": "7dde51e",
+  "goal": "Make candidate cloud-model mode and response boundaries explicit using the existing provider and call ledger.",
+  "changes": [
+    "ProviderSettings gains finite explicit thinking_mode and reasoning_effort fields, serialized only when declared. Historical profile identity stays unchanged.",
+    "Thinking tools require complete historical reasoning, reject forced tool selection and ignored temperature, and refuse summary/history deletion before a new reservation or send. No implicit mode switch.",
+    "Nullable reasoning/tool_calls are preserved without invented tool messages. Aborted and other incomplete responses retain usage but stop as format errors, including text-only truncation.",
+    "Mock SDK fixtures cover two actual tool continuations, a final answer and subsequent user turn, exact reasoning and tool identities on the fourth request, and saved-response replay with no fifth send.",
+    "Additional fixtures cover missing reasoning, incompatible summary, removed old turns, explicit disabled mode, old profile roundtrip and incomplete generation. Existing unknown-sent no-retry behavior remains unchanged."
+  ],
+  "review": {
+    "manual_cross_review": "performed",
+    "corrected_before_commit": "CompactionStore fixture must use an existing root directory rather than an uncreated run directory.",
+    "software_tests_executed": false,
+    "lint_and_type_checks_executed": false,
+    "docs_checker_executed": false,
+    "git_diff_check": "passed"
+  },
+  "execution_boundary": {
+    "managed_resource_accounting": "incomplete",
+    "user_instruction": "Finish code first; run tests later. Stop spending time on old tmp permissions and clarify current progress, finite delivery and real evaluation route.",
+    "dependency_installation": false,
+    "global_environment_changes": false,
+    "permissions_or_limits_changed_by_agent": false,
+    "real_model_calls": 0,
+    "harmonyos_runs": 0,
+    "submission_templates_modified": false
+  },
+  "remaining_package_B": [
+    "Managed lock/install synchronization and console help/version checks.",
+    "Existing product CLI parameter/output/event/stop/resume and actual SDK mock-wire whole-chain acceptance with new selector.",
+    "Representative full-project inputs and independent normal/boundary/regression checks; do not use injected answers as solver context.",
+    "Real provider smoke and application effect evaluation after account, data-use boundary and local toolchain/device acceptance."
+  ],
+  "limits": [
+    "Thinking/full history and non-thinking/finite selection are distinct explicit configurations; no joint compatibility or effectiveness claim.",
+    "Fixtures and static review are preparation, not measured real-model compatibility, Token savings or repair performance.",
+    "Package A and B remain unaccepted; this commit does not unlock real model/application execution."
+  ]
+}

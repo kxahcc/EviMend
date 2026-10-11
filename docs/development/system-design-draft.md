@@ -1,6 +1,6 @@
 # 应用软件代码故障精准定位与自修复：开发设计草案
 
-状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-10。
+状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-11。
 职责：维护架构、核心算法及后端抽象。实现状态见 [STATUS](../STATUS.md)，字段与规则见 [模块规格](../design-contracts.md)，阶段见 [实施计划](../project-work-plan.md)。
 
 ## 1. 核心决策
@@ -85,7 +85,9 @@ Chat Completions 有两个独立冻结的传输 profile。`ChatCompletionsAdapte
 
 两个 profile 共用有限文字/工具协议：文本、原生工具调用和显式 reasoning_content 有限支持；SDK SkillsMiddleware 的纯文本 system blocks 按原顺序拼接，附件、流式响应、未声明选项或不完整工具调用不静默降级。混合有效/无效工具调用的整个响应停止，不执行其中有效子集。原始 usage 保存，合法计数另做归一化；缺失/错误用量保持未知，云端路径有未知 usage 时停止新发送。输入 Token 预留使用规范请求 UTF-8 字节和消息开销估计，不是提供方 tokenizer 的精确计数；估计准入、输出设置及 max_known_tokens 都不能证明实际总 Token 或计费硬上限。该协议参考 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，查阅日期 2026-10-02；这不是已选择 DeepSeek 或已验证其真实兼容性。
 
-用户目前候选为 deepseek-flash，账号、模式和预算待定。2026-10-10 查阅 [DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)：当前默认开启思考；携带 tools 时要求所有历史轮次完整回传 reasoning_content，包括无工具调用的 assistant。现有适配器可保存/回传已选消息中的字符串，但尚无 thinking/reasoning_effort 配置，合法 nullable reasoning 及 aborted 终态也未接纳，不能声称候选已兼容。最小适配只补显式模式枚举、合法响应及中断处理和多轮/恢复 fixture，沿现有 HTTPX/profile/账本发送，不开放任意请求字段或迁移 API。思考模式暂用完整历史、限制工具输出并在上限停止；有限历史视图先在显式非思考模式验收。实际协议 smoke 后再按开发结果选比赛模式，各比较组保持一致；若思考模式仍须完整历史，就只主张义务/经验组织，不能宣称已实现该模式的历史裁剪收益。
+用户目前候选为 deepseek-flash，账号、模式和预算待定。2026-10-10 查阅 [DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)：当前默认开启思考；携带 tools 时要求所有历史轮次完整回传 reasoning_content，包括无工具调用的 assistant。ProviderSettings 已增加显式 thinking_mode（enabled/disabled）与 reasoning_effort（low/high/max），发送为顶层 thinking/type 与 reasoning_effort；缺省未声明时保持旧 profile 形状，不推断实际提供方默认模式。effort 仅允许显式 enabled，启用思考不接 temperature 或强制工具选择。合法 nullable reasoning/tool_calls 及 aborted 终态已编码，不完整文本/工具生成保存 usage 后停止。新增多轮/恢复 fixture 尚未运行，不能声称候选已兼容。
+
+思考工具模式暂用完整历史并在上限停止：发送边界拒绝启用摘要，核对第一条历史 assistant 起的全部轮次未被视图裁剪，并要求各 assistant 的 reasoning_content 完整回传；拒绝发生在新调用预留/发送前，不隐式切模式。有限历史先在显式 disabled 下验收，使用 repair_relevance；真实配置须显式决定模式，不能直接依赖模板的通用缺省。实际协议 smoke 后再按开发结果选比赛模式，各比较组保持一致；若思考模式仍须完整历史，就只主张义务/经验组织，不能宣称该模式有历史裁剪收益。整个适配沿已有 HTTPX/profile/账本，无新增协议栈或请求任意扩展字段。
 
 求解、格式修复、上下文压缩及 SDK 重试均须穿过同一计数边界；当前云端 HTTP 传输的自动重试为零。原始响应中可获得的 usage/消息标识保留，适配器不支持的字段保持未知，不静默删除后称计费完整。提供方的格式、usage、上下文和工具兼容性仍须实测后核定；具体模型账号和型号不是框架选择的前提。
 

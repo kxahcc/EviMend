@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from pydantic import ValidationError
 
 from dfx_agent.context_compaction import CompactionPolicy, CompactionStore
@@ -30,7 +30,7 @@ from dfx_agent.model_provider import (
     ProviderSettings,
     adapter_from_profile,
 )
-from dfx_agent.models import AccountedProviderModel, ModelLimit
+from dfx_agent.models import AccountedProviderModel, FixedResponseModel, ModelLimit
 
 KEY_NAME = "DFX_CLOUD_TEST_KEY"
 SECRET = "fixture-private-credential-do-not-save"
@@ -294,6 +294,89 @@ def test_sdk_tool_binding_invokes_cloud_channel_and_saves_usage_without_key(
     replay.bind_tools(tools(), tool_choice="auto")
     monkeypatch.delenv(KEY_NAME)
     assert replay.invoke([HumanMessage(content="read source")]) == message and len(calls) == 1
+
+
+def test_sdk_thinking_keeps_all_reasoning_across_tools_final_answer_and_saved_replay(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: list[dict[str, Any]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        index = len(requests)
+        body = response(tool=index <= 2)
+        body["id"] = f"thinking-message-{index}"
+        body["choices"][0]["message"]["reasoning_content"] = f"reasoning-{index}"
+        if index <= 2:
+            body["choices"][0]["message"]["tool_calls"][0]["id"] = f"thinking-tool-{index}"
+        return httpx.Response(200, json=body)
+
+    cloud = adapter(monkeypatch, handle, thinking_mode="enabled", reasoning_effort="high")
+    ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
+    sdk = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+                                max_calls=4, max_known_tokens=100_000, deadline=time.monotonic() + 10.0)
+    sdk.bind_tools(tools(), tool_choice="auto")
+    history: list[BaseMessage] = [HumanMessage(content="inspect source")]
+    for index in (1, 2):
+        message = sdk.invoke(history)
+        assert isinstance(message, AIMessage) and message.tool_calls[0]["id"] == f"thinking-tool-{index}"
+        history.extend([message, ToolMessage(content=f"source-{index}", tool_call_id=f"thinking-tool-{index}")])
+    final = sdk.invoke(history)
+    assert isinstance(final, AIMessage) and not final.tool_calls
+    history.extend([final, HumanMessage(content="another question")])
+    next_answer = sdk.invoke(history)
+    assert len(requests) == 4
+    assistants = [item for item in requests[-1]["messages"] if item["role"] == "assistant"]
+    assert [item["reasoning_content"] for item in assistants] == [f"reasoning-{index}" for index in (1, 2, 3)]
+    assert requests[-1]["thinking"] == {"type": "enabled"} and requests[-1]["reasoning_effort"] == "high"
+    assert [item["tool_call_id"] for item in requests[-1]["messages"] if item["role"] == "tool"] == [
+        "thinking-tool-1", "thinking-tool-2"]
+    replay = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+                                   max_calls=4, max_known_tokens=100_000, deadline=time.monotonic() + 10.0,
+                                   turn_calls=3)
+    replay.bind_tools(tools(), tool_choice="auto")
+    monkeypatch.delenv(KEY_NAME)
+    assert replay.invoke(history) == next_answer and len(requests) == 4
+
+
+def test_thinking_missing_historical_reasoning_refuses_before_reservation(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cloud = adapter(monkeypatch, lambda _: pytest.fail("missing reasoning must not send"), thinking_mode="enabled")
+    ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
+    sdk = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+                                max_calls=2, max_known_tokens=100_000, deadline=time.monotonic() + 10.0)
+    sdk.bind_tools(tools(), tool_choice="auto")
+    with pytest.raises(ModelLimit, match="provider_request_unsupported"):
+        sdk.invoke([HumanMessage(content="task"), AIMessage(content="old answer"), HumanMessage(content="continue")])
+    assert sdk.request_error_reason == "thinking_history_requires_reasoning" and ledger.get("model-1") is None
+
+
+def test_thinking_rejects_summary_before_any_auxiliary_send(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cloud = adapter(monkeypatch, lambda _: pytest.fail("thinking compaction must not send"), thinking_mode="enabled")
+    ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
+    compactor = CompactionStore(tmp_path, "task1", "run1", CompactionPolicy(enabled=True), cloud.profile())
+    sdk = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+                                max_calls=2, max_known_tokens=100_000, deadline=time.monotonic() + 10.0,
+                                compactor=compactor)
+    sdk.bind_tools(tools(), tool_choice="auto")
+    with pytest.raises(ModelLimit, match="thinking_compaction_unsupported"):
+        sdk.invoke([HumanMessage(content="task")])
+    assert ledger.records("task1", "run1") == []
+
+
+def test_thinking_does_not_admit_a_view_that_removed_an_old_complete_turn(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cloud = adapter(monkeypatch, lambda _: pytest.fail("thinking history deletion must not send"), thinking_mode="enabled")
+    ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
+    sdk = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+                                max_calls=2, max_known_tokens=100_000, deadline=time.monotonic() + 10.0)
+    sdk.bind_tools(tools(), tool_choice="auto")
+    monkeypatch.setattr(FixedResponseModel, "_view", lambda self, messages: [messages[0], messages[-1]])
+    history = [HumanMessage(content="task"), AIMessage(content="old", additional_kwargs={"reasoning_content": "old reason"}),
+               AIMessage(content="recent", additional_kwargs={"reasoning_content": "recent reason"})]
+    with pytest.raises(ModelLimit, match="thinking_history_selection_unsupported"):
+        sdk.invoke(history)
+    assert ledger.get("model-1") is None
 
 
 def test_sdk_dispatched_timeout_remains_unknown_and_cannot_blindly_retry(

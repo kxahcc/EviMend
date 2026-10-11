@@ -1,6 +1,6 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-10。
+状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-11。
 职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选交接、模型账本、逐工具授权、动作恢复和主机终止摘要已接入共享 SDK 循环；云端请求、本机完整工程检查、正式通用领域 Skill 和 competition 输入输出已有代码通道。软件验收仅使用 MockTransport 和短时 toy 工程，结果只见 STATUS；真实模型及应用开关仍禁用，提供方兼容性、可信业务判据、工具链/设备验证和方法效果仍未知。可信采值、算子适用性及因果关系的实际检验继续是未完成扩展。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
@@ -79,7 +79,7 @@ SDK 的固定响应、模拟 wire 与云端请求入口共用 `ToolAuthorization
 
 `PreparedRequest` 冻结 canonical body、body_sha256 和 profile_sha256；messages/tools/parameters 仅是由 body 解析的独立视图，不能通过修改嵌套副本改变发送内容。validate 纯校验规范字节、哈希、对应 profile 和有限请求结构；mock profile 另核 exact MockTransport，不发送请求。上层学习在 dispatch 前调用，invoke 在发送边界再次执行校验，再发送相同 UTF-8 body。支持 system/user/assistant/tool 文字消息、原生 function 工具、stop、tool_choice 和明确的 parallel_tool_calls；SDK SkillsMiddleware 的 system 纯文本块按原顺序合并，其他多模态结构仍拒绝。assistant reasoning_content 若存在，按原值保存并用于续轮。tool ID 必须唯一，结果须对应尚未完成的工具调用；附件、未知角色/生成选项、未闭合工具历史及不支持的格式发送前拒绝，不静默丢字段。请求/响应限额以适配器常量及 profile 为准；非有限数、重复 JSON 键和不合法 Unicode 拒绝。
 
-选定提供方的待实施适配须显式冻结推理模式/effort 与历史要求，不借 SDK 默认值暗中切换；保持有限参数枚举及原请求绑定。模式要求历史 reasoning 回传时，不以工具组完整为由删掉这些字段或旧轮次；未核验的裁剪策略拒绝启用。合法 nullable 字段须按协议接纳，不完整生成保存原 usage 但不执行其工具；不支持的 tool_choice 组合在发送前拒绝。软件包 B 覆盖多次工具续接、无工具回答后的下一轮、上下文视图、响应终态及完成/未知恢复，真实 smoke 另验；候选与具体协议证据见设计第 1.1 节，目前不表示已实现兼容。
+ProviderSettings 显式冻结可空 thinking_mode（enabled/disabled）与 reasoning_effort（low/high/max）；未声明字段不进入旧 profile 序列化。effort 要求 enabled，enabled 拒绝 temperature 及强制 named/required tool_choice；发送体只使用顶层 thinking/type 和 reasoning_effort，不开放任意参数。思考且携带工具时，历史 assistant 必须有字符串 reasoning_content；发送视图从第一条 assistant 起须与原全部消息一致，主动裁剪或启用主机摘要在预留/发送前拒绝，不暗中切换模式。仅启动任务面板补充不改变这些历史轮次。合法 nullable reasoning/tool_calls 可保存，但 null 不替代思考历史的必需字段。length、aborted 等不完整文本保存 usage 并标 format_error；不完整工具响应也不执行工具。软件包 B 的多次工具续接、无工具回答后的下一轮、上下文拒绝、终态及保存响应恢复用例已写，尚未运行；真实 smoke 另验，候选与协议证据见设计第 1.1 节。旧消息不因新终态标记规则被重新分类。
 
 `ModelCallStore` 用项目受管目录内的 SQLite 保存 `reserved → dispatched → completed` 或 `dispatched → unknown`。先持久化意图，紧邻外部调用前标记 dispatched；重启后已完成的同一请求回放已保存的 `AIMessage`，不再发请求。已发出但无完整本地响应时，同一 call ID 禁止重发，结果与费用维持 unknown；确需另试须显式建新 call ID 并另占次数。标记 dispatched 与网络实际送达之间的崩溃窗口也保守算 unknown。提供方通常不保证以 call ID 查询或幂等，不能承诺 exactly-once。异常捕获后的原因只记录类别，不把异常文本中的凭据写进账本。
 

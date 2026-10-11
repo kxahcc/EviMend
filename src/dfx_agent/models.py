@@ -315,6 +315,22 @@ class AccountedProviderModel(FixedResponseModel):
             return self.adapter.invoke(request, admission=admission)
         return self.adapter.invoke(request)
 
+    def _view(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        thinking_tools = self.adapter.settings.thinking_mode == "enabled" and bool(self.bound_tool_descriptors)
+        if thinking_tools and self.compactor is not None and self.compactor.policy.enabled:
+            # Stop before an auxiliary summary call can consume budget or remove
+            # provider-required reasoning. No implicit fallback to another mode.
+            raise ModelLimit("thinking_compaction_unsupported")
+        view = super()._view(messages)
+        if thinking_tools:
+            def history(items: list[BaseMessage]) -> str:
+                start = next((index for index, item in enumerate(items) if type(item) is AIMessage), len(items))
+                return canonical([item.model_dump(mode="json") for item in items[start:]])
+
+            if history(view) != history(messages):
+                raise ModelLimit("thinking_history_selection_unsupported")
+        return view
+
     def _summary(self, plan: CompactionPlan) -> AIMessage:
         try:
             request = plan.summary_request()

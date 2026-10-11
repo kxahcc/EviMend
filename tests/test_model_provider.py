@@ -30,6 +30,7 @@ from dfx_agent.model_provider import (
     ChatCompletionsAdapter,
     PreparedRequest,
     ProviderSettings,
+    adapter_from_profile,
 )
 
 
@@ -452,7 +453,7 @@ def test_invalid_tool_arguments_return_accountable_format_error_not_retry(argume
     assert observation.usage is not None and observation.usage.total_tokens == 15
 
 
-@pytest.mark.parametrize("finish", ["length", "content_filter", "insufficient_system_resource"])
+@pytest.mark.parametrize("finish", ["length", "content_filter", "insufficient_system_resource", "aborted"])
 def test_incomplete_generation_never_exposes_partial_tool_actions(finish: str) -> None:
     body = wire_response(content="unfinished", arguments='{"path":"src/Main.ets"}', finish=finish)
     model = adapter(lambda _: httpx.Response(200, json=body))
@@ -460,6 +461,59 @@ def test_incomplete_generation_never_exposes_partial_tool_actions(finish: str) -
     assert not message.tool_calls and message.invalid_tool_calls[0]["error"] == "incomplete_generation"
     assert message.response_metadata["finish_reason"] == finish
     assert message.usage_metadata == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+
+
+@pytest.mark.parametrize("mode,effort", [("disabled", None), ("enabled", "high")])
+def test_explicit_thinking_mode_is_frozen_in_actual_body_and_readonly_profile(mode: str, effort: str | None) -> None:
+    model = adapter(thinking_mode=mode, reasoning_effort=effort)
+    request = prepared(model)
+    assert request.parameters["thinking"] == {"type": mode}
+    assert "extra_body" not in request.parameters
+    assert request.parameters.get("reasoning_effort") == effort
+    readonly = adapter_from_profile(model.profile())
+    assert readonly.profile() == model.profile() and readonly.validate(request) == request
+    assert model.profile()["settings"]["thinking_mode"] == mode
+    assert "thinking_mode" not in adapter().profile()["settings"]
+    assert "reasoning_effort" not in adapter().profile()["settings"]
+    assert request.profile_sha256 != prepared(adapter()).profile_sha256
+
+
+@pytest.mark.parametrize("settings", [
+    {"reasoning_effort": "high"}, {"thinking_mode": "disabled", "reasoning_effort": "low"},
+    {"thinking_mode": "enabled", "temperature": 0.0}, {"thinking_mode": "unknown"},
+])
+def test_unsupported_thinking_configuration_is_not_silently_ignored(settings: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        adapter(**settings)
+
+
+@pytest.mark.parametrize("choice", ["required", {"type": "function", "function": {"name": "read_source"}}])
+def test_thinking_rejects_forced_tool_before_send(choice: Any) -> None:
+    model = adapter(lambda _: pytest.fail("unsupported thinking choice must not send"), thinking_mode="enabled")
+    with pytest.raises(AdapterRequestError, match="thinking_tool_choice_unsupported"):
+        model.prepare([HumanMessage(content="inspect")], descriptors(), bind_options={"tool_choice": choice})
+
+
+def test_nullable_reasoning_and_tool_fields_roundtrip_without_inventing_a_call() -> None:
+    body = wire_response()
+    body["choices"][0]["message"].update(reasoning_content=None, tool_calls=None)
+    model = adapter(lambda _: httpx.Response(200, json=body), thinking_mode="disabled")
+    message = model.invoke(prepared(model))
+    assert not message.tool_calls and message.additional_kwargs == {"reasoning_content": None}
+    request = model.prepare([HumanMessage(content="first"), message, HumanMessage(content="next")], descriptors())
+    assert request.messages[1]["reasoning_content"] is None and "tool_calls" not in request.messages[1]
+    model.validate(request)
+
+
+@pytest.mark.parametrize("finish", ["length", "aborted"])
+def test_truncated_text_is_accounted_as_format_error_not_normal_finish(finish: str) -> None:
+    model = adapter(lambda _: httpx.Response(200, json=wire_response(content="partial", finish=finish)))
+    request = prepared(model)
+    message = model.invoke(request)
+    observation = normalize_message(intent(request), message)
+    assert observation.format_status == "format_error" and "incomplete_generation" in observation.format_errors
+    assert observation.usage_status == "known" and observation.usage is not None
+    assert observation.usage.total_tokens == 15 and not message.tool_calls
 
 
 def test_tool_calls_with_inconsistent_finish_or_duplicate_identity_are_format_errors() -> None:
