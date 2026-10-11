@@ -141,7 +141,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `docs/preparation/data-b-assessment.md` | 当前证据 | 数据事实、异常及来源；正文分别标明采集日期 |
 | `docs/preparation/prior-art.md` | 当前证据 | 文献查阅事实、可借鉴内容及限制 |
 | `src/dfx_agent/README.md` | 当前说明 | 受管竞赛与离线命令、输入格式和边界 |
-| `scripts/preparation/README.md` | 当前说明 | 数据盘点工具用法 |
+| `scripts/preparation/README.md` | 当前说明 | 数据盘点、代表案例有限预期及观察接收端用法与边界 |
 | `README.md` | 提交模板 | 竞赛总入口 |
 | `docs/technical-design.md` | 提交模板 | 正式技术设计 |
 | `docs/test-report.md` | 提交模板 | 正式测试报告 |
@@ -165,6 +165,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `scripts/test_local_runtime.ps1`、`scripts/test_local_process.ps1`、`scripts/test_local_bootstrap.ps1` | W01 路径清理、W02 进程保护和 W03 重复 Init 的合成验收 |
 | `scripts/check_docs.py` | 文档登记、链接、维护元数据及 archive 跟踪检查 |
 | `scripts/preparation/inspect_dfx_data.py` | 只读盘点本地 data_B；不执行数据包脚本 |
+| `scripts/preparation/check_case_observations.py` | evaluator 的有限观察接收端；比较独立预期，不执行或认证应用 |
 | `tests/test_offline_evidence.py`、`tests/test_case_identity.py`、`tests/test_sdk_compat.py` | 原型合成输入、显式案例身份与固定响应 SDK 接入自检；最近结果由 STATUS 记录 |
 | `tests/test_contracts.py`、`tests/test_workspace.py` | 领域对象的拒绝条件与候选隔离、登记、回退的合成反例 |
 | `tests/test_conditions.py`、`tests/test_condition_store.py`、`tests/test_condition_handoff.py` | 有限条件计算、不可改写结果及固定响应 Agent 交接，含单位/范围/来源、版本、恢复和开关反例；不是应用评测 |
@@ -206,6 +207,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_provenance.py`、`tests/test_provenance_loop.py`、`tests/test_provenance_reporting.py`、`tests/test_provenance_metrics.py` | 运行来源自洽、源码/依赖漂移拒绝、SDK/CLI 提前门控、旧记录只读兼容及混合汇总的合成验收 |
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
+| `resources/preparation/case-oracles.json` | 两个候选案例的有限接口输入与独立预期；仅供 evaluator，应用准入待核定，不进入求解上下文 |
 | `resources/skills/bounds.json`、`lifecycle.json`、`recursion.json`、`dynamic_pattern.json` | 四类正式通用 ExperienceContent：触发、前提/未知问题、步骤/分支、保留行为、反例与退出条件；不含 data_B 答案，不表示验证收益 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 竞赛模板保留位置；正式通用领域过程在 `resources/skills/` |

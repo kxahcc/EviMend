@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "oracle_id": "representative-case-observations-1",
+  "scope": "case_observations_only",
+  "admission": "pending_host_and_environment_review",
+  "prepared_at": "2026-10-11",
+  "visibility": "evaluator_only",
+  "limitations": [
+    "These are finite interface expectations, not a complete application oracle.",
+    "The observation receiver cannot authenticate a device, candidate, execution or input delivery.",
+    "Manually constructed observations and software test fixtures are not application evidence.",
+    "Keep expected outputs and rejection examples outside the solver source and context."
+  ],
+  "cases": [
+    {
+      "case_id": "TC_JSError_021",
+      "application": "AudioEditing1",
+      "admission": "pending_host_and_environment_review",
+      "contract_basis": [
+        "data_B/data_B3/benchmarkfordfx-better/App/AudioEditing1/components/audio_common/src/main/ets/viewModel/EditViewModel.ets:25-65",
+        "data_B/data_B3/benchmarkfordfx-better/App/AudioEditing1/components/audio_adjust_speed/src/main/ets/pages/AudioAdjustSpeedPage.ets:52-55"
+      ],
+      "contract": {
+        "interface": "EditViewModel.initProps followed by parsePcmFile",
+        "pcm_encoding": "interleaved IEEE-754 float32 little-endian",
+        "sample_rule": "At each whole second, use its first frame only when that complete frame exists; take the arithmetic mean of absolute channel samples.",
+        "amplitude_abs_tolerance": 0.0000001,
+        "excluded_inputs": ["nonpositive sample rate or channel count", "partial PCM frame", "nonfinite sample", "decoder and playback integration"]
+      },
+      "pending_review": [
+        "Confirm that the intended waveform contract samples the first frame of each second, including an existing final sampled frame.",
+        "Confirm that the unit adapter executes the actual candidate ArkTS method and delivers the exact registered PCM bytes and parameters.",
+        "Bind the unit observations to the full application, candidate and toolchain; separately verify demo conversion, page behavior and regression."
+      ],
+      "rejection_examples": ["return an empty or all-zero waveform", "omit the existing final sampled frame", "read a nonexistent frame at exact duration", "use only one stereo channel", "average signed samples"],
+      "vectors": [
+        {
+          "vector_id": "mono_exact_second",
+          "input": {"sample_rate": 2, "channel_count": 1, "pcm_hex": "0000803e000040bf"},
+          "expected": {"completed": true, "amplitudes": [0.25]}
+        },
+        {
+          "vector_id": "mono_final_sampled_frame",
+          "input": {"sample_rate": 2, "channel_count": 1, "pcm_hex": "0000803e000040bf000000bf"},
+          "expected": {"completed": true, "amplitudes": [0.25, 0.5]}
+        },
+        {
+          "vector_id": "stereo_exact_duration",
+          "input": {"sample_rate": 2, "channel_count": 2, "pcm_hex": "000000bf0000803e0000003e000080bf000040bf000080be0000803f0000003f"},
+          "expected": {"completed": true, "amplitudes": [0.375, 0.5]}
+        },
+        {
+          "vector_id": "stereo_final_sampled_frame",
+          "input": {"sample_rate": 2, "channel_count": 2, "pcm_hex": "000000bf0000803e0000003e000080bf000040bf000080be0000803f0000003f0000003f000080bf"},
+          "expected": {"completed": true, "amplitudes": [0.375, 0.5, 0.75]}
+        }
+      ]
+    },
+    {
+      "case_id": "TC_JSError_022",
+      "application": "HouseholdService1",
+      "admission": "pending_host_and_environment_review",
+      "contract_basis": [
+        "data_B/data_B3/benchmarkfordfx-better/App/HouseholdService1/commons/lib_foundation/src/main/ets/http/OrderRequestChecksum.ets:3-32",
+        "data_B/data_B3/benchmarkfordfx-better/App/HouseholdService1/commons/lib_foundation/src/main/ets/http/ApiManage.ets:149-158",
+        "data_B/data_B3/benchmarkfordfx-better/App/HouseholdService1/commons/lib_foundation/src/main/ets/http/MockApi.ets:72-92",
+        "data_B/data_B3/benchmarkfordfx-better/App/HouseholdService1/commons/lib_foundation/src/main/ets/http/MockApi.ets:302-314",
+        "data_B/data_B3/benchmarkfordfx-better/App/HouseholdService1/commons/lib_foundation/src/main/ets/model/IRequest.ets:30-58"
+      ],
+      "contract": {
+        "interface": "OrderRequestChecksum.create/verify and the PRE_ORDER MockApi route",
+        "payload_rule": "Construct the request in the registered key order; JSON.stringify must produce the exact compact payload_json. Unicode remains literal.",
+        "checksum_rule": "Start at zero; for each UTF-16 code unit, h=(31*h+unit) modulo 2^32; return unpadded lowercase hexadecimal.",
+        "header_name": "X-Order-Checksum",
+        "original_request": "create returns the fixed checksum; verify accepts it; PRE_ORDER returns HTTP 200 and inserts one order.",
+        "tampered_request": "Use the changed actualPay payload with the original checksum; verify rejects it; PRE_ORDER returns HTTP 400 and inserts no order.",
+        "excluded_behavior": ["real server interoperability", "payment", "catalog and selected-service validity", "all appointment and order-detail semantics", "unregistered JSON serialization shapes"]
+      },
+      "pending_review": [
+        "Confirm that the intended compatibility contract is UTF-16 code units, not UTF-8 bytes or Unicode code points.",
+        "Confirm that the adapter constructs the registered property order and uses actual candidate create/verify and PRE_ORDER behavior, with reset state per request.",
+        "Independently observe order insertion counts before/after the route; response status alone is insufficient.",
+        "These typed interface fixtures are not catalog-approved appointments; separately select real product/service/time inputs before application admission.",
+        "Bind observations to the candidate/full application; separately verify appointment fields, order details and regression."
+      ],
+      "rejection_examples": ["create and verify both return a constant-compatible result", "checksum only the low eight bits", "iterate Unicode code points instead of UTF-16 units", "truncate the payload", "accept a changed payment field with the old checksum", "return success without inserting an order"],
+      "vectors": [
+        {
+          "vector_id": "order_ascii",
+          "input": {
+            "request": {"goodId": "g1", "addressName": "home", "addressStr": "room1", "contactName": "A", "contactPhone": "10000000000", "selectServiceId": 1, "appointTime": 0, "remark": "ready", "actualPay": 10},
+            "request_key_order": ["goodId", "addressName", "addressStr", "contactName", "contactPhone", "selectServiceId", "appointTime", "remark", "actualPay"],
+            "payload_json": "{\"goodId\":\"g1\",\"addressName\":\"home\",\"addressStr\":\"room1\",\"contactName\":\"A\",\"contactPhone\":\"10000000000\",\"selectServiceId\":1,\"appointTime\":0,\"remark\":\"ready\",\"actualPay\":10}",
+            "valid_checksum": "1e09f387",
+            "wrong_checksum": "0",
+            "tampered_request": {"goodId": "g1", "addressName": "home", "addressStr": "room1", "contactName": "A", "contactPhone": "10000000000", "selectServiceId": 1, "appointTime": 0, "remark": "ready", "actualPay": 11},
+            "tampered_payload_json": "{\"goodId\":\"g1\",\"addressName\":\"home\",\"addressStr\":\"room1\",\"contactName\":\"A\",\"contactPhone\":\"10000000000\",\"selectServiceId\":1,\"appointTime\":0,\"remark\":\"ready\",\"actualPay\":11}"
+          },
+          "expected": {"completed": true, "payload_json": "{\"goodId\":\"g1\",\"addressName\":\"home\",\"addressStr\":\"room1\",\"contactName\":\"A\",\"contactPhone\":\"10000000000\",\"selectServiceId\":1,\"appointTime\":0,\"remark\":\"ready\",\"actualPay\":10}", "create_checksum": "1e09f387", "verify_original": true, "verify_wrong_checksum": false, "verify_tampered_request": false, "pre_order_original": {"status_code": 200, "orders_added": 1}, "pre_order_tampered_request": {"status_code": 400, "orders_added": 0, "error_message": "订单内容校验失败"}}
+        },
+        {
+          "vector_id": "order_cjk",
+          "input": {
+            "request": {"goodId": "cleaning", "addressName": "家", "addressStr": "中路1号", "contactName": "李", "contactPhone": "13800000000", "selectServiceId": 1, "appointTime": 0, "remark": "请提前联系", "actualPay": 20},
+            "request_key_order": ["goodId", "addressName", "addressStr", "contactName", "contactPhone", "selectServiceId", "appointTime", "remark", "actualPay"],
+            "payload_json": "{\"goodId\":\"cleaning\",\"addressName\":\"家\",\"addressStr\":\"中路1号\",\"contactName\":\"李\",\"contactPhone\":\"13800000000\",\"selectServiceId\":1,\"appointTime\":0,\"remark\":\"请提前联系\",\"actualPay\":20}",
+            "valid_checksum": "2d1dee28",
+            "wrong_checksum": "0",
+            "tampered_request": {"goodId": "cleaning", "addressName": "家", "addressStr": "中路1号", "contactName": "李", "contactPhone": "13800000000", "selectServiceId": 1, "appointTime": 0, "remark": "请提前联系", "actualPay": 21},
+            "tampered_payload_json": "{\"goodId\":\"cleaning\",\"addressName\":\"家\",\"addressStr\":\"中路1号\",\"contactName\":\"李\",\"contactPhone\":\"13800000000\",\"selectServiceId\":1,\"appointTime\":0,\"remark\":\"请提前联系\",\"actualPay\":21}"
+          },
+          "expected": {"completed": true, "payload_json": "{\"goodId\":\"cleaning\",\"addressName\":\"家\",\"addressStr\":\"中路1号\",\"contactName\":\"李\",\"contactPhone\":\"13800000000\",\"selectServiceId\":1,\"appointTime\":0,\"remark\":\"请提前联系\",\"actualPay\":20}", "create_checksum": "2d1dee28", "verify_original": true, "verify_wrong_checksum": false, "verify_tampered_request": false, "pre_order_original": {"status_code": 200, "orders_added": 1}, "pre_order_tampered_request": {"status_code": 400, "orders_added": 0, "error_message": "订单内容校验失败"}}
+        },
+        {
+          "vector_id": "order_supplementary_character",
+          "input": {
+            "request": {"goodId": "cleaning", "addressName": "家", "addressStr": "中路1号", "contactName": "李", "contactPhone": "13800000000", "selectServiceId": 1, "appointTime": 0, "remark": "请联系😀", "actualPay": 20},
+            "request_key_order": ["goodId", "addressName", "addressStr", "contactName", "contactPhone", "selectServiceId", "appointTime", "remark", "actualPay"],
+            "payload_json": "{\"goodId\":\"cleaning\",\"addressName\":\"家\",\"addressStr\":\"中路1号\",\"contactName\":\"李\",\"contactPhone\":\"13800000000\",\"selectServiceId\":1,\"appointTime\":0,\"remark\":\"请联系😀\",\"actualPay\":20}",
+            "valid_checksum": "98d4a482",
+            "wrong_checksum": "0",
+            "tampered_request": {"goodId": "cleaning", "addressName": "家", "addressStr": "中路1号", "contactName": "李", "contactPhone": "13800000000", "selectServiceId": 1, "appointTime": 0, "remark": "请联系😀", "actualPay": 21},
+            "tampered_payload_json": "{\"goodId\":\"cleaning\",\"addressName\":\"家\",\"addressStr\":\"中路1号\",\"contactName\":\"李\",\"contactPhone\":\"13800000000\",\"selectServiceId\":1,\"appointTime\":0,\"remark\":\"请联系😀\",\"actualPay\":21}"
+          },
+          "expected": {"completed": true, "payload_json": "{\"goodId\":\"cleaning\",\"addressName\":\"家\",\"addressStr\":\"中路1号\",\"contactName\":\"李\",\"contactPhone\":\"13800000000\",\"selectServiceId\":1,\"appointTime\":0,\"remark\":\"请联系😀\",\"actualPay\":20}", "create_checksum": "98d4a482", "verify_original": true, "verify_wrong_checksum": false, "verify_tampered_request": false, "pre_order_original": {"status_code": 200, "orders_added": 1}, "pre_order_tampered_request": {"status_code": 400, "orders_added": 0, "error_message": "订单内容校验失败"}}
+        }
+      ]
+    }
+  ]
+}
