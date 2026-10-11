@@ -251,6 +251,17 @@ def test_relationships_are_exact_original_references_and_readback_uses_existing_
     assert readback["observations"]["source1"]["original_end_line"] == 500
     assert readback["observations"]["log1"]["args"] == {"start_line": 2, "end_line": 201}
     assert readback["observations"]["log1"]["original_end_line"] == 241
+    assert readback["candidate_sources"][0]["read_source_args"] == {"candidate_id": CANDIDATE}
+
+
+def test_historical_failed_candidate_has_readback_without_becoming_current() -> None:
+    value = _packet()
+    failure = {"candidate_id": OLD_CANDIDATE, "diagnosis_id": "old-diagnosis",
+               "is_current_candidate_observation": False, "causal_relevance": "unknown"}
+    layout = build_decision_context(value, latest_failure=failure, draft_unregistered=False)
+    assert layout["readback"]["candidate_sources"][0]["read_source_args"] == {"candidate_id": OLD_CANDIDATE}
+    assert layout["focus"]["current_candidate_id"] is None and layout["candidates"] == {}
+    assert canonical(restore_decision_context(layout)) == canonical(value)
 
 
 def test_projection_metadata_and_all_semantic_slots_restore_exactly() -> None:

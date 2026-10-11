@@ -313,6 +313,22 @@ def test_legacy_policy_keeps_original_serialization_and_selection_shape(tmp_path
     assert WorkingContextPlan.model_validate_json(selected.model_dump_json()) == selected
 
 
+def test_frontier_keeps_baseline_and_candidate_reads_separate_and_deduplicates_same_version(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier")
+    host.diagnosis()
+    candidate = host.candidate("good")
+    host.step("read_source", {"path": "src/main.ets", "candidate_id": candidate})
+    host.step("read_source", {"path": "src/main.ets"})
+    host.step("read_source", {"path": "src/main.ets", "candidate_id": candidate})
+    host.step(None, text="candidate values are not baseline evidence")
+    selected = host.plan()
+    reads = [call for message in selected.view_messages() if type(message) is AIMessage
+             for call in message.tool_calls if call["name"] == "read_source"]
+    assert [call["id"] for call in reads] == ["tool-5", "tool-6"]
+    decisions = json.loads(selected.selection_json)["group_decisions"]
+    assert any(row["reason"] == "duplicate_versioned_read" and not row["retained"] for row in decisions)
+
+
 def test_repair_selection_removes_repeated_and_unrelated_history_with_large_surplus(tmp_path: Path) -> None:
     host = SyntheticHost(tmp_path, history_selection="repair_relevance")
     host.step("read_source", {"path": "src/main.ets"})

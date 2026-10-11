@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-11",
+  "mode": "source_prepared_pending_managed_acceptance",
+  "base_commit": "5b691e6",
+  "goal": "Make failed-candidate inspection practical and reuse the locked SDK text editor without rebuilding the harness.",
+  "changes": [
+    "read_source can inspect a registered immutable candidate, separately from baseline or mutable draft; candidate identity and snapshot are explicit.",
+    "Context read deduplication distinguishes candidate identity/snapshot, baseline snapshot and draft edit epoch; decision layout offers current and historical failed candidate readback.",
+    "CandidateWorkspace delegates exact replacement to deepagents 0.7.18 FilesystemBackend.edit on a temporary virtual root, retaining whole-draft swap and frozen candidate boundaries.",
+    "Component and existing-context fixtures cover version separation, historical navigation, duplicate reads, invalid ranges, source drift, partial SDK failure, ambiguous anchors and newline behavior.",
+    "Owner documents describe the actual reuse and line-ending change without claiming all file operations have migrated to SDK."
+  ],
+  "review": {
+    "root_source_and_locked_sdk_review": "performed",
+    "independent_review": "partial findings received; delegate limit prevented completion, no independent acceptance claimed",
+    "software_tests_executed": false,
+    "lint_and_type_checks_executed": false,
+    "docs_checker_executed": false,
+    "git_diff_check": "passed"
+  },
+  "execution_boundary": {
+    "new_permission_probes": false,
+    "dependency_installation": false,
+    "permissions_or_limits_changed": false,
+    "original_data_modified": false,
+    "real_model_calls": 0,
+    "harmonyos_runs": 0,
+    "submission_templates_modified": false
+  },
+  "limits": [
+    "Tests remain postponed under the user's instruction; the inaccessible old temporary directories were neither probed again nor bypassed.",
+    "Edited files and anchors normalize CRLF/CR to LF with terminal newline presence preserved. Baseline and registered candidates are not written.",
+    "Existing-file replacement is the offered editing capability; no arbitrary native write, shell, new tool runtime or automatic Skill evolution is introduced.",
+    "Tool completeness and source-version separation are engineering conditions, not evidence of root-cause accuracy or autonomous repair success."
+  ]
+}

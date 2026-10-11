@@ -91,7 +91,7 @@ def _relationships(value: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _readback(value: dict[str, Any]) -> dict[str, Any]:
+def _readback(value: dict[str, Any], latest_failure: dict[str, Any] | None) -> dict[str, Any]:
     observations: dict[str, Any] = {}
     for identifier, fact in sorted(value["evidence"].items()):
         location = fact["location"]
@@ -107,14 +107,22 @@ def _readback(value: dict[str, Any]) -> dict[str, Any]:
                 "start_line": fact["log_line"],
                 "end_line": min(end_line, fact["log_line"] + 199),
             }, "original_end_line": end_line}
+    candidate_ids = set(value["candidates"])
+    if latest_failure is not None:
+        candidate_ids.add(latest_failure["candidate_id"])
     return {
         "authority": "navigation_hint_only", "grants_visibility": False,
         "analysis": [{"tool": "inspect_analysis", "args": {"diagnosis_id": identifier}}
                      for identifier in sorted(value["diagnoses"])],
         "observations": observations,
+        "candidate_sources": [{"candidate_id": identifier,
+            "read_source_args": {"candidate_id": identifier},
+            "search_source_args": {"candidate_id": identifier},
+            "guidance": "Supply an inspected relative path and bounded lines for read_source, or a literal query for search_source."}
+            for identifier in sorted(candidate_ids)],
         "exploration": {"tool": "search_source",
                         "guidance": "Use a single-line literal to trace unresolved source relationships; inspect pagination and skipped files."},
-        "scope_note": "read_source reads the fixed baseline or current draft. It cannot read an arbitrary historical candidate snapshot.",
+        "scope_note": "read_source defaults to the baseline; draft=True selects the current draft; candidate_id selects a registered immutable candidate. Draft and candidate_id are exclusive. Candidate lines are not baseline root-cause coordinates.",
     }
 
 
@@ -153,7 +161,7 @@ def build_decision_context(value: dict[str, Any], *, latest_failure: dict[str, A
             "decisions": deepcopy(value["decisions"]), "conditions": deepcopy(value["conditions"]),
             "historical_relevance": deepcopy(value["historical_relevance"]),
         },
-        "relationships": _relationships(value), "readback": _readback(value),
+        "relationships": _relationships(value), "readback": _readback(value, latest_failure),
         "packet_metadata": {key: deepcopy(raw) for key, raw in value.items()
                             if key not in _RECORD_FIELDS and key not in _OWNER_FIELDS},
     }

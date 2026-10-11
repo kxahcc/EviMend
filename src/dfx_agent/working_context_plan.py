@@ -536,8 +536,15 @@ def _repair_read(item: dict[str, Any], value: dict[str, Any], anchors: list[tupl
     tool, args = item["action"]["tool_name"], item["tool_call"]["args"]
     if tool in {"read_source", "read_log"}:
         draft = tool == "read_source" and args.get("draft", False)
+        candidate_read = tool == "read_source" and args.get("candidate_id") is not None
         kind, snapshot, path = (("log", "input", "") if tool == "read_log" else
                                 ("source", value["source_snapshot_sha256"], answer["path"]))
+        if candidate_read:
+            if (draft or answer.get("scope") != "candidate" or
+                    answer.get("candidate_id") != args["candidate_id"] or
+                    not isinstance(answer.get("snapshot_sha256"), str)):
+                return None
+            snapshot = answer["snapshot_sha256"]
         start, end = answer["start_line"], answer["start_line"] + len(answer["lines"]) - 1
         matching = [priority for anchor_kind, anchor_snapshot, anchor_path, low, high, priority in anchors
                     if (kind, snapshot, path) == (anchor_kind, anchor_snapshot, anchor_path) and start <= high and end >= low]
@@ -545,8 +552,11 @@ def _repair_read(item: dict[str, Any], value: dict[str, Any], anchors: list[tupl
             return None
         # Draft reads have no immutable snapshot in their receipt. Never merge
         # them across successful edits or call them verified baseline facts.
-        version = ["draft", edit_epoch] if draft else [kind, snapshot]
-        return min(matching), canonical([tool, version, path, start, end, answer]), "related_draft_read" if draft else "related_evidence_read"
+        version = (["candidate", args["candidate_id"], snapshot] if candidate_read else
+                   ["draft", edit_epoch] if draft else [kind, snapshot])
+        reason = ("related_candidate_read" if candidate_read else
+                  "related_draft_read" if draft else "related_evidence_read")
+        return min(matching), canonical([tool, version, path, start, end, answer]), reason
     if tool == "search_source":
         versions = {value["source_snapshot_sha256"]} | {candidate["candidate_snapshot_sha256"] for candidate in value["candidates"].values()}
         if answer["snapshot_sha256"] not in versions:
@@ -614,7 +624,14 @@ def _exploration_read(item: dict[str, Any], value: dict[str, Any], edit_epoch: i
     if tool == "read_log":
         return canonical([tool, answer]), canonical([tool, "input"])
     if tool == "read_source":
-        version = ["draft", edit_epoch] if args.get("draft", False) else ["source", value["source_snapshot_sha256"]]
+        if args.get("candidate_id") is not None:
+            if (args.get("draft", False) or answer.get("scope") != "candidate" or
+                    answer.get("candidate_id") != args["candidate_id"] or
+                    not isinstance(answer.get("snapshot_sha256"), str)):
+                return None
+            version = ["candidate", args["candidate_id"], answer["snapshot_sha256"]]
+        else:
+            version = ["draft", edit_epoch] if args.get("draft", False) else ["source", value["source_snapshot_sha256"]]
         return canonical([tool, version, answer]), canonical([tool, version, answer["path"]])
     if tool == "search_source":
         versions = {value["source_snapshot_sha256"]} | {

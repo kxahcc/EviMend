@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from deepagents.backends import FilesystemBackend
 from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import CandidatePatch, require_hash, require_path
@@ -205,14 +206,16 @@ class CandidateWorkspace:
             _remove_owned_tree(temp, self.root)
             raise
         try:
+            backend = FilesystemBackend(root_dir=temp.resolve(), virtual_mode=True)
             for edit in edits:
                 path = temp / edit.checked_path()
                 if not path.is_file() or path.is_symlink():
                     raise ValueError("edit target is missing or linked")
-                content = path.read_text(encoding="utf-8")
-                if content.count(edit.old) != 1:
-                    raise ValueError("edit anchor must match exactly once")
-                path.write_text(content.replace(edit.old, edit.new, 1), encoding="utf-8")
+                result = backend.edit(f"/{edit.path}", edit.old, edit.new, replace_all=False)
+                if result.error is not None:
+                    raise ValueError(f"edit anchor must match exactly once; SDK edit failed: {result.error}")
+                if result.path != f"/{edit.path}" or result.occurrences != 1:
+                    raise ValueError("SDK edit did not confirm one replacement in the requested file")
             self.draft.rename(backup)
             try:
                 temp.rename(self.draft)

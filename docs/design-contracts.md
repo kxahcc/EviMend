@@ -125,6 +125,8 @@ context_profile 定义有限上下文和可选主机压缩：默认 disabled 时
 
 `task_strategy.py` 的共享任务策略通过 Deep Agents 的 system_prompt 接入，启动消息只含主机核对的 task/run/source 身份、能力、续跑状态及实际执行配置声明的验证级别：application 检查为 application_execution，其余为 offline_synthetic，未运行的应用验证为 not_run。声明级别不是通过证据，不能授予最终接受。基础指引覆盖日志→跨文件追踪上游和消费者→原始行假设→保行为补丁→冻结候选→实际检查反馈→有依据的修订或诚实终止；增强开关只追加对应规则、义务与决策检查指引。缺少有限条件输入不禁止基础修复；文本检索与模型说明均不能确认因果或真实运行值。
 
+`read_source(path, start_line=1, end_line=100, draft=False, proposal_json=None, candidate_id=None)` 默认读取原版，draft=True 读取当前草稿，candidate_id 读取已登记且完整复核的冻结候选；后两者互斥，每次最多 200 行。原版/草稿保留既有回执形状，候选另返回 scope=candidate、candidate_id 和 snapshot_sha256，并在读取后重新核对登记。候选行不能冒充原版根因坐标。参数进入原工具授权和总预算；上下文选择以候选身份/快照与草稿编辑代次区分重复读取。决策面板为当前与最近失败的原候选提供已有工具的回读提示，提示不等于已读取源码。
+
 `search_source(query, path_prefix=None, candidate_id=None, case_sensitive=True, offset=0, limit=30)` 只接受有限单行字面查询；大小写忽略也是转义后的字面匹配，不执行用户正则。path_prefix 是相对文件/目录的组件前缀，不展开 glob；模型不能指定任意 root。原版整树摘要必须匹配任务，候选须已登记且冻结字节、manifest 和 diff 相符；草稿不参与检索。规模、单文件、查询、片段与分页限额由 source_search.py 的固定常量和 search_limits 定义，超限拒绝，不静默放宽。
 
 结果包含原版 source_snapshot_sha256、实际 snapshot_sha256、scope、candidate_id、查询与过滤选项，以及 matches 中的 path、从 1 起的 line/column、有限 text、snippet_start_column、text_truncated、原字节 file_sha256。同一行只返回首个命中，按路径和行稳定排序；total_matched_lines、has_more、next_offset 明确分页，返回的下一页位置必须可用。NUL/非 UTF-8 文件以 skipped 原因列出；complete 只表示过滤范围内文件均可解码，不等于当前页包含全部命中，更不表示代码安全。长行片段截断用原列号定位，不能把片段前完整上下文。无匹配且 complete=False 时不得声明该范围没有目标文本。
@@ -137,7 +139,7 @@ CandidatePatch 当前保存 candidate_id、ordinal、parent_snapshot_sha256、ca
 
 没有生成完整候选的模型失败记录为 generation_failure，计入总成本，但不伪造一个可验证候选。首次候选通过率同时报告“全部任务”为分母的端到端口径，避免把未生成补丁的任务排除后抬高成绩。
 
-W04 的候选工作区从已校验分析快照建立独立草稿；精确文本编辑在临时副本完成后切换，失败不改原草稿。登记时冻结完整 diff、候选源码副本和哈希；仅登记且复核未变的候选可交给后续检查。修订时可以读取前次 diff 和反馈，但新 diff 表达相对该基准的完整修改。该工作区尚不是可构建的运行工程；跨候选诊断中的旧执行证据保留历史版本，只能说明对应旧版本。
+W04 的候选工作区从已校验分析快照建立独立草稿；精确文本替换委托锁定 Deep Agents FilesystemBackend.edit，在虚拟根绑定的临时副本中执行，唯一命中且所有编辑成功后才切换草稿，失败不改原草稿。SDK 将编辑文件及锚点的 CRLF/CR 规范为 LF，保留文件末尾是否有换行；不能保证编辑文件原有换行字节不变，原版及已登记候选不写入。新增委托与冻结候选读取的验收状态见 STATUS。登记时冻结完整 diff、候选源码副本和哈希；仅登记且复核未变的候选可交给后续检查。修订可回读前次候选源码与反馈，新 diff 仍表达相对该基准的完整修改。该工作区尚不是可构建的运行工程；跨候选诊断中的旧执行证据保留历史版本，只能说明对应旧版本。
 
 W05 的 `OfflineExecutor` 保留固定文本合成检查及原幂等回读解释，`offline_checked` 不能满足应用共同协议。`LocalApplicationExecutor` 兼容同一 `check(key, source) -> (status, detail)` 接口，使用独立文件意图与进程回执；其未知结果不重执行，不能沿用固定文本检查的重试语义。模型工具保留哈希校验日志读取、通用源码浏览、精确编辑和候选登记，关闭 SDK 的任意写文件、shell 和委派工具。
 

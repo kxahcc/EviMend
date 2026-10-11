@@ -226,15 +226,30 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
 
     @tool
     def read_source(path: str, start_line: int = 1, end_line: int = 100, draft: bool = False,
-                    proposal_json: str | None = None) -> str:
-        """Read a bounded line range from the fixed source or current draft."""
+                    proposal_json: str | None = None, candidate_id: str | None = None) -> str:
+        """Read baseline, current draft, or a registered candidate; draft and candidate_id are exclusive.
+
+        Candidate reads return their immutable candidate/snapshot scope. They
+        are not observations of the baseline or another candidate.
+        """
         try:
             if start_line < 1 or end_line < start_line or end_line - start_line > 199:
                 raise ValueError("invalid or oversized line range")
-            source = workspace.draft if draft else workspace.base
+            if draft and candidate_id is not None:
+                raise ValueError("choose either draft or candidate_id")
+            source = (workspace.require_registered(candidate_id) if candidate_id is not None else
+                      workspace.draft if draft else workspace.base)
             lines = _safe_file(source, path).read_text(encoding="utf-8").splitlines()
-            return json.dumps({"path": path, "start_line": start_line,
-                               "lines": lines[start_line - 1:end_line]}, ensure_ascii=False)
+            answer: dict[str, Any] = {"path": path, "start_line": start_line,
+                                      "lines": lines[start_line - 1:end_line]}
+            if candidate_id is not None:
+                record = json.loads(_safe_file(source.parent, "candidate.json").read_text(encoding="utf-8"))
+                # Recheck after reading so the receipt cannot report a frozen
+                # version whose registered content drifted during the read.
+                workspace.require_registered(candidate_id)
+                answer.update(scope="candidate", candidate_id=candidate_id,
+                              snapshot_sha256=record["candidate_snapshot_sha256"])
+            return json.dumps(answer, ensure_ascii=False)
         except (OSError, ValueError) as exc:
             return f"rejected: {exc}"
 

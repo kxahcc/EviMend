@@ -49,7 +49,7 @@
 | 状态恢复 | langgraph-checkpoint-sqlite；首版单本地主进程写入 | run_id 对应独立 thread_id，保存最小状态和产物引用；SQLite 位于本地磁盘 |
 | 数据校验 | Pydantic 2；关键外部字段严格校验，JSON Schema 导出 | 诊断、义务、动作、补丁和验证对象；GraphState 用可序列化 TypedDict/dict，不存 SDK 会话或进程句柄 |
 | 模型 | langchain-core + ChatCompletionsAdapter / CloudChatCompletionsAdapter；HTTPX 显式传输 | AccountedProviderModel 经同一账本对实际发送体记账；Mock 与云端 profile 分开冻结，真实提供方兼容性与计费仍待实测，禁止绕过记账及隐藏重试 |
-| 检索与修改 | 自有受控源码/日志/编辑工具，SDK FilesystemBackend | 默认 SDK 文件工具已排除；现有工具绑定分析快照和候选 diff，不再扩展通用编辑器或任意 shell |
+| 检索与修改 | 受控源码/日志读取和检索；文本替换委托锁定 SDK FilesystemBackend.edit | 临时草稿的虚拟根与原子切换由领域适配管理；可按已登记 candidate_id 回读冻结源码。默认原生文件动作仍排除，不开放原版写入或任意 shell；本次委托验收见 STATUS |
 | 本地轨迹 | SQLite 检查点 + 文件产物；CLI 有限活动侧录 | 展示层保持薄，优先复用原生 stream/callback 与标准日志；不新增通用状态数据库、事件总线或自研追踪平台 |
 | 配置与 Skills | 现有冻结配置、Pydantic 元数据、静态 RuleCard 与 SQLite 经验索引；批准人工条目的完整静态 Skill 正文和独立沙盒演进 | consult_rule 读取规则卡；普通经验检索由主机批准 run 内快照后向 SDK 提供完整指导，静态目录和完整读取已接受管程序/CLI 入口。复用 SDK Skills 扩展，独立版本/验证/判定及沙盒别名核验来源与权限，版本启动经独立程序入口认证原批准，验收见 STATUS；不加载 data_B 构造说明，不以经验代替业务验收 |
 | 命令行 | 沿用 argparse | 单例、批量、恢复和报告入口；先不另引 Typer 或 Web UI |

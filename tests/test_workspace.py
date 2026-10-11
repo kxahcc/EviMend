@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 
 import pytest
+from deepagents.backends import FilesystemBackend
+from deepagents.backends.protocol import EditResult
 
 from dfx_agent.task import PROFILE, digest, snapshot_digest
 from dfx_agent.workspace import CandidateWorkspace, TextEdit
@@ -67,6 +69,75 @@ def test_failed_edit_is_atomic_and_unregistered_candidate_cannot_be_checked(tmp_
     workspace.discard_draft()
     assert workspace.start_draft().is_dir()
     assert (workspace.draft / "src/main.ets").read_bytes() == before
+
+
+def test_sdk_edit_runs_only_in_temporary_draft_and_preserves_original_and_candidate(tmp_path: Path, monkeypatch) -> None:
+    workspace = CandidateWorkspace(task_snapshot(tmp_path), tmp_path / "work", "run1")
+    baseline_bytes = (workspace.base / "src/main.ets").read_bytes()
+    workspace.start_draft()
+    workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="first")])
+    first = workspace.register_candidate(1)
+    frozen = workspace.require_registered(first.candidate_id)
+    frozen_bytes = (frozen / "src/main.ets").read_bytes()
+    workspace.start_draft()
+    original = FilesystemBackend.edit
+    observed = []
+
+    def capture(backend, file_path, old_string, new_string, replace_all=False):
+        observed.append((backend, file_path, replace_all))
+        assert backend.virtual_mode is True and backend.cwd.parent == workspace.root.resolve()
+        assert backend.cwd.name.startswith("candidate-temp-")
+        assert (workspace.draft / "src/main.ets").read_text(encoding="utf-8") == "value=bad\n"
+        return original(backend, file_path, old_string, new_string, replace_all)
+
+    monkeypatch.setattr(FilesystemBackend, "edit", capture)
+    workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="second")])
+    assert len(observed) == 1 and observed[0][1:] == ("/src/main.ets", False)
+    assert (workspace.draft / "src/main.ets").read_bytes() == b"value=second\n"
+    assert (workspace.base / "src/main.ets").read_bytes() == baseline_bytes
+    assert (frozen / "src/main.ets").read_bytes() == frozen_bytes
+
+
+def test_sdk_edit_failure_after_partial_temporary_write_preserves_complete_draft(tmp_path: Path, monkeypatch) -> None:
+    workspace = CandidateWorkspace(task_snapshot(tmp_path), tmp_path / "work", "run1")
+    workspace.start_draft()
+    before = {name: path.read_bytes() for name, path in {
+        "main": workspace.draft / "src/main.ets", "other": workspace.draft / "src/other.ets"}.items()}
+    original = FilesystemBackend.edit
+
+    def fail_second(backend, file_path, old_string, new_string, replace_all=False):
+        result = original(backend, file_path, old_string, new_string, replace_all)
+        return EditResult(error="synthetic backend failure after write") if file_path.endswith("other.ets") else result
+
+    monkeypatch.setattr(FilesystemBackend, "edit", fail_second)
+    with pytest.raises(ValueError, match="SDK edit failed"):
+        workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="changed"),
+                                    TextEdit(path="src/other.ets", old="1", new="2")])
+    assert (workspace.draft / "src/main.ets").read_bytes() == before["main"]
+    assert (workspace.draft / "src/other.ets").read_bytes() == before["other"]
+    assert not list(workspace.root.glob("candidate-temp-*"))
+    assert not (workspace.root / "draft-backup").exists()
+
+
+def test_sdk_edit_handles_inspected_crlf_anchor_and_preserves_eof_without_newline(tmp_path: Path) -> None:
+    workspace = CandidateWorkspace(task_snapshot(tmp_path), tmp_path / "work", "run1")
+    workspace.start_draft()
+    (workspace.draft / "src/main.ets").write_bytes(b"first\r\nvalue=bad")
+    workspace.apply_text_edits([TextEdit(path="src/main.ets", old="first\r\nvalue=bad", new="first\r\nvalue=good")])
+    assert (workspace.draft / "src/main.ets").read_bytes() == b"first\nvalue=good"
+    before = (workspace.draft / "src/main.ets").read_bytes()
+    with pytest.raises(ValueError, match="does not end with a newline"):
+        workspace.apply_text_edits([TextEdit(path="src/main.ets", old="value=good\n", new="value=wrong\n")])
+    assert (workspace.draft / "src/main.ets").read_bytes() == before
+
+
+def test_sdk_edit_rejects_ambiguous_anchor_without_replacing_all(tmp_path: Path) -> None:
+    workspace = CandidateWorkspace(task_snapshot(tmp_path), tmp_path / "work", "run1")
+    workspace.start_draft()
+    (workspace.draft / "src/main.ets").write_bytes(b"bad bad\n")
+    with pytest.raises(ValueError, match="exactly once"):
+        workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="good")])
+    assert (workspace.draft / "src/main.ets").read_bytes() == b"bad bad\n"
 
 
 def test_changed_candidate_is_rejected_before_check(tmp_path: Path) -> None:
