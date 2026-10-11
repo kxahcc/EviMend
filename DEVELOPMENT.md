@@ -112,7 +112,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 
 ## 6. 怎样一步步把它做出来
 
-接下来围绕两个有限软件包推进：实现已有关系上的有限工作集并收口根因输出；验收已有 CLI 与实际发送/反馈/恢复整链，同时准备代表案例检查和候选提供方协议。随后接入本机工程/设备与云端模型，先跑强基础版，再成对筛选增强、冻结确认并整理竞赛材料。到正式截止及提前内部完成的日期、依赖和退出扩展规则统一见 [实施计划](docs/project-work-plan.md)，不在本导览复制日程或评测数量；实际进度只见 [STATUS](docs/STATUS.md)。
+竞赛版的交付路线围绕两个有限软件包：实现已有关系上的有限工作集并收口根因输出；验收已有 CLI 与实际发送/反馈/恢复整链，同时准备代表案例检查和候选提供方协议。随后接入本机工程/设备与云端模型，先跑强基础版，再成对筛选增强、冻结确认并整理竞赛材料。到正式截止及提前内部完成的日期、依赖和退出扩展规则统一见 [实施计划](docs/project-work-plan.md)，不在本导览复制日程或评测数量；实际进度只见 [STATUS](docs/STATUS.md)。
 
 竞赛版保留修复义务、工作上下文、有条件经验使用和任务内反馈修订。跨任务模型提炼与自动晋升、完整生命周期科研成本和自动运行采值作为扩展保留，不再阻塞该节点。交付软件后先接通并验证真实基础闭环，再按相同模型、材料、工具和预算比较增强；依据实测决定比赛配置与论文主张。
 
@@ -197,9 +197,9 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_research_accounting.py` | 来源历史成本清单、完整调用/预定角色覆盖、未知及跨清单去重反例；真实人工种子冻结服务的只读/原库移走/副本漂移验收，不证明完整 ResearchProfile 或效果 |
 | `tests/test_managed_knowledge_workflow.py` | 固定/模拟 CLI 全流程及真实 Windows Job 验收的合成 fixture，核完整 Skill 可见性与同资源启停矩阵 |
 | `tests/test_model_provider.py`、`tests/test_provider_loop.py`、`tests/test_reporting.py`、`tests/test_offline_script.py`、`tests/test_offline_cli.py` | 模拟模型请求/响应、SDK 交接、最终摘要核验和受管脚本/命令入口；不调用真实模型 |
-| `tests/test_cloud_provider.py`、`tests/test_local_execution.py`、`tests/test_competition.py` | MockTransport 云端调用、短时本机程序及统一竞赛入口的边界、恢复和输出软件验收；不调用真实 API 或 HarmonyOS，实际结果见 STATUS |
+| `tests/test_cloud_provider.py`、`tests/test_local_execution.py`、`tests/test_competition.py`、`tests/test_competition_process.py` | MockTransport 云端调用、短时本机程序、统一竞赛入口与不同进程原配置恢复的边界和输出软件验收；不调用真实 API 或 HarmonyOS，实际结果见 STATUS |
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
-| `tests/test_product_cli.py`、`tests/test_progress.py` | 用户参数、输出/分页、停止归属、中断及有界侧录的拟验收用例；未执行时不得视作通过，实际结果见 STATUS |
+| `tests/test_product_cli.py`、`tests/test_progress.py` | 用户参数、输出/分页、停止归属、中断及有界侧录的软件用例；组件与实际产品验收结果见 STATUS |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
 | `tests/test_context_compaction.py`、`tests/test_compaction_loop.py` | 主机压缩的完整工具组、冻结来源、独立费用、格式失败、未知结果、恢复及实际 SDK 交接的合成验收 |
 | `tests/test_readonly_evidence.py`、`tests/test_metrics.py`、`tests/test_metrics_cli.py` | 不可变账本、完整分母/未知项/重复运行、配置漂移及受管聚合入口的合成验收 |

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from .contracts import IDENTIFIER, require_hash, require_unique
 
@@ -110,6 +110,12 @@ class PolicyInput(BaseModel):
     check: DistinguishingCheck | None = None
     available_capabilities: set[str] = Field(default_factory=set)
     remaining_probe_budget: int = Field(ge=0)
+
+    @field_serializer("available_capabilities", when_used="json")
+    def sorted_capabilities(self, value: set[str]) -> list[str]:
+        # Frozen decisions must reconstruct identically in a new process;
+        # Python's hash seed must not determine a JSON array's order.
+        return sorted(value)
 
     @model_validator(mode="after")
     def valid_plan(self) -> PolicyInput:

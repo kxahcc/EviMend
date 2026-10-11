@@ -82,6 +82,22 @@ def _remove_owned_tree(path: Path, owner: Path) -> None:
         shutil.rmtree(path)
 
 
+def _file_diff(path: str, old: bytes, new: bytes, old_exists: bool, new_exists: bool) -> str:
+    """The same byte-preserving patch format for publication and frozen readback."""
+    output: list[str] = []
+    for line in difflib.unified_diff(
+        old.decode("utf-8").splitlines(keepends=True),
+        new.decode("utf-8").splitlines(keepends=True),
+        fromfile=f"a/{path}" if old_exists else "/dev/null",
+        tofile=f"b/{path}" if new_exists else "/dev/null",
+    ):
+        output.append(line)
+        # Keep Git's missing-EOF-newline marker instead of concatenating records.
+        if not line.endswith("\n"):
+            output.extend(("\n", "\\ No newline at end of file\n"))
+    return "".join(output)
+
+
 def _diff(base: Path, changed: Path) -> tuple[str, list[str]]:
     old_files, new_files = _files(base), _files(changed)
     output: list[str] = []
@@ -92,19 +108,7 @@ def _diff(base: Path, changed: Path) -> tuple[str, list[str]]:
         if old == new and (path in old_files) == (path in new_files):
             continue
         changed_paths.append(path)
-        old_lines = old.decode("utf-8").splitlines(keepends=True)
-        new_lines = new.decode("utf-8").splitlines(keepends=True)
-        for line in difflib.unified_diff(
-            old_lines, new_lines,
-            fromfile=f"a/{path}" if path in old_files else "/dev/null",
-            tofile=f"b/{path}" if path in new_files else "/dev/null",
-        ):
-            output.append(line)
-            # difflib keeps the missing EOF newline in data lines; directly
-            # joining them would concatenate adjacent patch records. Git's
-            # marker preserves that byte-level property when applying a diff.
-            if not line.endswith("\n"):
-                output.extend(("\n", "\\ No newline at end of file\n"))
+        output.append(_file_diff(path, old, new, path in old_files, path in new_files))
     return "".join(output), changed_paths
 
 

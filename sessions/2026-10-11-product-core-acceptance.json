@@ -1,0 +1,329 @@
+{
+  "date": "2026-10-11",
+  "mode": "managed_product_core_acceptance",
+  "base_commit": "8215946",
+  "goal": "Close finite software packages A/B at an operable CLI and real-test integration handoff, without new platform or advanced evolution.",
+  "fixes": [
+    "Actual CLI completion resume exposed nondeterministic JSON array order from PolicyInput.available_capabilities set. Sort only the JSON field representation; retain Python set and strict closure/decision identity.",
+    "Share workspace._file_diff between patch publication and frozen context verification, preserving Git missing-EOF-newline markers and exact byte/hash checks.",
+    "Add fresh-process resume with different PYTHONHASHSEED values using saved product-config.json and maximum-used call budget; add fresh context readback for a candidate without an EOF newline.",
+    "Remove stale source-only/paused-software assertions from current documents and direct actual progress to STATUS."
+  ],
+  "validation": {
+    "software_scope": "Synthetic models, HTTP fixtures and bounded toy subprocesses; no cloud service or HarmonyOS execution.",
+    "totals": {
+      "suites": 19,
+      "passed": 534,
+      "skipped": 3,
+      "basis": "Latest successful result per relevant suite, including preceding package A; not one full-repository test run."
+    },
+    "latest_test_runs": [
+      {
+        "summary": "24 passed, 1 skipped in 5.91s",
+        "run_id": "d338fb82-be5d-46f4-9a0e-1315eed41a57",
+        "suite": "tests/test_workspace.py"
+      },
+      {
+        "suite": "tests/test_candidate_source_read.py",
+        "run_id": "3710814e-b332-489a-b2ce-e3b35d25ea91",
+        "summary": "..                                                                       [100%]\r\n2 passed in 4.79s\r\n"
+      },
+      {
+        "suite": "tests/test_source_search.py",
+        "run_id": "67404b63-0abf-4a0f-a2d5-b7d7dc958aee",
+        "summary": ".........................................................s               [100%]\r\n=========================== short test summary info ===========================\r\nSKIPPED [1] tests\\test_source_search.py:308: symlink creation unavailable on this Windows account\r\n57 passed, 1 skipped in 5.63s\r\n"
+      },
+      {
+        "suite": "tests/test_repair_context_layout.py",
+        "run_id": "18c5636f-a03e-4c3e-b43f-ccf4d5cc63f8",
+        "summary": "..................                                                       [100%]\r\n18 passed in 0.64s\r\n"
+      },
+      {
+        "summary": "61 passed in 63.06s (0:01:03)",
+        "run_id": "1f522b11-8a28-409a-95b9-8201076a9ec8",
+        "suite": "tests/test_working_context_plan.py"
+      },
+      {
+        "suite": "tests/test_working_context_handoff.py",
+        "run_id": "2491ceda-9dc6-426b-88ca-02a049101a85",
+        "summary": "...............                                                          [100%]\r\n15 passed in 108.41s (0:01:48)\r\n"
+      },
+      {
+        "suite": "tests/test_task_strategy.py",
+        "run_id": "63cf79d6-3c78-4dc1-ac2e-d449f2d108b6",
+        "summary": "...................                                                      [100%]\r\n19 passed in 0.27s\r\n"
+      },
+      {
+        "suite": "tests/test_progress.py",
+        "run_id": "ca6deb08-9c36-44bb-9bd0-df00c0932a75",
+        "summary": ".........s.                                                              [100%]\r\n=========================== short test summary info ===========================\r\nSKIPPED [1] tests\\test_progress.py:161: symlink creation permission is unavailable\r\n10 passed, 1 skipped in 3.57s\r\n"
+      },
+      {
+        "suite": "tests/test_product_cli.py",
+        "run_id": "f9228479-860b-4ad4-8576-01bf52b479d5",
+        "summary": "..............................                                           [100%]\r\n30 passed in 0.23s\r\n"
+      },
+      {
+        "summary": "127 passed in 0.84s",
+        "run_id": "c8de7e61-7918-4c1d-85b8-407ff0f46d98",
+        "suite": "tests/test_model_provider.py"
+      },
+      {
+        "summary": "40 passed in 3.94s",
+        "run_id": "68b8cbf4-61d7-483e-84fb-c2b5d2e02131",
+        "suite": "tests/test_cloud_provider.py"
+      },
+      {
+        "summary": "21 passed in 1.38s",
+        "run_id": "5189ce1a-a073-4999-8fcf-e033e1ff7174",
+        "suite": "tests/test_model_calls.py"
+      },
+      {
+        "summary": "17 passed in 24.61s",
+        "run_id": "3a46f544-0a9d-47d6-8dfe-f6fab883a2dc",
+        "suite": "tests/test_provider_loop.py"
+      },
+      {
+        "summary": "10 passed in 121.53s (0:02:01)",
+        "run_id": "331a0573-c7dc-481f-a687-9336ed05d666",
+        "suite": "tests/test_applicability_provider.py"
+      },
+      {
+        "summary": "31 passed in 0.15s",
+        "run_id": "35462042-df8e-45a0-becc-05718e25e775",
+        "suite": "tests/test_case_observations.py"
+      },
+      {
+        "summary": "20 passed in 141.42s (0:02:21)",
+        "run_id": "9dbe09c7-283a-4b94-afbc-b75353478720",
+        "suite": "tests/test_competition.py"
+      },
+      {
+        "summary": "1 passed in 103.44s (0:01:43)",
+        "run_id": "5b4deb02-f172-4042-8559-76919c3546c9",
+        "suite": "tests/test_competition_process.py"
+      },
+      {
+        "summary": "10 passed in 7.68s",
+        "run_id": "fd2dd865-b28e-4fe8-ab7c-09ebf9e661e3",
+        "suite": "tests/test_policies.py"
+      },
+      {
+        "summary": "21 passed in 9.72s",
+        "run_id": "ed1a2815-f046-4845-88be-efacf24d88b2",
+        "suite": "tests/test_decisions.py"
+      }
+    ],
+    "batch_b_runs": [
+      {
+        "summary": "127 passed in 0.84s",
+        "run_id": "c8de7e61-7918-4c1d-85b8-407ff0f46d98",
+        "suite": "tests/test_model_provider.py"
+      },
+      {
+        "summary": "40 passed in 3.94s",
+        "run_id": "68b8cbf4-61d7-483e-84fb-c2b5d2e02131",
+        "suite": "tests/test_cloud_provider.py"
+      },
+      {
+        "summary": "21 passed in 1.38s",
+        "run_id": "5189ce1a-a073-4999-8fcf-e033e1ff7174",
+        "suite": "tests/test_model_calls.py"
+      },
+      {
+        "summary": "17 passed in 24.61s",
+        "run_id": "3a46f544-0a9d-47d6-8dfe-f6fab883a2dc",
+        "suite": "tests/test_provider_loop.py"
+      },
+      {
+        "summary": "10 passed in 121.53s (0:02:01)",
+        "run_id": "331a0573-c7dc-481f-a687-9336ed05d666",
+        "suite": "tests/test_applicability_provider.py"
+      },
+      {
+        "summary": "31 passed in 0.15s",
+        "run_id": "35462042-df8e-45a0-becc-05718e25e775",
+        "suite": "tests/test_case_observations.py"
+      },
+      {
+        "summary": "20 passed in 139.84s (0:02:19)",
+        "run_id": "e5aeebd5-db3d-4592-b1a8-6c11f4db2ac6",
+        "suite": "tests/test_competition.py"
+      },
+      {
+        "summary": "1 passed in 103.44s (0:01:43)",
+        "run_id": "5b4deb02-f172-4042-8559-76919c3546c9",
+        "suite": "tests/test_competition_process.py"
+      },
+      {
+        "summary": "61 passed in 63.06s (0:01:03)",
+        "run_id": "1f522b11-8a28-409a-95b9-8201076a9ec8",
+        "suite": "tests/test_working_context_plan.py"
+      },
+      {
+        "summary": "24 passed, 1 skipped in 5.91s",
+        "run_id": "d338fb82-be5d-46f4-9a0e-1315eed41a57",
+        "suite": "tests/test_workspace.py"
+      },
+      {
+        "summary": "10 passed in 7.68s",
+        "run_id": "fd2dd865-b28e-4fe8-ab7c-09ebf9e661e3",
+        "suite": "tests/test_policies.py"
+      },
+      {
+        "summary": "21 passed in 9.72s",
+        "run_id": "ed1a2815-f046-4845-88be-efacf24d88b2",
+        "suite": "tests/test_decisions.py"
+      },
+      {
+        "summary": "20 passed in 141.42s (0:02:21)",
+        "run_id": "9dbe09c7-283a-4b94-afbc-b75353478720",
+        "suite": "tests/test_competition.py"
+      }
+    ],
+    "ruff": {
+      "run_id": "737a63aa-5f80-438d-abba-5096a1fd9000",
+      "result": "passed"
+    },
+    "pyright": {
+      "run_id": "21d2d6a8-e932-4167-b45c-634262f31523",
+      "result": "0 errors, 0 warnings"
+    },
+    "docs": {
+      "run_id": "581a59f9-410f-45e7-9c1f-a504637f5b96",
+      "result": "Documents: 14; errors: 0; optional notes: 0",
+      "previous_pass_run": "4fcea744-16f6-4a3e-aeed-cda967ed85bb"
+    }
+  },
+  "actual_product": {
+    "new_run": {
+      "name": "cliaccept1011b",
+      "manager_run_id": "fe0fce9c-70c4-4db5-94cc-76cd8cef8aa4",
+      "exit_code": 2,
+      "status": "synthetic_checked",
+      "accepted": false,
+      "application_verification": "not_run",
+      "candidate_count": 2,
+      "model_calls": 15,
+      "tool_calls": 14,
+      "synthetic_known_tokens": 225,
+      "event_count_at_completion": 120,
+      "first_candidate": "behavior check rejected required value semantics loss",
+      "final_candidate": "build/target/behavior/regression synthetic checks passed",
+      "final_root_complete": true,
+      "report_sha256": "2CDE313320695438722C93CA22656D9C9D644EAD66CA23BAB53DB68D5632A32C",
+      "model_db_sha256": "C222095D60593C03F6B2F6CF3258C2FC6208F2ABF63F693573E675B1AD62D6B0",
+      "agent_wall_ms": 41247.74,
+      "timing_scope": "session_start_to_reported_terminal",
+      "artifacts": ".dfx-local/work/competition-cliaccept1011b"
+    },
+    "completed_resume": {
+      "manager_run_id": "97809f3f-1794-40a0-8ccd-b5fb8cfece3d",
+      "exit_code": 2,
+      "added_model_calls": 0,
+      "report_bytes_unchanged": true,
+      "model_db_bytes_unchanged": true,
+      "check_bytes_unchanged": true,
+      "timing_unchanged": true,
+      "event_count_after_resume": 122
+    },
+    "readers": {
+      "status": "no_active_lease",
+      "logs": "after sequence 119 returns 120-122",
+      "report": "saved operational view; no semantic acceptance claim",
+      "exit_codes": [
+        0,
+        0,
+        0
+      ]
+    },
+    "active_stop": {
+      "name": "clistop1011",
+      "manager_run_id": "ff981bcf-24ba-418c-a9bd-3d861ae152da",
+      "stop_exit_code": 0,
+      "stopped": true,
+      "active_run": false,
+      "original_cli_exit_code": 1,
+      "original_manager_status": "canceled",
+      "original_pid_start_identities_still_live": [],
+      "active_marker_after_stop": false,
+      "last_event": "model-11 dispatched, no saved completion"
+    },
+    "interrupted_resume": {
+      "manager_run_id": "9be21acc-57d2-4b82-ba17-f38d33a59859",
+      "exit_code": 1,
+      "result": "rejected before execution",
+      "new_dispatch_events": 0,
+      "event_tail_still_sequence": 73,
+      "exact_private_rejection_branch": "not separately exposed; log uses generic configuration/saved-evidence admission message"
+    }
+  },
+  "retained_failures": [
+    {
+      "run_id": "9520ee75-b62d-4e6f-b717-3d8c262002ad",
+      "kind": "actual CLI initial completion resume rejected before execution; later fresh-process regression located nondeterministic capability serialization"
+    },
+    {
+      "run_id": "8f1b9bc3-d925-440f-b16d-048c3583e865",
+      "kind": "fresh-process regression reproduced frozen projection closure mismatch"
+    },
+    {
+      "run_id": "9723f5a7-d6ec-4958-b91d-a8899fb94852",
+      "kind": "new test assertion treated decisions list as dict; corrected test shape, no production acceptance relaxation"
+    },
+    {
+      "run_id": "54522242-1a3a-4a21-989e-77597ddfe365",
+      "kind": "Final managed docs sandbox inventory rejected before child launch; same unchanged managed entry succeeded on host. No unreadable-path exclusion or resource bypass."
+    }
+  ],
+  "environment": {
+    "status": {
+      "managed_root": "C:\\Users\\kxahcc\\Desktop\\材料\\研究工作\\dfx-contest-2026\\.dfx-local",
+      "owner_valid": true,
+      "managed_bytes_by_category": {
+        "tools": 41432064,
+        "python": 60011295,
+        "tmp": 95081204,
+        "env": 107683768,
+        "work": 37040765,
+        "cache": 109193410,
+        "artifacts": 4739011,
+        "state": 88116
+      },
+      "export_bytes": 1731345,
+      "resource_accounting": "complete",
+      "inaccessible_paths": [],
+      "active_marker": false,
+      "active_state": "none",
+      "remote_jobs_unknown": false,
+      "resource_enforcement": "job_guarded_setup_quality_offline_agent_metrics_and_export",
+      "cleanup_available": true
+    },
+    "new_installations_in_batch_b": false,
+    "resource_limits_changed": false,
+    "global_environment_modified": false,
+    "acl_modified": false,
+    "broad_cleanup": false,
+    "readonly_launcher_observation": "After new user steering, sandbox dfx --version/env status reported uv trampoline canonicalization failure; host readonly --version and env status succeeded with owner_valid/complete/no activity. No launcher/ACL/resource change was made; the precise sandbox cause was not established.",
+    "accounted_total_bytes": 457000978,
+    "accounted_total_mib": 435.8,
+    "deployment_prerequisites": [
+      "Windows full project, installed managed environment, PowerShell 7 available on process PATH; standalone wheel/cross-platform deployment not claimed",
+      "Current observed pwsh is an existing Codex bundled runtime; no global PATH edit or separate PowerShell installation performed"
+    ]
+  },
+  "handoff": {
+    "p1": "finite software A/B accepted; operable installed CLI and code channels",
+    "p2_pending": [
+      "Host toolchain capacity/path/signing/device admission; 021 data states no emulator support",
+      "Freeze existing complete application source/source_mapping and independent first-case verification protocol",
+      "Adapt fixed build/target/business/regression to actual candidate ArkTS and device operations; receive real observations",
+      "Provider endpoint/model/mode/secure key, bounded budget and data-use scope; small real protocol check after authorization"
+    ],
+    "method_effects": "unknown; no localization/repair/regression rates or token savings claimed",
+    "real_cloud_calls": 0,
+    "real_harmony_runs": 0,
+    "advanced_extensions": "frozen; not prerequisites for this delivery",
+    "submission_templates_modified": false
+  }
+}

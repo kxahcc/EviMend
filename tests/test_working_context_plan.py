@@ -166,6 +166,24 @@ def packet(plan: WorkingContextPlan) -> dict[str, Any]:
     return WorkingContextPacket.model_validate_json(plan.packet_json).contents()
 
 
+def test_candidate_without_eof_newline_survives_fresh_context_readback(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path)
+    host.diagnosis()
+    host.step("edit_source", {"path": "src/main.ets", "old": "value=bad\n", "new": "value=good"})
+    identifier = host.step("register_candidate", {
+        "diagnosis_id": "diagnosis1", "preserves": ["keep_value"]})["candidate_id"]
+    messages = [message.model_copy(deep=True) for message in host.messages]
+    selected = host.plan()
+    host.step(None, text="candidate awaits independent checks")
+    patch = host.workspace.root / "candidates" / identifier / "patch.diff"
+    assert b"\\ No newline at end of file\n" in patch.read_bytes()
+    readonly = WorkingContextStore(host.workspace, None, None, host.policy, FIXED)
+    restored = readonly.select(messages, selected.parent_call_id, host.calls, host.actions)
+    assert restored == selected
+    assert packet(restored)["focus"]["current_candidate_id"] == identifier
+    assert packet(restored)["checks"][identifier]["state"] == "not_requested"
+
+
 def test_initial_unknown_packet_is_frozen_and_views_are_independent(tmp_path: Path) -> None:
     host = SyntheticHost(tmp_path)
     before = message_json(host.messages)

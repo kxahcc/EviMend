@@ -7,7 +7,7 @@
 
 ### 标准用户命令与部署
 
-**以下是产品入口的源码用法；安装和验收状态以 STATUS 为准。** 受管安装必须先通过资源盘点，再实际同步依赖锁并生成 dfx.exe。Windows 当前需要已安装的 PowerShell 7（pwsh）、完整项目目录和项目环境；不是单独 wheel、纯 Python 或跨平台部署。内部管理/工作脚本仍保留，用户无需手写它们的长参数。本机不改全局 PATH、pip 或注册表。
+**以下是产品入口的使用方法；安装和验收状态以 STATUS 为准。** 受管安装必须先通过资源盘点，再实际同步依赖锁并生成 dfx.exe。Windows 当前需要已安装的 PowerShell 7（pwsh）、完整项目目录和项目环境；不是单独 wheel、纯 Python 或跨平台部署。内部管理/工作脚本仍保留，用户无需手写它们的长参数。本机不改全局 PATH、pip 或注册表。
 
 首次安装或清除项目环境后，从项目根目录执行 `setup.cmd`；已有环境且所有构建依赖已缓存时可用 `setup.cmd -OfflineSync`。实际 Init 核 uv/Python、执行 lock/sync、检查 SDK 和已安装 dfx 的 help/version 后才记录环境身份。资源不完整、构建包未缓存或同步失败时必须先处理具体原因，不能改 environment.json 冒充安装。
 
@@ -34,7 +34,7 @@
 
 frontier 可显式设置 `context_layout: "decision_layers"`，以阶段问题、假设/未知、事实/推断、运行条件/业务义务、候选检查和失败修订组织原语义记录，替换默认 `record_panel`。两种布局均冻结到 profile；旧缺省形状不变。编译回组须完整还原原投影，不能只发送摘要却认证原文可见；阶段建议不代替执行权限或最终接受。演示配置与待填写云端模板均显式选择 frontier 和分层布局，新增软件用例及 SDK wire 验收状态见 STATUS。
 
-候选 DeepSeek 协议可在 model 中显式写 `thinking_mode: "disabled"` 以测试有限历史；云端模板明确选择此准备配置，适配器会发送 `thinking: {"type":"disabled"}`，必须先核对实际提供方支持该字段与模式。它不是所有 OpenAI-compatible 服务通用的参数；其他提供方须按实际协议审查后配置，不能凭模板假定兼容。思考模式写 `thinking_mode: "enabled"`，可配 `reasoning_effort: "low"/"high"/"max"`，并使用完整历史（working_context.enabled=false、不启用主机压缩）。enabled 不接 temperature 或强制工具选择，历史 reasoning 缺项/裁剪会在发送前停止。未声明模式仍是旧通用配置语义，不能据此判断提供方的实际默认。协议适配源码和 Mock 用例已写但未运行，也未请求真实服务；最终模式由接纳和同模式比较决定，有限历史准备配置不代表已决定比赛最终模式。
+候选 DeepSeek 协议可在 model 中显式写 `thinking_mode: "disabled"` 以测试有限历史；云端模板明确选择此准备配置，适配器会发送 `thinking: {"type":"disabled"}`，必须先核对实际提供方支持该字段与模式。它不是所有 OpenAI-compatible 服务通用的参数；其他提供方须按实际协议审查后配置，不能凭模板假定兼容。思考模式写 `thinking_mode: "enabled"`，可配 `reasoning_effort: "low"/"high"/"max"`，并使用完整历史（working_context.enabled=false、不启用主机压缩）。enabled 不接 temperature 或强制工具选择，历史 reasoning 缺项/裁剪会在发送前停止。未声明模式仍是旧通用配置语义，不能据此判断提供方的实际默认。协议适配源码和 Mock 用例的软件验收结果见 STATUS；尚未请求真实服务，最终模式由接纳和同模式比较决定，有限历史准备配置不代表已决定比赛最终模式。
 
 运行中显示实际模型派发/回执、工具授权/结果保存、原版和候选的 build/target/behavior/regression 阶段、源码绑定观察以及最终报告。工具结果保存不是业务通过，阶段退出成功不等于修复被接受；定位推断及完整补丁通过 result.md 查看。默认文本逐条反馈；`--output-format json` 只输出一个最终结果/观察，`stream-json` 每个事件一行，可用于其他界面。`logs NAME --after N --follow --output-format stream-json` 接续序号；查看日志时 Ctrl+C 只退出查看，运行时 Ctrl+C 请求停止本次 manager。缺身份或停止未确认保持 unknown，不停止其他任务。
 
