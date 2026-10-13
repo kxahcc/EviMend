@@ -94,6 +94,10 @@ CloudProviderConfig 只保存 HTTPS endpoint 与凭据环境名；endpoint 不�
 
 四份正式过程为 `resources/skills/bounds.json`、`lifecycle.json`、`recursion.json`、`dynamic_pattern.json`，分别针对边界、生命周期、递归进展和动态模式。每份 ExperienceContent 保存 trigger、premises/unknown_question、procedure/branches、preserves、counterexamples 和 exit_conditions；提供完整诊断修复过程，不含 data_B 实际答案或任务身份，也不声称收益。competition 以主机批准冻结其原字节、知识快照与静态选择，复用 search_experience、三态交接及 read_skill，不自动学习或晋升。
 
+竞赛默认启用这四份 Skill 的原生触发目录；正文由模型按需读取，不要求每个任务全部读取。报告将资源提供、实际读取和后续消息可见性分别统计；这些统计不证明模型正确使用了过程。SDK 文件加载与循环是复用基础，领域查证分支、保行为要求和反例是自设计内容。
+
+P2 的固定受管检查命令可向 scripts/preparation/check_case_observations.py 传入 `--observations OBSERVATIONS.json --case TC_JSError_021`；默认 oracle 是 resources/preparation/case-oracles.json，也可显式 --oracles。该选择要求021的全部4向量，缺项或混入022拒绝；不传 --case 则沿用联合7向量。通过只表示该 JSON 与有限预期一致，仍为 accepted=false/application_verification=not_run，必须适配实际候选 ArkTS/设备输入、固定检查包及页面/回归。
+
 `-Resume` 必须沿用相同工作 ID、任务和配置，保留原完整工程、work 内全部原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原批准。恢复消费 run 内原知识和静态资源，不能重建缺失工程、重新生成批准或把新资源加入旧运行。执行源码/依赖身份、配置、工程、映射、协议和批准有漂移时拒绝；恢复准入拒绝返回 3 并保留原终态。已完成模型/检查调用只回放结果，已发出但结果未知的调用停止并不重发。无待执行工作的完成恢复即使用满额度也保留原结果和终态观察计时；仍有待执行工作时不能重置原预算/截止时间。旧报告没有可信完成时间且无新进展时耗时保持未知，不能把空闲和恢复时间算成旧修复耗时；首次报告观察区间也不等于定位/修复阶段耗时。字段与旧代回读边界见[规格第 1.3.1 节](../../docs/design-contracts.md#131-案例接纳与协议冻结)，实际通过范围见 STATUS。
 
 Stop 终止当前受管 Job，Status 查看状态。Clean 默认只预览，示例仅预览缓存；预览 work 可用 `Clean -Scope work`，保留条件、PlanId 和显式丢弃要求沿用 [本机管理协议](../../docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。需要恢复时须保留原工程、任务、work 与 state 原批准；mock_demo 的原工程和任务位于 `.dfx-local/tmp/`，不能先清掉再续跑。交付包不会自动授权清理，也不能代替恢复原件。

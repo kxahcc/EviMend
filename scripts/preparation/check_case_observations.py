@@ -97,13 +97,20 @@ def _registered(oracles: dict[str, Any]) -> dict[tuple[str, str], tuple[dict[str
     return registered
 
 
-def evaluate_observations(oracles: dict[str, Any], observations: dict[str, Any]) -> dict[str, Any]:
-    """Require every registered input and its complete observed outputs.
+def evaluate_observations(oracles: dict[str, Any], observations: dict[str, Any], *,
+                          case_id: str | None = None) -> dict[str, Any]:
+    """Require all vectors from the selected case, or all cases by default.
 
     IDs, input echoes and source claims do not prove that an adapter actually ran
     the candidate. Comparison results never confer application admission.
     """
     registered = _registered(oracles)
+    if case_id is not None:
+        if not isinstance(case_id, str) or not case_id:
+            raise ValueError("invalid selected case")
+        registered = {key: value for key, value in registered.items() if key[0] == case_id}
+        if not registered:
+            raise ValueError("selected case is not registered")
     if (set(observations) != {"schema_version", "scope", "oracle_id", "observations"} or
             type(observations.get("schema_version")) is not int or observations["schema_version"] != 1 or
             observations.get("scope") != SCOPE or observations.get("oracle_id") != oracles["oracle_id"] or
@@ -134,22 +141,26 @@ def evaluate_observations(oracles: dict[str, Any], observations: dict[str, Any])
                 matched += 1
         if reason is not None:
             failures.append({"case_id": key[0], "vector_id": key[1], "reason": reason})
-    for case_id, vector_id in sorted(registered.keys() - seen):
-        failures.append({"case_id": case_id, "vector_id": vector_id, "reason": "missing_observation"})
-    return {"schema_version": 1, "scope": SCOPE, "oracle_id": oracles["oracle_id"],
+    for registered_case_id, vector_id in sorted(registered.keys() - seen):
+        failures.append({"case_id": registered_case_id, "vector_id": vector_id, "reason": "missing_observation"})
+    result = {"schema_version": 1, "scope": SCOPE, "oracle_id": oracles["oracle_id"],
             "status": "fail" if failures else "pass", "required_count": len(registered),
             "matched_count": matched, "failures": failures,
             "application_verification": "not_run", "application_evidence_authenticated": False,
             "accepted": False, "admission": "pending_host_and_environment_review"}
+    if case_id is not None:
+        result["case_id"] = case_id
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--observations", type=Path, required=True)
     parser.add_argument("--oracles", type=Path, default=DEFAULT_ORACLES)
+    parser.add_argument("--case", help="Require every vector for this exact registered case ID; default: all cases")
     args = parser.parse_args(argv)
     try:
-        result = evaluate_observations(load_json(args.oracles), load_json(args.observations))
+        result = evaluate_observations(load_json(args.oracles), load_json(args.observations), case_id=args.case)
     except (OSError, ValueError, TypeError, OverflowError, RecursionError):
         # No expected values, source excerpts or private input appear in feedback.
         result = {"schema_version": 1, "scope": SCOPE, "status": "fail", "reason": "invalid_receiver_input",
