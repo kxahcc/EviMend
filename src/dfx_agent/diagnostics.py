@@ -19,6 +19,7 @@ from .contracts import (
     require_path,
     validate_references,
 )
+from .logs import decode_text
 from .task import digest
 from .verification import CheckLedger, _atomic_json
 from .workspace import CandidateWorkspace
@@ -225,7 +226,7 @@ class AnalysisStore:
             raw_log = safe_source(task, log_path).read_bytes()
             if digest(raw_log) != log_sha256:
                 raise ValueError("input log changed")
-            lines = raw_log.decode("utf-8", errors="replace").splitlines()
+            lines = decode_text(raw_log)[0].splitlines()
             for log in submission.log_citations:
                 text = self._range(lines, log.start_line, log.end_line)
                 facts.append(admit_evidence({**identity, "record_id": log.evidence_id, "kind": "log_observation",

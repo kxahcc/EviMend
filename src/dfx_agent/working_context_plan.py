@@ -45,6 +45,7 @@ from .contracts import (
     require_identifiers,
 )
 from .decisions import DecisionRecord
+from .logs import saved_log_excerpt_matches
 from .model_calls import ModelCallIntent, ModelCallStore, canonical, sha256
 from .model_provider import AdapterError, PreparedRequest
 from .policies import Counterexample
@@ -1039,9 +1040,8 @@ def _verify_raw_material(packet: WorkingContextPacket, raw: dict[str, bytes], sn
             if text != checked.statement or digest(text.encode()) != checked.artifact_sha256:
                 raise ValueError("frozen source fact changed")
         elif checked.kind == "log_observation":
-            start = (checked.log_line or 0) - 1
-            text = "\n".join(log.decode("utf-8", errors="replace").splitlines()[start:start + checked.statement.count("\n") + 1])
-            if start < 0 or text != checked.statement or checked.artifact_sha256 != digest(log):
+            if (checked.artifact_sha256 != digest(log) or
+                    not saved_log_excerpt_matches(log, checked.log_line or 0, checked.statement)):
                 raise ValueError("frozen log fact changed")
         elif checked.kind == "model_inference":
             if digest(checked.statement.encode()) != checked.artifact_sha256:

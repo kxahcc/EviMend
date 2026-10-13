@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-13",
+  "mode": "log_decoding_pretest_closure",
+  "base_commit": "384fd39",
+  "goal": "Unify encoded log reads, evidence admission and frozen-context verification before real-model/application tests.",
+  "changes": [
+    "Reuse logs.decode_text in the agent and new diagnosis log citations; report encoding and replacement warnings while retaining raw input bytes, hashes and existing limits.",
+    "Use one saved-excerpt matcher in independent and frozen context verification; exact historical UTF-8 replacement statements remain read-only without rewriting old evidence.",
+    "Guide all repair variants to retain uncertainty when decoding replaces bytes; source .ets reading remains UTF-8.",
+    "Add UTF-16 LE/BE BOM, UTF-8 BOM, GB18030, damaged UTF-16/UTF-8, legacy-readback and real SDK completion/resume synthetic counterexamples."
+  ],
+  "validation": {
+    "groups": [
+      {
+        "suite": "tests/test_log_handoff.py",
+        "run_id": "13dbcb23-77bd-4b97-b303-d934f4321399",
+        "passed": 14
+      },
+      {
+        "suite": "tests/test_causal_diagnosis.py",
+        "run_id": "78066c33-2e9e-4acb-9caa-2b6950b04ba0",
+        "passed": 21
+      },
+      {
+        "suite": "tests/test_working_context_plan.py",
+        "run_id": "e433111f-c020-4fcd-9b1b-9adb6a26e868",
+        "passed": 69
+      },
+      {
+        "suite": "tests/test_working_context.py",
+        "run_id": "a3e40033-51bc-4a4a-a46c-12726e9d9c0f",
+        "passed": 60
+      },
+      {
+        "suite": "tests/test_task_strategy.py",
+        "run_id": "28bb7bd2-ce50-4bdd-8c41-5a00586b3559",
+        "passed": 19
+      }
+    ],
+    "total_passed": 183,
+    "full_repository": false,
+    "ruff": {
+      "run_id": "7b8504d9-796c-4d6c-863f-53782767ad6b",
+      "status": "passed"
+    },
+    "pyright": {
+      "run_id": "0b82e5d8-19d3-4c35-a8d6-2bf7da30a54d",
+      "status": "passed"
+    },
+    "docs": {
+      "status": "passed",
+      "run_id": "4fbacb37-51e4-4bbf-8e1f-6d92bb57f449"
+    },
+    "scope": "Synthetic text and scripted SDK only; no real cloud call, HarmonyOS build/device or application repair.",
+    "actual_cloud_runs": 0,
+    "actual_harmonyos_runs": 0
+  },
+  "environment": {
+    "reuse_only": true,
+    "no_install": true,
+    "no_global_changes": true,
+    "no_limit_change": true,
+    "raw_data_B_unchanged": true
+  },
+  "remaining": [
+    "P2 real provider, SDK/device/signing and independently reviewed application checks.",
+    "Read-only preflight declarations do not authenticate oracle runtime bytes or real business semantics.",
+    "Very large single-line output offloading and semantic summary are still not enabled in competition."
+  ]
+}

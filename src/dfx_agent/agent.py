@@ -69,7 +69,7 @@ from .knowledge_run import (
     prepare_run_knowledge,
     read_run_knowledge,
 )
-from .logs import MAX_LOG_BYTES
+from .logs import MAX_LOG_BYTES, decode_text
 from .model_calls import (
     ModelCallConflict,
     ModelCallStore,
@@ -213,8 +213,10 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             raw = path.read_bytes()
             if digest(raw) != crash_sha256:
                 raise ValueError("crash log changed after task verification")
-            lines = raw.decode("utf-8", errors="replace").splitlines()
-            return json.dumps({"start_line": start_line, "lines": lines[start_line - 1:end_line]},
+            text, encoding, warnings = decode_text(raw)
+            lines = text.splitlines()
+            return json.dumps({"start_line": start_line, "lines": lines[start_line - 1:end_line],
+                               "encoding": encoding, "warnings": warnings},
                               ensure_ascii=False)
         except (OSError, ValueError) as exc:
             return f"rejected: {exc}"

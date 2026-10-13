@@ -18,6 +18,8 @@ Use the same available tools and host-enforced total budget whether optional gui
 Task workflow:
 1. Read the relevant crash-log range with read_log. Identify the observed exception, target operation, and stack locations.
    A crash location is a symptom and a starting point, not automatically the root cause.
+   Inspect read_log encoding and warnings. Replaced or incomplete text can lose evidence;
+   do not infer that an event or failure is absent from damaged log text.
 2. Use list_source, search_source, and bounded read_source calls to trace the relevant code across files.
    search_source performs literal text matching in the original snapshot or a registered frozen candidate, never the draft.
    Follow definitions, assignments, parameters, callers, branch/callback ordering, async dependencies, and downstream consumers

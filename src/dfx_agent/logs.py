@@ -25,6 +25,24 @@ def decode_text(data: bytes) -> tuple[str, str, list[str]]:
     return data.decode("utf-8", errors="replace"), "utf-8", ["undecodable_bytes_replaced"]
 
 
+def saved_log_excerpt_matches(data: bytes, start_line: int, statement: str) -> bool:
+    """Check saved text without rewriting its original decoding interpretation.
+
+    New admission uses decode_text only. Older receipts used UTF-8 replacement;
+    that view remains valid solely when authenticating an already saved excerpt.
+    Callers still verify the original log hash and receipt references.
+    """
+    count = statement.count("\n") + 1
+    if start_line < 1 or count > 200:
+        return False
+    start, end = start_line - 1, start_line - 1 + count
+    current = decode_text(data)[0].splitlines()
+    if end <= len(current) and "\n".join(current[start:end]) == statement:
+        return True
+    legacy = data.decode("utf-8", errors="replace").splitlines()
+    return end <= len(legacy) and "\n".join(legacy[start:end]) == statement
+
+
 def normalize_frame_path(value: str) -> str:
     value = value.replace("\\", "/")
     value = value.removeprefix("file:")

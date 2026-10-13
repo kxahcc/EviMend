@@ -76,13 +76,17 @@ class SyntheticHost:
                  history_selection: Literal["legacy_refill", "repair_relevance", "repair_frontier"] = "legacy_refill",
                  exploration_read_groups: int = 6, extra_sources: dict[str, str] | None = None,
                   crash_text: str | None = None,
+                  crash_bytes: bytes | None = None,
                   context_layout: Literal["record_panel", "decision_layers", "decision_frontier"] = "record_panel"):
         self.task = task_snapshot(root)
-        if crash_text is not None:
-            (self.task / "crash.log").write_bytes(crash_text.encode("utf-8"))
+        if crash_text is not None and crash_bytes is not None:
+            raise ValueError("choose one synthetic log representation")
+        if crash_text is not None or crash_bytes is not None:
+            raw_log = crash_bytes if crash_bytes is not None else (crash_text or "").encode("utf-8")
+            (self.task / "crash.log").write_bytes(raw_log)
             identity_path = self.task / "task.json"
             identity = json.loads(identity_path.read_text(encoding="utf-8"))
-            identity["crash_sha256"] = digest(crash_text.encode("utf-8"))
+            identity["crash_sha256"] = digest(raw_log)
             identity_path.write_text(json.dumps(identity), encoding="utf-8")
         if extra_sources:
             manifest_path = self.task / "source-manifest.json"

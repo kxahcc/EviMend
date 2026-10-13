@@ -27,6 +27,7 @@ from .contracts import (
 )
 from .decisions import DecisionRecord, DecisionStore
 from .diagnostics import AnalysisStore
+from .logs import saved_log_excerpt_matches
 from .model_calls import canonical, sha256
 from .policies import (
     Counterexample,
@@ -378,10 +379,8 @@ class _Builder:
                 raise ValueError("log observation lacks its original line anchor")
             # Old Evidence schema stores only the first line; the statement fixes
             # its span. Admission's bounded 1..200 line range is rechecked here.
-            count = item.statement.count("\n") + 1
-            text = AnalysisStore._range(self.log.decode("utf-8", errors="replace").splitlines(),
-                                        item.log_line, item.log_line + count - 1)
-            if item.artifact_sha256 != self.task_record["crash_sha256"] or text != item.statement:
+            if (item.artifact_sha256 != self.task_record["crash_sha256"] or
+                    not saved_log_excerpt_matches(self.log, item.log_line, item.statement)):
                 raise ValueError("log observation does not match the verified task log")
         elif item.kind == "model_inference":
             if item.execution_id is not None or not item.basis_ids:
