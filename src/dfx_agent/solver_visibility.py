@@ -294,19 +294,27 @@ class SolverVisibilityStore:
             store._check_receipts_material(plan, calls, actions, material)
             stage = plan.view_messages()
             pinned, _ = _groups(stage)
-            # The exact startup retains the entire original panel, including
-            # mandatory quoted groups. A fragment or summarized panel gives no authority.
+            # Exact startup retains the packet. Older panels also retain quoted
+            # groups; reference-only panels grant no visibility to their targets.
             if _serialized(view[:pinned]) == _serialized(stage[:pinned]):
                 packet = (WorkingContextPacket.model_validate_json(plan.packet_json).contents()
                           if plan.solver_projection_json is None else
                           SolverContextProjection.model_validate_json(plan.solver_projection_json).contents())
                 original = _messages(plan.original_messages_json)
-                ranges = _load(plan.selection_json)["required_unrepresented_ranges"]
+                selection = _load(plan.selection_json)
+                ranges = selection["required_unrepresented_ranges"]
+                if selection.get("required_group_encoding", "inline") == "references":
+                    visible_ids = {item["action"]["action_id"] for item in receipts}
+                    frozen = _load(plan.visible_receipts_json)
+                    ranges = [pair for pair in ranges if all(
+                        item["action"]["action_id"] in visible_ids for item in frozen
+                        if item["group_start"] == pair[0])]
                 quoted = [{"range": pair, "messages": _load(_serialized(original[pair[0]:pair[1]]))}
                           for pair in ranges]
                 quoted_starts = {pair[0] for pair in ranges}
-                receipts.extend(item for item in _load(plan.visible_receipts_json)
-                                if item["group_start"] in quoted_starts)
+                if selection.get("required_group_encoding", "inline") == "inline":
+                    receipts.extend(item for item in _load(plan.visible_receipts_json)
+                                    if item["group_start"] in quoted_starts)
         if compact is not None:
             store = CompactionStore(self.workspace.root, intent.task_id, intent.run_id, compact.policy,
                                     _load(self.profile_json))

@@ -77,13 +77,16 @@ def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
     assert solver["working_context_plans"]
     plans = [json.loads(path.read_bytes()) for path in (work / "working-context").glob("*.plan.json")]
     assert plans and all(plan["policy"]["history_selection"] == "repair_frontier" and
-                         plan["policy"]["context_layout"] == "decision_layers" for plan in plans)
+                         plan["policy"]["context_layout"] == "decision_frontier" for plan in plans)
     assert any(json.loads(plan["selection_json"])["omitted_ranges"] for plan in plans)
     assert len(requests) == 15
     panels = [json.loads(body["messages"][1]["content"].split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
               for body in requests]
     assert all("packet" not in panel and "decision_context" in panel for panel in panels)
     contexts = [panel["decision_context"] for panel in panels]
+    assert all(context["layout"] == "repair_decision_frontier_v1" and
+               context["decision_frontier"]["requires_extra_check"] is False for context in contexts)
+    assert any(context["decision_board"]["decision_applied"] for context in contexts)
     assert contexts[0]["decision_board"]["phase"] == "exploration"
     failures = [context["revision"]["latest_failure"] for context in contexts
                 if context["revision"]["latest_failure"] is not None]

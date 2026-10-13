@@ -111,6 +111,41 @@ def _current(value: dict[str, Any], state: str, status: str | None) -> None:
                                    "candidate_snapshot_sha256": "9" * 64, "result": result}
 
 
+def _decision(value: dict[str, Any], action: str) -> dict[str, Any]:
+    """Presentation fixture for an already registered, focused decision."""
+    equivalent = action == "direct_candidate"
+    directions = [{"direction_id": f"direction{number}", "hypothesis_ids": [f"h{number}"],
+        "support_evidence_ids": ["source1"], "obligation_ids": ["runtime1", "behavior1"],
+        "repair_key": "same-repair" if equivalent else f"repair{number}",
+        "acceptance_key": "same-acceptance" if equivalent else f"acceptance{number}"}
+        for number in (1, 2)]
+    check = None if equivalent else {"check_id": "producer-check", "kind": "existing_evidence",
+        "capability": "read_source", "observation_routes": {"producer A": "direction1", "producer B": "direction2"},
+        "unknown_route": "retain_unknown"}
+    owner = {key: value[key] for key in ("task_id", "run_id", "source_snapshot_sha256")}
+    record = {**owner, "schema_version": 1, "record_id": "decision-current", "context_sha256": "6" * 64,
+        "created_at": "2026-10-13T00:00:00+00:00", "interpretation_authority": "model_inference",
+        "request": {"task_id": owner["task_id"], "run_id": owner["run_id"],
+            "diagnosis_id": value["focus"]["diagnosis_id"], "candidate_id": value["focus"]["current_candidate_id"],
+            "plan": {"source_snapshot_sha256": BASE, "directions": directions, "check": check,
+                     "selected_direction_id": "direction1" if equivalent else None,
+                     "available_capabilities": ["read_source"], "remaining_probe_budget": 0}},
+        "decision": {"source_snapshot_sha256": BASE, "action": action, "reason": "original recorded recommendation",
+                     "selected_direction_id": "direction1" if equivalent else None,
+                     "check_id": None if check is None else check["check_id"]},
+        "next_action": action, "feedback": None, "condition_review": None,
+        "advisory_obligation_ids": [], "hard_rejected_obligation_ids": []}
+    value["decisions"][record["record_id"]] = record
+    value["focus"]["decision_id"] = record["record_id"]
+    return record
+
+
+def _guided(value: dict[str, Any], *, latest_failure: dict[str, Any] | None = None,
+            draft_unregistered: bool = False) -> dict[str, Any]:
+    return build_decision_context(value, latest_failure=latest_failure, draft_unregistered=draft_unregistered,
+                                  decision_guidance=True)
+
+
 def test_layout_separates_producers_and_preserves_alternatives_unknowns_and_obligations() -> None:
     value = _packet()
     original = deepcopy(value)
@@ -280,3 +315,173 @@ def test_projection_metadata_and_all_semantic_slots_restore_exactly() -> None:
     layout["evidence_by_producer"]["model"]["source1"] = deepcopy(value["evidence"]["source1"])
     with pytest.raises(ValueError, match="duplicate repair decision record"):
         restore_decision_context(layout)
+
+
+def test_current_read_decision_uses_original_question_even_after_a_root_was_selected() -> None:
+    value = _packet()
+    record = _decision(value, "read_existing")
+    original = deepcopy(value)
+    layout = _guided(value)
+    board = layout["decision_board"]
+    assert board["phase"] == "evidence_review" and board["next_question_kind"] == "read_existing_for_repair_choice"
+    assert board["question"] == "Which producer supplies this buffer?"
+    assert board["selected_hypothesis_id"] == "h1" and board["decision_applied"] is True
+    assert board["decision_id"] == record["record_id"] and board["decision_check_id"] == "producer-check"
+    item = layout["decision_frontier"]["unresolved_questions"][0]
+    assert item["check"] == record["request"]["plan"]["check"]
+    assert item["hypothesis_observation_routes"] == {"producer A": "h1", "producer B": "h2"}
+    assert item["status"] == "unknown"
+    assert board["execution_permission"] == "not_granted" and board["repair_acceptance"] == "not_assessed"
+    assert layout["layout"] == "repair_decision_frontier_v1"
+    assert canonical(restore_decision_context(layout)) == canonical(value)
+    item["check"]["observation_routes"]["producer A"] = "changed"
+    assert value == original
+
+
+def test_equivalent_direct_decision_does_not_require_a_selected_root_or_extra_questions() -> None:
+    value = _packet()
+    value["diagnoses"]["diagnosis1"]["selected_hypothesis_id"] = None
+    _decision(value, "direct_candidate")
+    layout = _guided(value)
+    board = layout["decision_board"]
+    assert board["phase"] == "repair" and board["next_question_kind"] == "choose_behavior_preserving_patch"
+    assert board["selected_hypothesis_id"] is None and board["decision_applied"] is True
+    assert board["decision_selected_direction_id"] == "direction1"
+    frontier = layout["decision_frontier"]
+    assert frontier["requires_extra_check"] is False and frontier["unresolved_questions"]
+    assert value["diagnoses"]["diagnosis1"]["selected_hypothesis_id"] is None
+
+
+def test_unknown_attempt_retains_missing_questions_without_turning_them_into_prerequisites() -> None:
+    value = _packet()
+    _decision(value, "attempt_with_unknown")
+    layout = _guided(value)
+    assert layout["decision_board"]["next_question_kind"] == "attempt_with_known_unknowns"
+    frontier = layout["decision_frontier"]
+    missing = [item for item in frontier["unresolved_questions"] if item["kind"] == "missing_evidence"]
+    assert [(item["hypothesis_id"], item["question"]) for item in missing] == [
+        ("h1", "producer capacity not established"), ("h2", "caller lifecycle not established")]
+    assert all(item["status"] == "unknown" and item["location"] == "not_specified" for item in missing)
+    assert frontier["requires_extra_check"] is False and frontier["execution_permission"] == "not_granted"
+    assert all(hypothesis["support_status"] == "unknown" for hypothesis in layout["diagnoses"]["diagnosis1"]["hypotheses"])
+    assert frontier["registered_counterevidence"][0] == {
+        "diagnosis_id": "diagnosis1", "hypothesis_id": "h1", "obligation_ids": ["runtime1", "behavior1"],
+        "evidence_id": "log1", "relation_authority": "original_model_hypothesis_reference",
+        "causal_confirmation": "unknown", "readback": layout["readback"]["observations"]["log1"]}
+
+
+@pytest.mark.parametrize(("state", "status", "draft", "phase"), [
+    ("pending", None, False, "verification_pending"),
+    ("pending", None, True, "verification_pending"),
+    ("completed", "fail", False, "revision"),
+    ("completed", "pass", False, "delivery_review"),
+    ("completed", "inconclusive", False, "verification_unknown"),
+    ("completed", "pass", True, "draft_review"),
+])
+def test_actual_observations_and_unfrozen_draft_override_matching_advice(
+        state: str, status: str | None, draft: bool, phase: str) -> None:
+    value = _packet()
+    _current(value, state, status)
+    _decision(value, "direct_candidate")
+    layout = _guided(value, draft_unregistered=draft)
+    assert layout["decision_board"]["phase"] == phase
+    assert layout["decision_board"]["decision_applied"] is False
+    assert layout["decision_board"]["decision_id"] == "decision-current"
+    assert canonical(restore_decision_context(layout)) == canonical(value)
+
+
+@pytest.mark.parametrize("mismatch", ["record_owner", "request_owner", "diagnosis", "candidate", "snapshot", "decision_snapshot"])
+def test_different_scope_decision_cannot_direct_the_current_board_or_frontier(mismatch: str) -> None:
+    value = _packet()
+    record = _decision(value, "read_existing")
+    if mismatch == "record_owner":
+        record["run_id"] = "old-run"
+    elif mismatch == "request_owner":
+        record["request"]["task_id"] = "another-task"
+    elif mismatch == "diagnosis":
+        record["request"]["diagnosis_id"] = "old-diagnosis"
+    elif mismatch == "candidate":
+        record["request"]["candidate_id"] = OLD_CANDIDATE
+    elif mismatch == "snapshot":
+        record["request"]["plan"]["source_snapshot_sha256"] = "f" * 64
+    else:
+        record["decision"]["source_snapshot_sha256"] = "f" * 64
+    layout = _guided(value)
+    assert layout["decision_board"]["phase"] == "repair"
+    assert layout["decision_board"]["decision_id"] is None and layout["decision_board"]["decision_applied"] is False
+    assert layout["decision_frontier"]["decision_id"] is None
+    assert all(item["kind"] != "recorded_decision_check" for item in layout["decision_frontier"]["unresolved_questions"])
+    assert layout["revision"]["decisions"] == value["decisions"]
+
+
+def test_new_candidate_does_not_inherit_a_pre_candidate_read_decision() -> None:
+    value = _packet()
+    _decision(value, "read_existing")
+    _current(value, "not_requested", None)
+    layout = _guided(value)
+    assert layout["decision_board"]["phase"] == "verification_ready"
+    assert layout["decision_board"]["decision_id"] is None
+
+
+def test_new_diagnosis_does_not_inherit_a_historical_decision() -> None:
+    value = _packet()
+    _decision(value, "read_existing")
+    value["diagnoses"]["diagnosis2"] = deepcopy(value["diagnoses"]["diagnosis1"])
+    value["diagnoses"]["diagnosis2"]["record_id"] = "diagnosis2"
+    value["focus"]["diagnosis_id"] = "diagnosis2"
+    layout = _guided(value)
+    assert layout["decision_board"]["phase"] == "repair" and layout["decision_board"]["decision_id"] is None
+    assert all(item["diagnosis_id"] == "diagnosis2" for item in layout["decision_frontier"]["unresolved_questions"])
+
+
+def test_historical_actual_failure_precedes_a_new_direct_recommendation() -> None:
+    value = _packet()
+    value["diagnoses"]["diagnosis1"]["selected_hypothesis_id"] = None
+    _decision(value, "direct_candidate")
+    failure = {"candidate_id": OLD_CANDIDATE, "diagnosis_id": "old-diagnosis",
+               "check_result": {"candidate_id": OLD_CANDIDATE, "status": "fail"}, "causal_relevance": "unknown"}
+    layout = _guided(value, latest_failure=failure)
+    assert layout["decision_board"]["phase"] == "revision"
+    assert layout["decision_board"]["next_question_kind"] == "reconsider_root_with_historical_failure"
+    assert layout["decision_board"]["decision_applied"] is False
+    assert layout["revision"]["latest_failure"] == failure
+
+
+def test_frontier_bounds_derived_items_and_keeps_complete_originals_readable() -> None:
+    value = _packet()
+    hypothesis = value["diagnoses"]["diagnosis1"]["hypotheses"][0]
+    hypothesis["missing_evidence"] = [f"original missing question {number}" for number in range(10)]
+    hypothesis["contradicting_evidence_ids"] = [f"counter{number}" for number in range(10)]
+    for identifier in hypothesis["contradicting_evidence_ids"]:
+        value["evidence"][identifier] = {**deepcopy(value["evidence"]["log1"]), "record_id": identifier}
+    original = deepcopy(value)
+    layout = _guided(value)
+    frontier = layout["decision_frontier"]
+    assert len(frontier["unresolved_questions"]) == 6 and frontier["omitted_question_count"] == 6
+    assert len(frontier["registered_counterevidence"]) == 8 and frontier["omitted_counterevidence_count"] == 2
+    assert frontier["readback"] == {"tool": "inspect_analysis", "args": {"diagnosis_id": "diagnosis1"}}
+    assert layout["diagnoses"] == value["diagnoses"] and canonical(restore_decision_context(layout)) == canonical(value)
+    frontier["unresolved_questions"][0]["question"]["observation_routes"]["producer A"] = "changed"
+    assert value == original
+
+
+def test_legacy_layout_keeps_its_exact_board_and_never_backfills_new_guidance() -> None:
+    value = _packet()
+    _decision(value, "read_existing")
+    layout = build_decision_context(value, latest_failure=None, draft_unregistered=False)
+    assert layout["layout"] == "repair_decision_slots_v1" and "decision_frontier" not in layout
+    assert layout["decision_board"] == {
+        "authority": "host_record_projection", "advisory_only": True,
+        "execution_permission": "not_granted", "repair_acceptance": "not_assessed",
+        "phase": "repair", "next_question_kind": "choose_behavior_preserving_patch",
+        "question": "Which change restores the runtime condition and preserves the business obligations?",
+        "diagnosis_id": "diagnosis1", "selected_hypothesis_id": "h1", "current_candidate_id": None,
+        "check_state": None, "check_status": None, "draft_unregistered": False,
+        "historical_failure_candidate_id": None}
+    assert canonical(restore_decision_context(layout)) == canonical(value)
+    value["diagnoses"]["diagnosis1"]["selected_hypothesis_id"] = None
+    failure = {"candidate_id": OLD_CANDIDATE}
+    legacy = build_decision_context(value, latest_failure=failure, draft_unregistered=False, decision_guidance=False)
+    assert legacy["decision_board"]["phase"] == "diagnosis"
+    with pytest.raises(TypeError, match="decision_guidance must be a boolean"):
+        build_decision_context(value, latest_failure=None, draft_unregistered=False, decision_guidance=1)  # type: ignore[arg-type]

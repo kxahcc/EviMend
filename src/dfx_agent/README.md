@@ -1,6 +1,6 @@
 # 竞赛与离线修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-12。
+状态：当前使用说明。最后维护：2026-10-13。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
 当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 保留固定响应和模拟模型协议，把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。新增 `competition` 统一主机配置、云端请求适配器、完整工程的本机检查、正式通用领域 Skill 和竞赛交付。统一入口的软件验收证据和未通过项见 [STATUS](../../docs/STATUS.md)。本批只用 MockTransport 与短时合成程序，不运行真实云端或 HarmonyOS 实验；合成 `offline_checked` 或 `synthetic_checked` 不能解释为应用修复成功。公开脱敏、真实环境接纳及修复效果仍待验证。
@@ -51,7 +51,7 @@ DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；若选 `--
 
 `working_context.history_selection` 可选 `legacy_refill`（缺省，保留旧计划语义）、`repair_relevance`（按已登记修复引用选择）或 `repair_frontier`（额外保护未吸收探索与换根因后的最近实际失败）。演示配置使用 frontier；其 `exploration_read_groups` 控制可选探索组上限，仍受共同视图预算约束。最新故障日志、必要义务、最近实际失败的原候选登记/检查、尚未冻结的编辑、完整知识读取及近期工具组优先保留，无关旧思考和重复读取可移出。旧候选失败不成为当前候选事实；必要内容超过预算停止，Graph 原历史不删除。新增分支的运行验收状态见 STATUS。`competition-report.json` schema 3 的 `localization_result.final.selected` 是最新候选实际关联的所选根因，alternatives 单列；位置缺项会使最终接受保持 false，实际应用检查结果仍独立保存。非空根因行不表示定位正确。
 
-frontier 可显式设置 `context_layout: "decision_layers"`，以阶段问题、假设/未知、事实/推断、运行条件/业务义务、候选检查和失败修订组织原语义记录，替换默认 `record_panel`。两种布局均冻结到 profile；旧缺省形状不变。编译回组须完整还原原投影，不能只发送摘要却认证原文可见；阶段建议不代替执行权限或最终接受。演示配置与待填写云端模板均显式选择 frontier 和分层布局，新增软件用例及 SDK wire 验收状态见 STATUS。
+frontier 可显式设置 `context_layout: "decision_layers"`，以阶段问题、假设/未知、事实/推断、运行条件/业务义务、候选检查和失败修订组织原语义记录，替换默认 `record_panel`。竞赛演示与云端模板选择 `decision_frontier`，进一步读取当前范围匹配的已保存决策，并展示原待证问题、区分问题和反证引用；检查和草稿状态优先，提示不要求每个未知都追加调查。各布局冻结到 profile，旧布局/历史不变。编译回组须完整还原原投影，不能只发送摘要却认证原文可见；建议不代替执行权限或最终接受。新发送计划另外给被移出原版/冻结候选读取提供有界回读导航，跨诊断找回旧探索；导航可因窗口不足省略，不挤掉已选原文，历史草稿不冒充可复原版本。必要未表达工具正文只发送一份，实际完整组保持；SDK 自动摘要仍关闭，竞赛入口尚无通用语义摘要开关。软件验收状态见 STATUS。
 
 候选 DeepSeek 协议可在 model 中显式写 `thinking_mode: "disabled"` 以测试有限历史；云端模板明确选择此准备配置，适配器会发送 `thinking: {"type":"disabled"}`，必须先核对实际提供方支持该字段与模式。它不是所有 OpenAI-compatible 服务通用的参数；其他提供方须按实际协议审查后配置，不能凭模板假定兼容。思考模式写 `thinking_mode: "enabled"`，可配 `reasoning_effort: "low"/"high"/"max"`，并使用完整历史（working_context.enabled=false、不启用主机压缩）。enabled 不接 temperature 或强制工具选择，历史 reasoning 缺项/裁剪会在发送前停止。未声明模式仍是旧通用配置语义，不能据此判断提供方的实际默认。协议适配源码和 Mock 用例的软件验收结果见 STATUS；尚未请求真实服务，最终模式由接纳和同模式比较决定，有限历史准备配置不代表已决定比赛最终模式。
 

@@ -426,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
                     max_known_tokens=args.max_tokens, max_seconds=args.max_seconds,
                     working_context=WorkingContextPolicy(enabled=False) if args.thinking == "enabled"
                         else WorkingContextPolicy(enabled=True, history_selection="repair_frontier",
-                                                  context_layout="decision_layers"))
+                                                  context_layout="decision_frontier"))
                 destination = _checked(args.save if args.save.is_absolute() else root / args.save, exists=False)
                 if (not destination.is_relative_to(root) or destination == root or
                         any(part.casefold() in {"data_b", "archive", ".git", ".agents", ".codex"}

@@ -19,7 +19,7 @@
     "credential_env_names": ["DEEPSEEK_API_KEY"]
   },
   "policy_features": {"rule_guidance": true, "obligation_tracking": true, "decision_checks": true},
-  "working_context": {"enabled": true, "history_selection": "repair_frontier", "exploration_read_groups": 6, "context_layout": "decision_layers"},
+  "working_context": {"enabled": true, "history_selection": "repair_frontier", "exploration_read_groups": 6, "context_layout": "decision_frontier"},
   "applicability_enabled": true,
   "static_skills_enabled": true,
   "max_calls": 40,

@@ -75,7 +75,8 @@ class SyntheticHost:
     def __init__(self, root: Path, *, max_view_bytes: int = 786_432,
                  history_selection: Literal["legacy_refill", "repair_relevance", "repair_frontier"] = "legacy_refill",
                  exploration_read_groups: int = 6, extra_sources: dict[str, str] | None = None,
-                 crash_text: str | None = None, context_layout: Literal["record_panel", "decision_layers"] = "record_panel"):
+                  crash_text: str | None = None,
+                  context_layout: Literal["record_panel", "decision_layers", "decision_frontier"] = "record_panel"):
         self.task = task_snapshot(root)
         if crash_text is not None:
             (self.task / "crash.log").write_bytes(crash_text.encode("utf-8"))
@@ -164,6 +165,25 @@ def frozen_files(directory: Path) -> dict[str, bytes]:
 
 def packet(plan: WorkingContextPlan) -> dict[str, Any]:
     return WorkingContextPacket.model_validate_json(plan.packet_json).contents()
+
+
+def sending_panel(plan: WorkingContextPlan) -> dict[str, Any]:
+    return json.loads(str(plan.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
+
+
+def required_original_groups(plan: WorkingContextPlan) -> list[dict[str, Any]]:
+    original = json.loads(plan.original_messages_json)
+    return [{"range": group["range"], "messages": original[group["range"][0]:group["range"][1]]}
+            for group in sending_panel(plan)["required_unrepresented_groups"]]
+
+
+def without_exploration_navigation(messages: list[BaseMessage]) -> list[BaseMessage]:
+    view = [message.model_copy(deep=True) for message in messages]
+    prefix, quoted = str(view[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)
+    panel = json.loads(quoted)
+    panel.pop("omitted_exploration_readback", None)
+    view[1].content = prefix + WORKING_CONTEXT_PROMPT + "\n" + canonical(panel)
+    return view
 
 
 def test_candidate_without_eof_newline_survives_fresh_context_readback(tmp_path: Path) -> None:
@@ -282,11 +302,10 @@ def test_generic_old_candidate_failure_and_standalone_obligation_are_exact_requi
     selected = host.plan()
     value = packet(selected)
     assert not value["candidates"] and "standalone" not in value["obligations"]
-    panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
-    names = [group["messages"][0]["tool_calls"][0]["name"] for group in panel["required_unrepresented_groups"]]
+    names = [group["messages"][0]["tool_calls"][0]["name"] for group in required_original_groups(selected)]
     assert names == ["record_obligation", "register_candidate", "run_check"]
     assert "read_source" not in names
-    fail_group = panel["required_unrepresented_groups"][-1]
+    fail_group = required_original_groups(selected)[-1]
     assert json.loads(fail_group["messages"][1]["content"])["status"] == "fail"
 
 
@@ -434,6 +453,7 @@ def test_frontier_cap_and_common_byte_budget_do_not_refill_every_old_read(tmp_pa
     base = [message for message in selected.view_messages() if not (
         type(message) is AIMessage and any(call["name"] == "read_source" for call in message.tool_calls) or
         type(message) is ToolMessage and message.name == "read_source")]
+    base = without_exploration_navigation(base)
     policy = host.policy.model_copy(update={"max_view_bytes": len(message_json(base).encode("utf-8"))})
     audit_packet = WorkingContextPacket.model_validate_json(selected.packet_json)
     projection = project_working_context(audit_packet, max_bytes=policy.max_packet_bytes)
@@ -464,10 +484,156 @@ def test_frontier_keeps_original_failure_when_root_and_obligation_focus_change(t
     assert failure["candidate_id"] == old and failure["diagnosis_id"] == "diagnosis1"
     assert failure["check_result"] == observed and failure["causal_relevance"] == "unknown"
     assert failure["is_current_candidate_observation"] is False
-    names = [group["messages"][0]["tool_calls"][0]["name"] for group in panel["required_unrepresented_groups"]]
+    names = [group["messages"][0]["tool_calls"][0]["name"] for group in required_original_groups(selected)]
     assert names == ["register_candidate", "run_check"]
     assert "record_diagnosis" not in names
     assert WorkingContextPlan.model_validate_json(selected.model_dump_json()) == selected
+
+
+def test_frontier_recovers_unabsorbed_source_and_search_after_diagnosis_switch(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier", context_layout="decision_layers",
+        extra_sources={"src/upstream.ets": "needle upstream allocation still unexplained\nneedle consumer\n"},
+        crash_text="earlier fault observation\nlater surrounding trace\n")
+    host.diagnosis()
+    log = host.step("read_log", {"start_line": 1, "end_line": 1})
+    host.step("read_log", {"start_line": 2, "end_line": 2})
+    search = host.step("search_source", {"query": "needle", "path_prefix": "src/upstream.ets", "limit": 1})
+    source = host.step("read_source", {"path": "src/upstream.ets", "start_line": 1, "end_line": 1})
+    host.step("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "new explanation remains unknown"})
+    for _ in range(3):
+        host.step(None, text="reconsider the new root")
+    selected = host.plan()
+    navigation = sending_panel(selected)["omitted_exploration_readback"]
+    assert navigation["grants_visibility"] is False and navigation["semantic_relevance"] == "unknown"
+    hints = {hint["tool"]: hint for hint in navigation["items"]}
+    assert hints["read_source"]["args"] == {"path": "src/upstream.ets", "start_line": 1, "end_line": 1}
+    assert hints["search_source"]["args"] == {"query": "needle", "path_prefix": "src/upstream.ets",
+                                             "case_sensitive": True, "offset": 0, "limit": 1}
+    assert hints["search_source"]["has_more"] is True and hints["search_source"]["next_offset"] == 1
+    assert hints["read_log"]["args"] == {"start_line": 1, "end_line": 1}
+    assert "needle upstream allocation still unexplained" not in selected.stage_messages_json
+    assert not any(call["name"] in {"read_source", "search_source"}
+                   for message in selected.view_messages() if type(message) is AIMessage for call in message.tool_calls)
+    assert not any(fact["location"] is not None and fact["location"]["path"] == "src/upstream.ets"
+                   for fact in packet(selected)["evidence"].values())
+    assert host.step("search_source", hints["search_source"]["args"]) == search
+    assert host.step("read_source", hints["read_source"]["args"]) == source
+    assert host.step("read_log", hints["read_log"]["args"]) == log
+
+
+def test_frontier_readback_keeps_historical_candidate_version_and_excludes_drafts(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier",
+        extra_sources={"src/upstream.ets": "unresolved candidate observation\n"})
+    host.diagnosis()
+    old = host.candidate("almost")
+    observed = host.step("read_source", {"path": "src/upstream.ets", "candidate_id": old})
+    searched = host.step("search_source", {"query": "unresolved", "candidate_id": old})
+    host.step("edit_source", {"path": "src/main.ets", "old": "bad", "new": "good"})
+    host.step("read_source", {"path": "src/upstream.ets", "draft": True})
+    draft_action = host.actions.records()[-1]["action_id"]
+    host.step("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "different root"})
+    for _ in range(3):
+        host.step(None, text="the old draft cannot be recovered as a frozen observation")
+    selected = host.plan()
+    hints = sending_panel(selected)["omitted_exploration_readback"]["items"]
+    assert old not in packet(selected)["candidates"]
+    assert {hint["tool"] for hint in hints} == {"read_source", "search_source"}
+    assert all(hint["scope"] == "candidate" and hint["args"]["candidate_id"] == old and
+               hint["snapshot_sha256"] == observed["snapshot_sha256"] for hint in hints)
+    assert all(hint["action_id"] != draft_action and not hint["args"].get("draft", False) for hint in hints)
+    replay = {hint["tool"]: hint["args"] for hint in hints}
+    assert host.step("read_source", replay["read_source"]) == observed
+    assert host.step("search_source", replay["search_source"]) == searched
+
+
+def test_frontier_readback_is_bounded_diverse_and_does_not_displace_selected_facts(tmp_path: Path) -> None:
+    sources = {f"src/file{index}.ets": f"unresolved file {index}\nsecond observed line\n" for index in range(4)}
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier", exploration_read_groups=2, extra_sources=sources)
+    host.diagnosis()
+    for path in sources:
+        host.step("read_source", {"path": path, "start_line": 1, "end_line": 1})
+    host.step("read_source", {"path": "src/file3.ets", "start_line": 2, "end_line": 2})
+    host.step("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "focus changed"})
+    for _ in range(3):
+        host.step(None, text="current decision")
+    selected = host.plan()
+    hints = sending_panel(selected)["omitted_exploration_readback"]["items"]
+    assert [hint["args"]["path"] for hint in hints] == ["src/file3.ets", "src/file2.ets"]
+    assert hints[0]["args"]["start_line"] == 2
+    base = without_exploration_navigation(selected.view_messages())
+    budget = len(message_json(base).encode("utf-8"))
+    policy = host.policy.model_copy(update={"max_view_bytes": budget})
+    audit_packet = WorkingContextPacket.model_validate_json(selected.packet_json)
+    projection = project_working_context(audit_packet, max_bytes=policy.max_packet_bytes)
+    view, selection = _select_messages(host.messages, audit_packet,
+        json.loads(selected.visible_receipts_json), policy, projection=projection)
+    assert message_json(view) == message_json(base)
+    assert len(message_json(view).encode("utf-8")) <= budget
+    assert selection["retained_ranges"] == json.loads(selected.selection_json)["retained_ranges"]
+    assert "omitted_exploration_readback" not in json.loads(str(view[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
+
+
+@pytest.mark.parametrize("history_selection", ["legacy_refill", "repair_relevance", "repair_frontier"])
+def test_required_unrepresented_result_is_sent_once_as_a_complete_group(tmp_path: Path,
+        history_selection: Literal["legacy_refill", "repair_relevance", "repair_frontier"]) -> None:
+    host = SyntheticHost(tmp_path, history_selection=history_selection)
+    host.diagnosis()
+    statement = "Preserve the unique unresolved output contract"
+    host.step("record_obligation", {"obligation_id": "extra_behavior", "statement": statement,
+                                   "evidence_ids": ["source1"]})
+    for _ in range(3):
+        host.step(None, text="another thought cannot replace this obligation")
+    selected = host.plan()
+    panel = sending_panel(selected)
+    assert all(set(group) == {"range", "action_ids"} and group["action_ids"]
+               for group in panel["required_unrepresented_groups"])
+    assert statement not in str(selected.view_messages()[1].content)
+    # Keep the original call argument and its returned result once each; the
+    # startup panel must not add a second copy of that complete tool group.
+    assert sum(type(message) is ToolMessage and statement in str(message.content)
+               for message in selected.view_messages()) == 1
+    assert selected.stage_messages_json.count(statement) == 2
+    assert json.loads(selected.selection_json)["required_group_encoding"] == "references"
+    groups = required_original_groups(selected)
+    calls = [call["id"] for group in groups for message in group["messages"] if message["type"] == "ai"
+             for call in message["tool_calls"]]
+    assert calls and all(sum(type(message) is ToolMessage and message.tool_call_id == identifier
+                             for message in selected.view_messages()) == 1 for identifier in calls)
+
+
+@pytest.mark.parametrize("history_selection", ["legacy_refill", "repair_frontier"])
+def test_old_inline_plan_rebuilds_readonly_without_new_navigation(tmp_path: Path,
+        history_selection: Literal["legacy_refill", "repair_frontier"]) -> None:
+    host = SyntheticHost(tmp_path, history_selection=history_selection,
+        extra_sources={"src/upstream.ets": "old unexplained allocation\n"})
+    host.diagnosis()
+    host.step("read_source", {"path": "src/upstream.ets"})
+    host.step("record_obligation", {"obligation_id": "standalone", "statement": "Keep the old full quoted result",
+                                   "evidence_ids": ["source1"]})
+    old_candidate = host.candidate("almost", diagnosis="")
+    host.step("run_check", {"candidate_id": old_candidate})
+    host.step("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "new focus"})
+    for _ in range(3):
+        host.step(None, text="old generation")
+    selected = host.plan()
+    audit_packet = WorkingContextPacket.model_validate_json(selected.packet_json)
+    projection = project_working_context(audit_packet, max_bytes=host.policy.max_packet_bytes)
+    stage, selection = _select_messages(host.messages, audit_packet,
+        json.loads(selected.visible_receipts_json), host.policy, projection=projection, required_group_encoding="inline")
+    raw = selected.model_dump(mode="json")
+    raw.update(stage_messages_json=message_json(stage), stage_sha256=sha256(message_json(stage)),
+               selection_json=canonical(selection))
+    old = WorkingContextPlan.model_validate(raw)
+    path = host.store.directory / f"{selected.parent_call_id}.plan.json"
+    path.write_text(canonical(raw), encoding="utf-8")
+    before = frozen_files(host.store.directory)
+    readonly = WorkingContextStore(host.workspace, None, None, host.policy, FIXED)
+    assert readonly.select(host.messages, selected.parent_call_id, host.calls, host.actions) == old
+    assert frozen_files(host.store.directory) == before
+    assert "required_group_encoding" not in selection
+    assert "omitted_exploration_readback" not in sending_panel(old)
+    groups = sending_panel(old)["required_unrepresented_groups"]
+    assert groups and all("messages" in group for group in groups)
 
 
 def test_frontier_failure_history_is_bounded_and_cleared_only_by_actual_pass(tmp_path: Path) -> None:
@@ -605,7 +771,7 @@ def test_repair_selection_keeps_current_unrepresented_behavior_obligation(tmp_pa
     selected = host.plan()
     panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
     assert "extra_behavior" not in panel["packet"]["obligations"]
-    assert panel["required_unrepresented_groups"][0]["messages"][0]["tool_calls"][0]["name"] == "record_obligation"
+    assert required_original_groups(selected)[0]["messages"][0]["tool_calls"][0]["name"] == "record_obligation"
     assert "Keep an unresolved output" in selected.stage_messages_json
 
 
@@ -620,8 +786,7 @@ def test_repair_selection_keeps_related_failure_without_a_followup_decision(tmp_
     selected = host.plan()
     assert packet(selected)["focus"]["current_candidate_id"] == current
     assert old not in packet(selected)["candidates"]
-    panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
-    names = [group["messages"][0]["tool_calls"][0]["name"] for group in panel["required_unrepresented_groups"]]
+    names = [group["messages"][0]["tool_calls"][0]["name"] for group in required_original_groups(selected)]
     assert names == ["register_candidate", "run_check", "link_failed_check"]
     assert failure["candidate_snapshot_sha256"] in selected.stage_messages_json
     assert "keep_value" in selected.stage_messages_json
@@ -637,8 +802,7 @@ def test_repair_selection_keeps_observed_failure_without_optional_model_link(tmp
     selected = host.plan()
     assert packet(selected)["focus"]["current_candidate_id"] == current
     assert old not in packet(selected)["candidates"]
-    panel = json.loads(str(selected.view_messages()[1].content).split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
-    names = [group["messages"][0]["tool_calls"][0]["name"] for group in panel["required_unrepresented_groups"]]
+    names = [group["messages"][0]["tool_calls"][0]["name"] for group in required_original_groups(selected)]
     assert names == ["register_candidate", "run_check"]
     assert observed["status"] == "fail" and observed["candidate_id"] == old
     assert observed["idempotency_key"] in selected.stage_messages_json

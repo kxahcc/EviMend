@@ -4,23 +4,43 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 import httpx
 import pytest
+from langchain_core.messages import AIMessage
 from test_agent_loop import candidate_id, response, task_snapshot
 from test_provider_loop import scripted_adapter, settings, wire_response
+from test_working_context_plan import (
+    SyntheticHost,
+    fixed_intent,
+    message_json,
+    sending_panel,
+)
 
 from dfx_agent import models
 from dfx_agent.actions import ToolActionStore
 from dfx_agent.agent import run_fixed_agent, run_provider_agent
-from dfx_agent.context_compaction import MAX_ARTIFACT_BYTES, CompactionPolicy
-from dfx_agent.model_calls import ModelCallStore, canonical
+from dfx_agent.context_compaction import (
+    MAX_ARTIFACT_BYTES,
+    CompactionPolicy,
+    CompactionStore,
+)
+from dfx_agent.model_calls import ModelCallStore, canonical, invoke_accounted, sha256
 from dfx_agent.model_provider import ChatCompletionsAdapter
 from dfx_agent.offline_script import load_offline_script
 from dfx_agent.reporting import read_completion
+from dfx_agent.solver_visibility import SolverVisibilityStore
 from dfx_agent.task import digest, snapshot_digest, verify_task
 from dfx_agent.verification import CheckLedger, FixedTextExecutor
-from dfx_agent.working_context_plan import WORKING_CONTEXT_PROMPT, WorkingContextPolicy
+from dfx_agent.working_context import WorkingContextPacket
+from dfx_agent.working_context_plan import (
+    WORKING_CONTEXT_PROMPT,
+    WorkingContextPlan,
+    WorkingContextPolicy,
+    _select_messages,
+)
+from dfx_agent.working_context_projection import project_working_context
 from dfx_agent.workspace import CandidateWorkspace
 
 
@@ -82,6 +102,81 @@ def test_generic_candidate_path_without_diagnosis_remains_available(tmp_path: Pa
     assert "diagnosis-1" not in canonical(report["completion"]["working_context_plans"])
 
 
+@pytest.mark.parametrize("encoding", ["inline", "references"])
+@pytest.mark.parametrize("summarize", [False, True])
+def test_required_references_only_expose_complete_results_actually_sent(tmp_path: Path,
+        encoding: str, summarize: bool) -> None:
+    host = SyntheticHost(tmp_path)
+    host.diagnosis()
+    host.step("record_obligation", {"obligation_id": "standalone", "statement": "A unique unrepresented obligation",
+                                   "evidence_ids": ["source1"]})
+    action_id = host.actions.records()[-1]["action_id"]
+    host.step(None, text="earlier reasoning remains unknown")
+    host.step(None, text="recent reasoning remains unknown")
+    selected = host.plan()
+    if encoding == "inline":
+        packet = WorkingContextPacket.model_validate_json(selected.packet_json)
+        projection = project_working_context(packet, max_bytes=host.policy.max_packet_bytes)
+        stage, selection = _select_messages(host.messages, packet,
+            json.loads(selected.visible_receipts_json), host.policy, projection=projection, required_group_encoding="inline")
+        raw = selected.model_dump(mode="json")
+        raw.update(stage_messages_json=message_json(stage), stage_sha256=sha256(message_json(stage)),
+                   selection_json=canonical(selection))
+        selected = WorkingContextPlan.model_validate(raw)
+        (host.store.directory / f"{selected.parent_call_id}.plan.json").write_text(canonical(raw), encoding="utf-8")
+    final, compression = selected.view_messages(), None
+    compact = CompactionStore(host.workspace.root, "task1", "run1",
+        CompactionPolicy(enabled=summarize, trigger_bytes=128, retain_groups=1),
+        {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"})
+    if summarize:
+        compression = compact.select(final, selected.parent_call_id)
+        assert compression is not None
+        summary, _ = invoke_accounted(host.calls, compression.summary_intent(),
+            lambda: AIMessage(content="Historical reasoning is unconfirmed; no repair result is asserted."), max_calls=100)
+        final = compact.complete(compression, summary, host.calls)
+    intent, request = fixed_intent(selected, final, list(host.tools))
+    host.calls.reserve(intent, max_calls=100)
+    if compression is not None:
+        compact.link(compression, intent, None)
+    host.store.link(selected, intent, None, view_messages=final, compaction=compression, fixed_request=request)
+    visibility = SolverVisibilityStore(host.workspace, host.task, host.ledger,
+        {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"}, working_context_store=host.store)
+    visibility.capture(intent, view_messages=final, fixed_request=request,
+                       working_context_plan=selected, compaction=compression)
+    invoke_accounted(host.calls, intent, lambda: AIMessage(content="The task is still unresolved."), max_calls=100)
+    checked = visibility.read(intent.call_id, host.calls, host.actions)
+    expected_visible = encoding == "inline" or not summarize
+    assert (action_id in {item["action"]["action_id"] for item in checked["visible_receipts"]}) is expected_visible
+    assert bool(checked["required_unrepresented_groups"]) is expected_visible
+    assert "standalone" not in checked["visible_packet"]["obligations"]
+    if encoding == "references":
+        assert "A unique unrepresented obligation" not in str(selected.view_messages()[1].content)
+
+
+def test_omitted_exploration_navigation_does_not_grant_result_visibility(tmp_path: Path) -> None:
+    host = SyntheticHost(tmp_path, history_selection="repair_frontier",
+        extra_sources={"src/upstream.ets": "an unresolved allocation\n"})
+    host.diagnosis()
+    host.step("read_source", {"path": "src/upstream.ets"})
+    omitted_action = host.actions.records()[-1]["action_id"]
+    host.step("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "new root"})
+    for _ in range(3):
+        host.step(None, text="consider the new explanation")
+    selected = host.plan()
+    assert omitted_action in {hint["action_id"]
+        for hint in sending_panel(selected)["omitted_exploration_readback"]["items"]}
+    view = selected.view_messages()
+    intent, request = fixed_intent(selected, view, list(host.tools))
+    host.calls.reserve(intent, max_calls=100)
+    host.store.link(selected, intent, None, view_messages=view, compaction=None, fixed_request=request)
+    visibility = SolverVisibilityStore(host.workspace, host.task, host.ledger,
+        {"transport": "fixed_response", "provider_id": "dfxfixed", "model_id": "offline"}, working_context_store=host.store)
+    visibility.capture(intent, view_messages=view, fixed_request=request, working_context_plan=selected)
+    invoke_accounted(host.calls, intent, lambda: AIMessage(content="Need to reread the omitted observation."), max_calls=100)
+    checked = visibility.read(intent.call_id, host.calls, host.actions)
+    assert omitted_action not in {item["action"]["action_id"] for item in checked["visible_receipts"]}
+
+
 def test_mock_sdk_request_is_bound_to_augmented_messages_and_offered_tools(tmp_path: Path) -> None:
     task, work = task_snapshot(tmp_path), tmp_path / "run"
     requests = []
@@ -94,7 +189,9 @@ def test_mock_sdk_request_is_bound_to_augmented_messages_and_offered_tools(tmp_p
     assert checked_completion(task, work) == report["completion"]
 
 
-def test_decision_layers_replace_flat_packet_on_actual_sdk_wire_and_resume(tmp_path: Path) -> None:
+@pytest.mark.parametrize("context_layout", ["decision_layers", "decision_frontier"])
+def test_decision_layers_replace_flat_packet_on_actual_sdk_wire_and_resume(tmp_path: Path,
+        context_layout: Literal["decision_layers", "decision_frontier"]) -> None:
     task, work = task_snapshot(tmp_path), tmp_path / "run"
     good = candidate_id(task, tmp_path / "derive", "good")
     requests: list[dict] = []
@@ -104,7 +201,7 @@ def test_decision_layers_replace_flat_packet_on_actual_sdk_wire_and_resume(tmp_p
         wire_response(4, [("register_candidate", {"diagnosis_id": "diagnosis-1"})]),
         wire_response(5, [("read_source", {"path": "src/main.ets", "candidate_id": good})]),
         wire_response(6, [("run_check", {"candidate_id": good})]), wire_response(7)]
-    policy = WorkingContextPolicy(enabled=True, history_selection="repair_frontier", context_layout="decision_layers")
+    policy = WorkingContextPolicy(enabled=True, history_selection="repair_frontier", context_layout=context_layout)
     adapter = scripted_adapter(scripted, requests, configuration=settings(thinking_mode="disabled"))
     executor = FixedTextExecutor("src/main.ets", "value=good\n")
     report = run_provider_agent(task, work, "run1", adapter, executor, working_context_policy=policy)
@@ -118,7 +215,9 @@ def test_decision_layers_replace_flat_packet_on_actual_sdk_wire_and_resume(tmp_p
     panels = [json.loads(body["messages"][1]["content"].split(WORKING_CONTEXT_PROMPT + "\n", 1)[1]) for body in requests]
     assert all("packet" not in panel and "decision_context" in panel for panel in panels)
     contexts = [panel["decision_context"] for panel in panels]
-    assert all(context["layout"] == "repair_decision_slots_v1" for context in contexts)
+    expected_layout = "repair_decision_slots_v1" if context_layout == "decision_layers" else "repair_decision_frontier_v1"
+    assert all(context["layout"] == expected_layout for context in contexts)
+    assert all(("decision_frontier" in context) == (context_layout == "decision_frontier") for context in contexts)
     assert contexts[0]["decision_board"]["phase"] == "exploration"
     assert contexts[-1]["decision_board"]["phase"] == "delivery_review"
     assert all(context["decision_board"]["execution_permission"] == "not_granted" and

@@ -352,7 +352,7 @@ def test_cloud_configuration_saves_unready_application_without_network_or_readin
     assert profile["model"]["thinking_mode"] == "disabled"
     assert profile["working_context"]["enabled"] is True
     assert profile["working_context"]["history_selection"] == "repair_frontier"
-    assert profile["working_context"]["context_layout"] == "decision_layers"
+    assert profile["working_context"]["context_layout"] == "decision_frontier"
     assert profile["execution"]["project_root"] == "SET_ABSOLUTE_FULL_PROJECT_ROOT"
     assert application_template.read_bytes() == original_application
 

@@ -1,6 +1,6 @@
 # 相关研究证据
 
-状态：当前参考证据。最后维护：2026-10-11。
+状态：当前参考证据。最后维护：2026-10-13。
 主要来源查阅日期：2026-09-12；2026-09-16 定点复核 mini-swe-agent 仓库 README、Agentless 与 TraceRepair 摘要及相关工程文档。2026-10-02–03 定点查阅 ACE、SkillRevise 和 SWE-Skills-Bench 的原文；2026-10-11 定点查阅 Anthropic、Deep Agents 上下文/记忆文档及 ACE v1 方法、v3 摘要页。具体版本/范围见下节及 sources.json；这些是不同范围的采集，不刷新旧证据，也不是完整查新。当前架构决策以 [开发设计草案](../development/system-design-draft.md) 为准，本文只记录来源、参考价值与复用限制。
 
 采用“在成熟方法上升级”的定位。以下是面向技术决策的检索，不是系统综述或完整查新证明；录用状态若来自 arXiv Comments，明确视为作者页面声明。
@@ -54,9 +54,9 @@ SWE-Skills-Bench 提供 Skill 与项目约定不匹配而造成损害的案例�
 
 ## 上下文组织与存储的成熟设计依据
 
-本节采集日期为 2026-10-11，仅核对与有限上下文构建有关的原始资料，没有做新颖性穷尽检索。Anthropic 的工程文章讨论外置原件和轻量引用、渐进读取、结构化笔记与压缩，并指出过度压缩可能丢失后来才显重要的内容。可借鉴“完整材料留在外部、当前决策构建工作集”，不能把文件存储本身描述为研究创新。[官方文章](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
+本节首次采集日期为 2026-10-11；2026-10-13 定点复核 Anthropic 上下文文章、Deep Agents 上下文官网、mini-swe-agent 官网与 ACE v1 方法，不刷新其他来源的采集日期，也没有做新颖性穷尽检索。Anthropic 的工程文章讨论外置原件和轻量引用、渐进读取、结构化笔记与压缩，并指出过度压缩可能丢失后来才显重要的内容。可借鉴“完整材料留在外部、当前决策构建工作集”，不能把文件存储本身描述为研究创新。[官方文章](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
 
-Deep Agents 文档分别说明常驻 memory、按需 Skills、运行状态以及内容卸载/历史摘要；memory 文档区分任务内状态和跨线程持久记忆。它们支持优先复用框架与现有 backend，而不是另造图数据库和长期记忆服务。查看的是在线文档，不能因此认定锁定 SDK 的所有接口已在本仓库兼容。[上下文文档](https://docs.langchain.com/oss/python/deepagents/context-engineering)、[记忆文档](https://docs.langchain.com/oss/python/deepagents/memory)
+Deep Agents 文档分别说明常驻 memory、按需 Skills、运行状态以及内容卸载/历史摘要；memory 文档区分任务内状态和跨线程持久记忆。它们支持优先复用框架与现有 backend，而不是另造图数据库和长期记忆服务。10月13日同时只读核对本机锁定 Deep Agents 0.7.18 的 graph/middleware：框架确有摘要模块，但项目明确排除它并关闭卸载阈值；原生接口存在不表示本项目已启用或完成兼容接线。在线文档与本机检查均不提供当前修复收益证明。[上下文文档](https://docs.langchain.com/oss/python/deepagents/context-engineering)、[记忆文档](https://docs.langchain.com/oss/python/deepagents/memory)
 
 ACE 的 v1 方法采用有 ID 的结构化条目及局部更新，避免不断整段改写上下文造成细节流失；本次 v3 摘要页仍将上下文表述为整理、改进的过程指导。仅借鉴条目化和局部修订原则，没有复现其多角色学习流程，也不迁移其报告增益。[v1 方法](https://arxiv.org/html/2510.04618v1)、[v3 摘要页](https://arxiv.org/abs/2510.04618)
 

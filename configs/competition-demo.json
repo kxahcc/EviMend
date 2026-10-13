@@ -4,7 +4,7 @@
   "provider": {"endpoint": "https://model.invalid/chat/completions", "credential_env": "DFX_DEMO_PROVIDER_KEY"},
   "model": {"provider_id": "synthetic-provider", "model_id": "scripted-demo", "max_output_tokens": 1024, "timeout_seconds": 30.0},
   "policy_features": {"rule_guidance": true, "obligation_tracking": true, "decision_checks": true},
-  "working_context": {"enabled": true, "max_packet_bytes": 131072, "max_view_bytes": 786432, "retain_groups": 2, "history_selection": "repair_frontier", "exploration_read_groups": 6, "context_layout": "decision_layers"},
+  "working_context": {"enabled": true, "max_packet_bytes": 131072, "max_view_bytes": 786432, "retain_groups": 2, "history_selection": "repair_frontier", "exploration_read_groups": 6, "context_layout": "decision_frontier"},
   "applicability_enabled": true,
   "static_skills_enabled": true,
   "max_calls": 40,

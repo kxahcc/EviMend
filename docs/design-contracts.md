@@ -1,6 +1,6 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-12。
+状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-13。
 职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选交接、模型账本、逐工具授权、动作恢复和主机终止摘要已接入共享 SDK 循环；云端请求、本机完整工程检查、正式通用领域 Skill 和 competition 输入输出已有代码通道。软件验收仅使用 MockTransport 和短时 toy 工程，结果只见 STATUS；真实模型及应用开关仍禁用，提供方兼容性、可信业务判据、工具链/设备验证和方法效果仍未知。可信采值、算子适用性及因果关系的实际检验继续是未完成扩展。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
@@ -422,7 +422,7 @@ CaptureReceipt 的采集状态为 collected / not_reached / blocked / inconclusi
 
 repair_frontier 的探索只从最近诊断后已授权成功的日志页/源码/搜索读取选择，尚未诊断时覆盖已读历史；去重、主题多样性、完整组数及共同字节预算同时限制。它们保持未被诊断吸收的观察，不能自动成为当前假设的支持证据。最近实际 fail 的 run_check 和对应 register_candidate 为必要组，缺原登记停止；面板 latest_failure 保留原 candidate_id、原诊断、原检查及是否属于当前候选，causal_relevance 始终 unknown。换诊断、未知结果或模型声称成功都不清除，后续同协议同证据级别的实际 pass 才清除。该数据不改写 packet 的当前候选/义务/反馈，不能把旧版本失败或 synthetic 级别转成新版本的 application 事实。
 
-context_layout 缺省 record_panel 保持旧 profile 形状；显式 decision_layers 仅用于 repair_frontier，将原 packet 面板替换成 repair_decision_slots_v1。纯编译分槽保留全部原字段、备选、矛盾、未知、义务和版本，restore_decision_context 的 canonical 回组须与编译输入完全相同，否则在新预留/发送前拒绝。decision_board 的阶段/问题、关系索引和回读提示均不赋予因果、可见性或执行权限；它们不是第二个控制器。完整原工具/知识组与候选检查仍经已有账本和实际请求核验；startup 与冻结 stage 相同才按现有可见性门接纳完整语义。布局不截断必要数据、不隐式启用摘要、不改默认模型模式。实际发送中必须只有一份主决策面板，不能通过追加整个旧 packet 凑信息完整。
+context_layout 缺省 record_panel 保持旧 profile 形状；显式 decision_layers 仅用于 repair_frontier，将原 packet 面板替换成 repair_decision_slots_v1，保持旧解释。显式 decision_frontier 使用 repair_decision_frontier_v1，检查/草稿优先后仅消费 task/run/source、当前 diagnosis 和 candidate 范围相符的 focus.decision_id；有界 frontier 只索引原问题和引用，缺项不是反驳或额外检查义务。两种编译均保留全部原字段、备选、矛盾、未知、义务和版本，restore_decision_context 的 canonical 回组须与编译输入完全相同，否则在新预留/发送前拒绝。decision_board 的阶段/问题、关系索引和回读提示不赋予因果、可见性或执行权限；它们不是第二个控制器。新 required_group_encoding=references 只列未表达必要组的位置，正文保留在实际完整 AI/Tool 组，避免双份发送；缺该标记的旧 inline 计划保持原正文和解释。摘要移出新计划原工具组后，不因 startup 含位置引用就认证原文已见。被移出探索的导航只来自已见成功原版/冻结候选读取，保留原回读参数；历史草稿不提供可复原入口，导航可选且不挤掉已选原文。完整原工具/知识组与候选检查仍经已有账本和实际请求核验；startup 与冻结 stage 相同才按现有可见性门接纳完整语义。布局不截断必要数据、不隐式启用摘要、不改默认模型模式。实际发送中只有一份主决策面板，不能通过追加整个旧 packet 凑信息完整。
 
 软件包 A 的有限选择契约如下，实际算法归属设计第 7.1 节，实现/验收状态只见 STATUS：
 
