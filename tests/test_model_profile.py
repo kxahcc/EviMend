@@ -32,9 +32,20 @@ def test_private_model_and_budget_parse_but_key_is_excluded(tmp_path: Path) -> N
     assert SECRET not in parsed.model_dump_json() and SECRET not in repr(parsed)
 
 
+def test_private_network_defaults_and_explicit_limits(tmp_path: Path) -> None:
+    assert load_model_profile(profile(tmp_path)).network.max_retries == 2
+    parsed = load_model_profile(profile(tmp_path, network={"max_retries": 5,
+        "request_timeout_seconds": 90.0, "connect_timeout_seconds": 10.0}))
+    assert parsed.network.max_retries == 5 and parsed.network.request_timeout_seconds == 90.0
+    assert SECRET not in parsed.model_dump_json()
+
+
 @pytest.mark.parametrize("changes", [
     {"provider": "unknown"}, {"budget": {"max_calls": 0}}, {"budget": {"max_seconds": 1801}},
     {"budget": {"max_tool_calls": 501}}, {"api_key": {"private": SECRET}}, {"unsupported": SECRET},
+    {"network": {"max_retries": 6}}, {"network": {"max_retries": -1}},
+    {"network": {"request_timeout_seconds": 5.0, "connect_timeout_seconds": 10.0}},
+    {"network": {"request_timeout_seconds": float("nan")}},
 ])
 def test_invalid_private_input_never_echoes_values(tmp_path: Path, changes: dict[str, object]) -> None:
     with pytest.raises(ValueError) as failure:

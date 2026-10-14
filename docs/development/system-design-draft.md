@@ -79,9 +79,11 @@ Deep Agents 依赖 LangChain Agent 和 LangGraph；模型入口沿用 langchain-
 
 SDK 维护模型消息和工具循环；工具边界转换为我们自己的 ActionProposal/ModelObservation，业务策略不依赖 AIMessage 内部字段。优先使用原生工具调用，返回后再做本地 Pydantic 校验。供应商格式约束不能代替业务校验，格式修复同样记为模型调用。
 
-只由一层负责语义重试和预算，关闭或显式计入 SDK 的自动重试；不允许 SDK、图节点和控制器各重试一轮却只记录一次。`ModelCallStore` 已接入固定响应及模拟请求模型，覆盖调用前登记、Graph 落盘前的完整响应回放、未知发送停止、格式错误和 usage 分类。`PreparedRequest` 以唯一规范化 JSON 固定消息、工具、参数及 profile 哈希；官方 SDK 负责发送序列化，发送前 hook 重核实际请求的规范 JSON 与冻结请求一致，不声称 HTTP 原字节与 JSON 排版相同。SDK 的中性 `tool_choice=None` 由模型入口省略，其余不支持字段明确拒绝。
+只由一层负责语义重试和预算，禁止 SDK、图节点和控制器各重新推理一轮却只记录一次。网络故障恢复是原逻辑调用内的有限尝试，SDK 负责退避，项目限定安全条件并单列网络计数；工具和语义步骤不因此重跑。`ModelCallStore` 已接入固定响应及模拟请求模型，覆盖调用前登记、Graph 落盘前的完整响应回放、未知发送停止、格式错误和 usage 分类。`PreparedRequest` 以唯一规范化 JSON 固定消息、工具、参数及 profile 哈希；官方 SDK 负责发送序列化，每次尝试前 hook 重核实际请求的规范 JSON 与冻结请求一致，不声称 HTTP 原字节与 JSON 排版相同。SDK 的中性 `tool_choice=None` 由模型入口省略，其余不支持字段明确拒绝。
 
-Chat Completions 有独立冻结的 mock 与云端传输 profile。`ChatCompletionsAdapter` 保留 exact MockTransport、固定 model.invalid 端点及无凭据的旧路径；`CloudChatCompletionsAdapter` 调用官方 OpenAI SDK 2.30.0 的 `chat.completions`，新 profile 使用 schema 2、transport=openai-sdk，并固定 SDK 版本和规范请求身份。主机运行配置保存规范 HTTPS 端点与 credential_file 私有文件位置，旧方式保存 credential_env。构造、prepare、validate 和只读 profile 恢复不读取密钥或建立网络客户端。发送前按剩余时间、输入估计与完整输出额度准入，再直接读取当前文件 Key；指定文件时不回退环境变量，也不把文件 Key 注入进程环境。SDK 和底层传输的重试均为零，关闭重定向和环境代理，响应读取仍受字节和截止时间限制。Key 只保存在本机私有配置，不进入生成的运行配置、profile、请求/响应原件或错误报告；私有文件必须位于任务、完整工程及运行目录之外，环境凭据仍从应用检查子进程环境排除。历史 cloud-httpx profile 只按原身份回读核验，不迁移为新 SDK 发送资格。软件验收以官方 SDK 通道注入 MockTransport，真实实验仍禁用。
+Chat Completions 有独立冻结的 mock 与云端传输 profile。`ChatCompletionsAdapter` 保留 exact HTTPX MockTransport、固定 model.invalid 端点及无凭据的旧路径；`CloudChatCompletionsAdapter` 复用官方 OpenAI SDK 2.30.0，profile 使用 schema 2、transport=openai-sdk，固定 SDK 版本和规范请求身份。主机运行配置保存规范 HTTPS 端点与 credential_file 私有文件位置，旧方式保存 credential_env；可选 network 来自同一私有配置。显式 network 走公开 AsyncOpenAI/AsyncClient，profile 固定 chat.completions.async、重试上限及网络策略；无 network 的旧配置完整保留原 chat.completions/零重试形状与解释，不自动升级旧运行。构造、prepare、validate 和只读 profile 恢复不读取密钥或建立网络客户端，后者不获得发送资格。发送前按剩余时间、输入估计与完整输出额度准入，再直接读取当前文件 Key；每次尝试前重新核对凭据，当前调用中 Key 改变则停止。指定文件时不回退环境变量，也不把文件 Key 注入进程环境。关闭重定向和环境代理，响应读取仍受字节和截止时间限制。Key 只保存在本机私有配置，不进入生成的运行配置、profile、请求/响应原件或错误报告；私有文件必须位于任务、完整工程及运行目录之外，环境凭据仍从应用检查子进程环境排除。历史 cloud-httpx profile 只按原身份回读核验，不迁移为新 SDK 发送资格。软件验收以官方 SDK 通道注入 MockTransport，真实实验仍禁用。
+
+网络策略只在原请求中恢复能确认未进入推理的失败：TCP/TLS 连接尚未建立的故障，或服务明确返回 429。证书错误、鉴权/参数错误、408/409/5xx、读写超时和协议中断不自动重发，防止结果不明时重复推理/计费。max_retries 是首次请求之后的上限，取 0–5；退避、抖动和 Retry-After 由 SDK 实现，底层连接重试关闭，项目不再套一层重试循环。request_timeout_seconds 限制全部尝试与等待，connect_timeout_seconds 限制每次连接；实际总截止采用网络配置、模型超时和任务剩余时间的较严值，由 asyncio.timeout 覆盖 SDK 发送与退避。具体准备值只维护在配置示例，运行时冻结到 profile，恢复不增加时限或次数。
 
 mock 与云端共用有限文字/工具协议：文本、原生工具调用和显式 reasoning_content 有限支持；SDK SkillsMiddleware 的纯文本 system blocks 按原顺序拼接。标准 nullable refusal/audio/function_call 与空 annotations 可解析，真实拒答保存后标为不完整；非空附件、流式响应、未声明选项或不完整工具调用不静默降级。混合有效/无效工具调用的整个响应停止，不执行其中有效子集。原始 usage 保存，合法计数另做归一化；缺失/错误用量保持未知，云端路径有未知 usage 时停止新发送。输入 Token 预留使用规范请求 UTF-8 字节和消息开销估计，不是提供方 tokenizer 的精确计数；估计准入、输出设置及 max_known_tokens 都不能证明实际总 Token 或计费硬上限。该协议参考 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，查阅日期 2026-10-02；这不是已选择 DeepSeek 或已验证其真实兼容性。
 
@@ -89,7 +91,7 @@ mock 与云端共用有限文字/工具协议：文本、原生工具调用和�
 
 思考工具模式暂用完整历史并在上限停止：发送边界拒绝启用摘要，核对第一条历史 assistant 起的全部轮次未被视图裁剪，并要求各 assistant 的 reasoning_content 完整回传；拒绝发生在新调用预留/发送前，不隐式切模式。有限历史先在显式 disabled 下验收，使用 repair_relevance；真实配置须显式决定模式，不能直接依赖模板的通用缺省。实际协议 smoke 后再按开发结果选比赛模式，各比较组保持一致；若思考模式仍须完整历史，就只主张义务/经验组织，不能宣称该模式有历史裁剪收益。官方 SDK 使用明确 extra_body 传递已支持的 DeepSeek thinking 字段，项目仍保留 profile/账本边界，不开放请求任意扩展字段。
 
-求解、格式修复、上下文压缩及 SDK 重试均须穿过同一计数边界；当前云端 HTTP 传输的自动重试为零。原始响应中可获得的 usage/消息标识保留，适配器不支持的字段保持未知，不静默删除后称计费完整。提供方的格式、usage、上下文和工具兼容性仍须实测后核定；具体模型账号和型号不是框架选择的前提。
+求解、格式修复、上下文压缩及新增推理均须穿过同一计数边界；安全网络失败只重试原请求，沿用本次 Token 预留，网络尝试与逻辑 model_calls 分开记录。现有进度侧录保存 model_network_attempt/model_network_finished；完整响应在 response_metadata.dfx_network 保存网络计数并进入原模型账本/报告。失败侧录不构成完整响应或计费证明，没有完整消息继续按 unknown 关闭，不在恢复时重发；缺失/无效 usage 阻止后续调用。原始响应中可获得的 usage/消息标识保留，适配器不支持的字段保持未知，不静默删除后称计费完整。提供方的格式、usage、上下文和工具兼容性仍须实测后核定；具体模型账号和型号不是框架选择的前提。
 
 上下文策略保持显式有界：通过 HarnessProfile 关闭 SummarizationMiddleware，并通过公开同类中间件替换关闭 FilesystemMiddleware 的人类消息/工具结果卸载；保留必需文件中间件及原工具排除。默认不压缩，超过序列化消息字节上限以 context_limit 停止。可选 CompactionPolicy 在调用边界按字节触发，保留 system、启动任务和近期完整工具组，把较早的闭合前缀归纳成带来源范围的模型推断；Graph 原历史始终保留。摘要无工具、不共享求解模型的工具绑定，以 context_compaction 用途进入同一预算和恢复账本；冻结来源、摘要及实际发送视图只写受管 work/compactions。摘要完成但 Graph 未保存可回放，未知结果不重发，格式失败仍计费。参数由 context_compaction.py 定义，发送视图硬限额由 models.py 定义；context_profile 和模型配置在 session 冻结，基础/增强一致。首版重新摘要完整历史前缀，摘要输入或必须保留的尾部超限时明确停止；尚无滚动摘要或无限历史能力，字节限额也不代表云端 Token 窗口。依据 2026-10-02 对锁定 SDK 0.7.18 本机源代码的检查，默认摘要调用带重试的模型并写 backend，默认大工具结果也会卸载，因此保留关闭策略。详细约束见模块规格第 1.2.2 节。
 
@@ -105,7 +107,7 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 
 1. 固定响应能驱动读取、编辑、候选登记、检查失败和继续修复，领域对象能严格校验。
 2. 文件编辑只产生工作副本变更；run_check 必须先冻结并登记实际 diff，绑定不可变 candidate_id。任何可执行修改后代码的通道都走同一登记门，不开放可绕过该门的任意 shell；检查期间不得修改被测快照。自定义工具不能取消原有通用检查能力。
-3. 主循环、上下文压缩、格式修复、SDK 重试等调用全部进入预算；默认子代理禁用，工具与模型调用记录可导出。基础/增强组使用同一套框架配置，不能把默认能力差异算成算法收益。
+3. 主循环、上下文压缩、格式修复等语义调用全部进入预算；网络尝试单列观察且其等待受原时间预算约束，不能以重试绕过未知结果门。默认子代理禁用，工具与模型调用记录可导出。基础/增强组使用相同模型和网络策略，不能把默认能力差异算成算法收益。
 4. SQLite 恢复及本机作业不重复累积补丁，不错误重复执行，也不能在未运行检查时宣称成功。
 
 内置 FilesystemBackend 只是一种文件访问后端，不是系统级沙箱；使用任务根目录和虚拟路径限制，应用执行另由受管本机进程承载。文件后端不会自动提供 HarmonyOS 的构建、设备和业务验收能力，仍由我们的 ExecutionBackend 实现。
@@ -132,7 +134,7 @@ W03–W06 已完成不调用真实模型、不连接设备的离线接入切片�
 | diagnostics.py | 按引用读取源码/日志事实、核对候选失败检查、接纳模型提案并原子保存诊断包 | 模型关系与义务保持推断；schema 与原记录按需回读，不自动计算条件或确认根因 |
 | decisions.py | 把修复方向绑定已登记诊断/义务/区分问题、实际失败检查及同范围有限条件结果，保存建议及候选方向引用 | 失败 scope 随检查来源核验；不执行探针，推断义务只提示方向重审，不硬拒绝候选或证明业务效果 |
 | conditions.py | 对主机固定合成输入计算首批有限条件，核对绑定/单位/操作点/实际版本，保存不可改写结果并在回读时重算 | 已接入固定响应 SDK；不求值表达式、不自动提取运行值或修改诊断，fixture 不是执行证据 |
-| models.py / model_provider.py | 固定响应、mock wire 与云端 Chat Completions 经统一账本接 SDK；显式准入、单发、usage 和只读 profile 恢复 | 真实兼容性及费用未实测；不借 SDK 隐式摘要或重试绕开预算，Token 估计不作精确硬限额 |
+| models.py / model_provider.py | 固定响应、mock wire 与云端 Chat Completions 经统一账本接 SDK；显式准入、安全网络重试、usage 和只读 profile 恢复 | 真实兼容性及费用未实测；SDK 退避受冻结策略和总截止限制，未知不重发，Token 估计不作精确硬限额 |
 | context_compaction.py | 完整工具组切分、冻结来源、摘要身份、实际发送视图及只读核验 | 保留 Graph 历史；摘要是模型推断，有限输入超限停止，不保证归纳忠实度或修复效果 |
 | working_context.py / working_context_plan.py / working_context_materials.py / working_context_projection.py | 注册记录闭包；可见回执推导焦点、完整组组织；run 内原字节去重与有界求解投影，冻结历史材料并绑定实际发送 | 原 Graph 不变；投影保留领域原文，通用压缩另有开关。历史原字节与完整闭包由 Store 核验；静态 Skill 目录/完整读取和受管配置已接 Agent，版本会话经独立入口消费冻结选择，验收见 STATUS；结构核验不证明语义或效果 |
 | feedback_contracts.py / feedback.py | 已结束开发运行的独立来源闭包、权限和成本核验，完整待审核人工经验候选 | 人工提议，合成范围不授应用资格；独立 Skill 版本可绑定人工候选完整原件 |

@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-14",
+  "mode": "cloud_sdk_safe_retry_closure",
+  "base_commit": "bc3bbcd",
+  "goal": "Enable SDK-owned, bounded network retries without resending execution-unknown calls or creating a retry framework.",
+  "design": {
+    "components": "locked official AsyncOpenAI 2.30.0, public HTTPX AsyncClient/AsyncBaseTransport and standard asyncio.timeout",
+    "retryable": ["pre-request ConnectError/ConnectTimeout, excluding certificate verification errors", "explicit HTTP 429 rejection unless server forbids retries"],
+    "terminal": ["400/401/403 and other non-429 status", "408/409/5xx", "read/write timeout, protocol or opaque transport failure", "invalid/oversized/encoded response", "changed credentials or prepared request", "exhausted original deadline"],
+    "backoff": "SDK owns exponential backoff, jitter and supported Retry-After; valid waiting instructions above SDK limit terminate instead of retrying earlier",
+    "budget": "one logical reservation because permitted earlier failures do not execute inference; actual network attempts counted separately; final missing usage or execution uncertainty remains unknown",
+    "compatibility": "optional frozen network policy selects async API and metadata; absent network keeps exact prior synchronous zero-retry profile. Reconfiguring a private input missing network adopts current defaults."
+  },
+  "changes": [
+    "Add strict network configuration to the existing private model profile and public frozen provider locator; save timeouts and retry policy through existing CLI configure/doctor.",
+    "Use public SDK/HTTPX interfaces and no custom retry loop. A tightly scoped terminal signal escapes the locked SDK's blanket Exception retry handling; sanitized HTTP errors keep actual statuses and omit private bodies.",
+    "Check frozen request identity, endpoint and current credential before each attempt, cap attempts and response bytes, and cancel asynchronous sends/reads/backoff under one original deadline.",
+    "Success messages keep dfx_network in the existing model-call receipt; existing progress supports safe attempt/retry/status counters, without a new ledger or event bus.",
+    "Add network defaults to the ignored local file while preserving original key/model/budget fields; update safe template and existing documentation owners.",
+    "Execute the existing complete two-candidate synthetic repair and zero-new-call recovery through the new SDK channel; correct an existing test's hash-order assumption by verifying the decision actually bound to the final candidate."
+  ],
+  "validation": {
+    "groups": [
+      {"suite": "tests/test_cloud_retries.py", "run_id": "078496ea-b6a5-4c61-bf80-a1bbbd027ca8", "passed": 43},
+      {"suite": "tests/test_model_profile.py", "run_id": "d3f4bd51-7bb2-4064-9900-cec3c24f833e", "passed": 16},
+      {"suite": "tests/test_retrying_competition.py", "run_id": "fdcd30c3-42cf-473c-aeae-d5e849eddfce", "passed": 1},
+      {"suite": "tests/test_product_cli.py", "run_id": "2c62824d-1bc2-484d-b015-08f6c98a40d1", "passed": 48},
+      {"suite": "tests/test_cloud_provider.py", "run_id": "564391ca-83fb-4c94-8c0b-44ef4440d223", "passed": 52},
+      {"suite": "tests/test_progress.py", "run_id": "70d65fd5-d251-428e-8f86-b54044370527", "passed": 11, "skipped": 1, "skip_reason": "Windows symlink creation permission unavailable"}
+    ],
+    "total_passed": 171,
+    "total_skipped": 1,
+    "scope": "targeted offline software verification; official SDK with exact MockTransport and actual short synthetic checks, no live service or HarmonyOS",
+    "ruff": {"run_id": "1f221f27-8966-4ea8-8889-c75d645f8b5b", "result": "passed"},
+    "pyright": {"run_id": "0ffaa7a3-3803-4b78-af94-15e2dc4df2d3", "result": "passed"},
+    "docs": {"run_id": "a25e789f-47fe-4db7-baf8-31149d45adce", "result": "passed", "registered_documents": 14, "errors": 0},
+    "failures_retained": [
+      {"run_id": "4a460dfe-6ead-414c-8376-01fda29647e3", "result": "36 passed, 3 failed", "repair": "Preserve response-error categories for encoding/byte/JSON failure and validate JSON before SDK parsing; no retries added for invalid responses."},
+      {"run_id": "330148a8-f3a6-47c3-82e4-1f6b6541a48b", "result": "5 Ruff errors", "repair": "Combine async resource contexts; scoped justifications at necessary terminal/privacy exception boundaries, no global lint suppression."},
+      {"run_id": "16165884-d60e-4c7f-ab36-4cc0cdd39c74", "result": "full repair ran but test assertion failed", "repair": "Decision records are sorted by hash. Replace positional expectation with final candidate decision_id binding plus reconsider_repair and actual feedback assertions."}
+    ],
+    "product_check": "Installed dfx.cmd doctor reads private network policy locally and still reports placeholder model/key blocked; no API request sent."
+  },
+  "sources_checked": [
+    {"date": "2026-10-14", "url": "https://developers.openai.com/api/reference/python", "purpose": "public async client and retry options; implementation behavior additionally checked against locked installed 2.30.0 source"},
+    {"date": "2026-10-14", "url": "https://developers.openai.com/api/docs/guides/rate-limits", "purpose": "bound attempts and total retry time, distinguish per-attempt timeout from operation deadline and avoid shortening unsupported server delays"}
+  ],
+  "environment": {
+    "dependencies_installed": false,
+    "global_changes": false,
+    "runtime_limit_or_experiment_changes": false,
+    "real_model_requests": 0,
+    "harmonyos_runs": 0,
+    "final_status": {
+      "owner_valid": true,
+      "resource_accounting": "complete",
+      "inaccessible_paths": [],
+      "active_state": "none",
+      "cleanup_available": true,
+      "managed_bytes_by_category": {"tools": 41432064, "python": 60882592, "env": 129461518, "cache": 114843370, "tmp": 136453778, "work": 53397738, "artifacts": 5004601, "state": 89058},
+      "export_bytes": 1731345
+    }
+  },
+  "remaining": ["Actual provider model/protocol compatibility and billing remain unknown until authorized integration.", "HarmonyOS execution admission remains the next P2 work package."]
+}

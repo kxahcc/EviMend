@@ -438,6 +438,9 @@ def test_private_configuration_unifies_model_key_and_every_task_budget(
     assert value["model"]["model_id"] == "file-chosen-model"
     assert value["model"]["max_output_tokens"] == 1024
     assert value["provider"]["credential_file"] == str(source)
+    assert value["provider"]["network"] == {"max_retries": 2, "request_timeout_seconds": 60.0,
+                                            "connect_timeout_seconds": 10.0}
+    assert value["model"]["timeout_seconds"] == 60.0
     assert {key: value[key] for key in ("max_calls", "max_known_tokens", "max_seconds", "max_candidates",
                                      "max_tool_calls")} == {"max_calls": 7, "max_known_tokens": 50000,
         "max_seconds": 120, "max_candidates": 2, "max_tool_calls": 30}

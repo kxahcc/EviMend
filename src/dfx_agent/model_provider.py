@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -33,6 +34,7 @@ from pydantic import (
     model_validator,
 )
 
+from .cloud_retries import CloudRetryError, CloudRetryPolicy, request_with_retries
 from .contracts import IDENTIFIER, require_hash
 
 MOCK_ENDPOINT = "https://model.invalid/chat/completions"
@@ -193,6 +195,7 @@ class CloudProviderConfig(BaseModel):
     endpoint: str = Field(min_length=1, max_length=2048)
     credential_env: str = Field(min_length=1, max_length=128)
     credential_file: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    network: CloudRetryPolicy | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def valid_connection(self) -> CloudProviderConfig:
@@ -217,6 +220,7 @@ class CloudProviderConfig(BaseModel):
 def provider_connection(provider: Literal["openai", "deepseek", "compatible"], model_id: str, *,
                         base_url: str | None = None, credential_env: str | None = None,
                         credential_file: str | None = None,
+                        network: CloudRetryPolicy | None = None,
                         **settings: Any) -> tuple[CloudProviderConfig, ProviderSettings]:
     """Resolve vendor ergonomics onto the official SDK's supported Chat API.
 
@@ -237,7 +241,7 @@ def provider_connection(provider: Literal["openai", "deepseek", "compatible"], m
         raise AdapterRequestError("provider_thinking_mode_unsupported")
     connection = CloudProviderConfig(endpoint=endpoint,
                                      credential_env=credential_env if credential_env is not None else default_env,
-                                     credential_file=credential_file)
+                                     credential_file=credential_file, network=network)
     model = ProviderSettings(provider_id=provider, model_id=model_id, **settings)
     return connection, model
 
@@ -669,11 +673,13 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
             return _decode(_canonical(self._profile_override))
         return {"schema_version": 2, "wire_profile": WIRE_PROFILE, "transport": "openai-sdk",
                 "sdk": {"package": "openai", "version": version("openai"),
-                        "api": "chat.completions", "request_identity": "canonical-json"},
+                        "api": "chat.completions.async" if self.config.network is not None else "chat.completions",
+                        "request_identity": "canonical-json"},
                 **self.config.model_dump(mode="json"),
                 "settings": self.settings.model_dump(mode="json"),
                 "max_request_bytes": MAX_REQUEST_BYTES, "max_response_bytes": MAX_RESPONSE_BYTES,
-                "automatic_retries": 0, "follow_redirects": False, "trust_env": False,
+                "automatic_retries": self.config.network.max_retries if self.config.network is not None else 0,
+                "follow_redirects": False, "trust_env": False,
                 "input_token_estimator": INPUT_TOKEN_ESTIMATOR}
 
     def _credential(self) -> str:
@@ -726,9 +732,12 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
         credential = self._credential()
         if credential in validated.body or credential in _canonical(self.profile()):
             raise AdapterRequestError("provider_credential_exposed")
+        request_timeout = self.settings.timeout_seconds
+        if self.config.network is not None:
+            request_timeout = min(request_timeout, self.config.network.request_timeout_seconds)
         return CloudCallAdmission(body_sha256=validated.body_sha256, profile_sha256=validated.profile_sha256,
                                   reserved_tokens=reserved,
-                                  deadline=time.monotonic() + min(self.settings.timeout_seconds, remaining_seconds))
+                                  deadline=time.monotonic() + min(request_timeout, remaining_seconds))
 
     def invoke(self, request: PreparedRequest, *, admission: CloudCallAdmission | None = None) -> AIMessage:
         validated = self.validate(request)
@@ -752,6 +761,8 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
             raise AdapterRequestError("provider_time_budget")
         if credential in validated.body or credential in _canonical(self.profile()):
             raise AdapterRequestError("provider_credential_exposed")
+        if self.config.network is not None:
+            return self._invoke_retrying(validated, admitted, credential)
         from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
         def check_request(outgoing: httpx.Request) -> None:
@@ -841,6 +852,58 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
         except Exception:  # noqa: BLE001 - Provider internals may contain private body/header text.
             raise AdapterTransportError("provider_transport_error") from None
 
+    def _invoke_retrying(self, request: PreparedRequest, admitted: CloudCallAdmission, credential: str) -> AIMessage:
+        assert self.config.network is not None
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise AdapterRequestError("provider_sync_entry_in_async_loop")
+
+        def verify_outgoing(outgoing: httpx.Request) -> None:
+            if admitted.deadline <= time.monotonic():
+                raise AdapterRequestError("provider_time_budget")
+            if self._credential() != credential:
+                raise AdapterRequestError("provider_credential_changed")
+            if (outgoing.method != "POST" or str(outgoing.url) != self.config.endpoint or
+                    len(outgoing.content) > MAX_REQUEST_BYTES or
+                    _canonical(_decode(outgoing.content)) != request.body):
+                raise AdapterRequestError("sdk_prepared_request_changed")
+
+        try:
+            with _private_sdk_call():
+                raw, sdk_result, stats = asyncio.run(request_with_retries(
+                    payload=_decode(request.body), endpoint=self.config.endpoint, credential=credential,
+                    policy=self.config.network, deadline=admitted.deadline, transport=self._cloud_transport,
+                    verify_request=verify_outgoing, max_response_bytes=MAX_RESPONSE_BYTES))
+            if admitted.deadline <= time.monotonic():
+                raise AdapterTransportError("provider_timeout")
+            if credential.encode("utf-8") in raw:
+                raise AdapterResponseError("provider_credential_exposed")
+            result = _decode(raw)
+            if credential in _canonical(result):
+                raise AdapterResponseError("provider_credential_exposed")
+            message = _response_message(result)
+            if _canonical(sdk_result) != _canonical(result):
+                raise AdapterResponseError("sdk_response_changed")
+            message.response_metadata["dfx_network"] = stats
+            return message
+        except CloudRetryError as error:
+            if error.reason in {"unsupported_response_encoding", "response_byte_limit", "invalid_response_json"}:
+                raise AdapterResponseError(error.reason) from None
+            if error.reason in {"provider_time_budget", "sdk_prepared_request_changed", "provider_credential_exposed",
+                    "provider_credential_missing", "provider_credential_changed", "provider_credential_invalid",
+                    "provider_credential_file_invalid", "provider_credential_endpoint_changed"}:
+                raise AdapterRequestError(error.reason) from None
+            raise AdapterTransportError(error.reason) from None
+        except AdapterError:
+            raise
+        except (TypeError, ValueError, UnicodeError, RecursionError):
+            raise AdapterResponseError("invalid_response_json") from None
+        except Exception:  # noqa: BLE001 - SDK internals must not disclose private data.
+            raise AdapterTransportError("provider_transport_error") from None
+
 
 def adapter_from_profile(profile: dict[str, Any]) -> ChatCompletionsAdapter:
     """Reconstruct a non-dispatching adapter for request/source verification only."""
@@ -855,7 +918,7 @@ def adapter_from_profile(profile: dict[str, Any]) -> ChatCompletionsAdapter:
         elif value["transport"] in ("cloud-httpx", "openai-sdk"):
             adapter = CloudChatCompletionsAdapter(settings, CloudProviderConfig(
                 endpoint=value["endpoint"], credential_env=value["credential_env"],
-                credential_file=value.get("credential_file")), allow_network=False)
+                credential_file=value.get("credential_file"), network=value.get("network")), allow_network=False)
             if value["transport"] == "cloud-httpx":
                 expected = {"schema_version": 1, "wire_profile": WIRE_PROFILE, "transport": "cloud-httpx",
                             "endpoint": adapter.config.endpoint, "credential_env": adapter.config.credential_env,
@@ -869,7 +932,8 @@ def adapter_from_profile(profile: dict[str, Any]) -> ChatCompletionsAdapter:
             else:
                 sdk = value.get("sdk")
                 if not isinstance(sdk, dict) or set(sdk) != {"package", "version", "api", "request_identity"} or (
-                        sdk["package"] != "openai" or sdk["api"] != "chat.completions" or
+                        sdk["package"] != "openai" or sdk["api"] != (
+                            "chat.completions.async" if adapter.config.network is not None else "chat.completions") or
                         sdk["request_identity"] != "canonical-json" or not isinstance(sdk["version"], str) or
                         not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", sdk["version"])):
                     raise ValueError("SDK provider profile differs")

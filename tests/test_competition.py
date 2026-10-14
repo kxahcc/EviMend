@@ -52,13 +52,16 @@ def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
     monkeypatch.setattr(competition._DemoModel, "__call__", observe)
     settings = config(tmp_path, max_calls=15)
     private_key = "synthetic-private-file-credential"
-    if credential_source == "private_file":
+    if credential_source != "environment":
         private = tmp_path / "model.local.json"
         private.write_text(json.dumps({"provider": "compatible", "base_url": "https://model.invalid",
                                        "model": "scripted-demo", "api_key": private_key}),
                            encoding="utf-8")
         value = json.loads(settings.read_bytes())
         value["provider"]["credential_file"] = str(private)
+        if credential_source == "retrying_private_file":
+            value["provider"]["network"] = {"max_retries": 2, "request_timeout_seconds": 30.0,
+                                               "connect_timeout_seconds": 10.0}
         settings.write_text(json.dumps(value), encoding="utf-8")
     work = tmp_path / "run"
     result = run_competition(tmp_path / "unused", work, "software-acceptance", settings, REPO)
@@ -75,7 +78,9 @@ def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
     assert "required value semantics lost" in first["check"]["detail"]
     assert all(attempt["execution"]["baseline"]["fault_reproduced"] for attempt in report["attempts"])
     assert [stage["stage"] for stage in last["execution"]["stages"]] == ["build", "target", "behavior", "regression"]
-    assert len(report["decisions"]) == 2 and report["decisions"][1]["next_action"] == "reconsider_repair"
+    assert len(report["decisions"]) == 2
+    revised = next(item for item in report["decisions"] if item["record_id"] == last["candidate"]["decision_id"])
+    assert revised["next_action"] == "reconsider_repair" and revised["feedback"] is not None
     assert last["candidate"]["preserves"] == ["preserve-value"]
     assert report["metrics"]["first_attempt_pass"] is False
     assert report["metrics"]["root_cause_accuracy"] is None

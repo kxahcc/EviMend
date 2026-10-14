@@ -45,6 +45,12 @@ dfx.cmd --target reviewed/task01 --config configs/my-run.json --name task01
 
 示例 budget 的含义：`max_calls` 模型调用次数、`max_known_tokens` Token 预算、`max_output_tokens` 单次输出上限、`max_seconds` Agent 时间上限、`max_candidates` 补丁候选数、`max_tool_calls` 工具调用次数，均按单个任务限制。发送前保守预留输入和完整输出额度；缺 usage 或未知结果不伪造费用。它不是全数据集累计预算或金额上限，批测须另按确认的总预算分批停止。默认数值只是软件准备值，首次真实测试前按账户额度调整。
 
+同一私有文件的 `network` 管理网络容错：`max_retries` 是首次请求之后的重试上限，允许 0–5；`request_timeout_seconds` 是一次逻辑模型调用的总时限，包含所有尝试和退避等待；`connect_timeout_seconds` 是每次连接的上限。准备值见 `configs/model.example.json`，设 5 次重试意味着最多 6 次网络尝试。生成运行配置时同时固定这些参数；调整后为新任务重新 configure，恢复不增加原额度。
+
+指数退避、随机抖动及 `Retry-After` 等待复用官方 SDK。项目只缩窄重试条件：连接尚未建立的 TCP/TLS 故障或服务明确返回 429 时有限重试；证书错误、鉴权/参数错误、408/409/5xx、读写超时及协议中断不自动重发，因为请求可能已经执行。一次调用的总时限还受任务剩余时间约束，到期取消等待和发送，不为网络波动延长 Agent 时间预算。网络重试不重跑工具、补丁或应用检查。
+
+模型调用次数按逻辑调用计，安全失败的网络尝试另行展示 `model_network_attempt` / `model_network_finished`。完整响应的网络计数保存到原调用的 `response_metadata.dfx_network`；失败时侧录保留已观察计数，调用账本仍按未知结果处理，不从侧录推算 Token 或费用。只有已知未进入推理的连接失败/429 重试沿用本次 Token 预留；没有完整 usage 时停止后续模型调用。旧冻结运行配置/profile 没有 network 字段时保持原零重试语义，不在旧运行上自动启用；重新 configure 的私有文件未填 network 时采用当前配置默认值。
+
 `doctor` 不带应用参数时检查默认私有模型文件的字段、Key 格式和占位模型名，不发送请求；`doctor --application ...` 检查应用声明的文件和 oracle 字节。两者的 configured 都不代表真实服务、SDK 版本、签名、设备连接或应用运行已验证。`configure` 不联网、不打开实验开关，不覆盖已有运行配置；可先保存尚缺应用环境的配置，并报告 blocked。全局 `--output-format json` 放在 configure/doctor 前可读取结构化结果。
 
 环境变量仍作为旧配置/自动部署的可选方式：显式使用 `configure --provider deepseek --model MODEL_ID --key-env DEEPSEEK_API_KEY --application ... --save ...`，此路径不读取私有文件。指定文件后缺 Key 会报错，不静默改读环境变量。
@@ -98,7 +104,7 @@ events.jsonl 是容量有限的操作侧录：不输出模型正文、源码、�
 
 真实模式须由主机先审阅任务快照、完整工程及业务判据，再固定配置 `execution` 中的 `project_root`、`source_mapping` 和 `commands`。分析快照排除了运行资源，不能拿它充当完整工程。映射为空时按相同相对路径绑定；非空映射须覆盖分析基线的全部源码，原字节必须匹配。四个固定命令键为 `build`、`target`、`behavior`、`regression`；原版先完成构建和指定故障复现，候选再完成这四项检查。实际应用协议须固定故障标记及各命令 oracle 哈希；模型不能改写 oracle、工程路径、命令或接受条件。环境和业务协议的接纳不等于已通过应用验证。
 
-CloudProviderConfig 只保存 HTTPS endpoint、可选私有文件位置与兼容凭据环境名；endpoint 不允许 userinfo、query 或 fragment。凭据在准入及发送时读取，私有文件的 endpoint 须与原运行相同，不保存 Key 到 profile、请求体、异常或日志。文件 Key 不注入环境，应用子进程仍排除环境模式的模型 Key。Cloud 通过官方 SDK 执行 Chat Completions，SDK/传输重试均为零；保留一次请求、截止时间、响应大小和未知结果边界。冻结 canonical 请求用于账本身份，SDK 序列化前须核对相同语义，不要求 JSON 字段顺序相同。标准 nullable 响应支持，拒答或非文本结果不能变成修复成功。旧 cloud-httpx profile 仅保留只读历史语义，不能静默恢复成新传输。发送前预留输入估计与最坏输出 Token；未知 usage 后停止新发送，这不是供应商 Tokenizer 的精确硬上限，真实型号仍待核验。
+CloudProviderConfig 只保存 HTTPS endpoint、可选私有文件位置、兼容凭据环境名及可选 network 策略；endpoint 不允许 userinfo、query 或 fragment。凭据在准入和每次网络尝试前核对，私有文件的 endpoint 须与原运行相同，当前调用中 Key 改变则停止，不保存 Key 到 profile、请求体、异常或日志。文件 Key 不注入环境，应用子进程仍排除环境模式的模型 Key。显式 network 配置复用公开 AsyncOpenAI/HTTPX AsyncClient，由 SDK 负责安全失败的退避重试，外层总截止时间覆盖发送和等待；底层连接重试关闭，避免叠加另一层。缺 network 的旧配置继续用原同步零重试通道。冻结 canonical 请求用于账本身份，每次 SDK 序列化后均须核对相同语义，不要求 JSON 字段顺序相同。标准 nullable 响应支持，拒答或非文本结果不能变成修复成功。旧 cloud-httpx profile 仅保留只读历史语义，不能静默恢复成新传输。发送前预留输入估计与最坏输出 Token；未知 usage 后停止新发送，这不是供应商 Tokenizer 的精确硬上限，真实型号仍待核验。
 
 正式 Skill 统一在根目录 `skill/`：`bounds/SKILL.md`、`lifecycle/SKILL.md`、`recursion/SKILL.md`、`dynamic-pattern/SKILL.md`。使用标准 YAML name/description 和 Markdown 正文，不再要求 JSON 定义；每份保存完整的前提、查证步骤/分支、保留行为、反例与退出。新增包直接放在 `skill/<name>/SKILL.md`，name 与目录一致，competition 动态发现，无需改代码名单。references/scripts/assets 也放在所属包内；加载不运行脚本，不含 data_B 答案，不自动学习或晋升。
 

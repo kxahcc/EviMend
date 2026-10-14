@@ -24,6 +24,7 @@ _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _EVENTS = frozenset({"run_started", "resume_started", "run_finished", "model_reserved",
     "model_dispatched", "model_completed", "model_unknown", "model_replayed",
+    "model_network_attempt", "model_network_finished",
     "tool_dispatched", "tool_completed", "tool_replayed", "check_stage_prepared",
     "check_stage_started", "check_stage_completed", "check_source_bound", "report_saved",
     "tracking_limited"})
@@ -48,7 +49,8 @@ _TOOL_NAMES = frozenset({"read_log", "search_experience", "read_experience", "re
     "register_candidate", "run_check"})
 _IDS = frozenset({"call_id", "action_id"})
 _HASHES = frozenset({"candidate_id", "check_key"})
-_COUNTS = frozenset({"input_tokens", "output_tokens", "total_tokens", "candidate_count", "model_calls"})
+_COUNTS = frozenset({"input_tokens", "output_tokens", "total_tokens", "candidate_count", "model_calls",
+                     "network_attempts", "network_retries", "http_status"})
 _BOOLEANS = frozenset({"accepted", "process_started", "source_binding_verified"})
 _TRACKER: ContextVar[ProgressTracker | None] = ContextVar("dfx_progress_tracker", default=None)
 

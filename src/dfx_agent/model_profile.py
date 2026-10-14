@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from .cloud_retries import CloudRetryPolicy
 from .local_execution import _checked
 
 DEFAULT_MODEL_PROFILE = "configs/model.local.json"
@@ -33,6 +34,7 @@ class PrivateModelProfile(BaseModel):
     thinking_mode: Literal["enabled", "disabled"] | None = None
     output_parameter: Literal["max_tokens", "max_completion_tokens"] | None = None
     budget: ModelBudget = Field(default_factory=ModelBudget)
+    network: CloudRetryPolicy = Field(default_factory=CloudRetryPolicy)
 
 
 def load_model_profile(path: Path) -> PrivateModelProfile:

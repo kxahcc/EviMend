@@ -38,6 +38,18 @@ def test_no_scope_or_unadmitted_workspace_is_created(tmp_path: Path) -> None:
     assert not work.exists()
 
 
+def test_network_attempt_observations_keep_counts_and_drop_private_details(tmp_path: Path) -> None:
+    with progress_scope(tmp_path, "run1"):
+        emit_progress("model_network_attempt", network_attempts=2, network_retries=1, http_status=429,
+                      api_key="must-not-appear", provider_body="private error body")
+        emit_progress("model_network_finished", network_attempts=2, network_retries=1)
+    events = read_progress(tmp_path)["events"]
+    assert events[0]["network_attempts"] == 2 and events[0]["http_status"] == 429
+    assert events[1]["network_retries"] == 1
+    assert "must-not-appear" not in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
+    assert "private error body" not in (tmp_path / "events.jsonl").read_text(encoding="utf-8")
+
+
 def test_resume_appends_observations_and_preserves_original_bytes(tmp_path: Path) -> None:
     with progress_scope(tmp_path, "run1"):
         emit_progress("run_started")

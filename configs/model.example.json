@@ -5,6 +5,11 @@
   "model": "SET_CONFIRMED_TOOL_CALLING_MODEL_ID",
   "api_key": "",
   "thinking_mode": "disabled",
+  "network": {
+    "max_retries": 2,
+    "request_timeout_seconds": 60.0,
+    "connect_timeout_seconds": 10.0
+  },
   "budget": {
     "max_calls": 40,
     "max_known_tokens": 256000,

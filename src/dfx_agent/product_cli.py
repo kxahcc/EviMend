@@ -426,7 +426,8 @@ def _configure_or_doctor(root: Path, args: argparse.Namespace, cli: argparse.Arg
         private = load_model_profile(source)
         mode = private.thinking_mode or ("disabled" if private.provider == "deepseek" else None)
         provider_connection(private.provider, private.model, base_url=private.base_url,
-                            credential_file=str(source), thinking_mode=mode,
+                            credential_file=str(source), thinking_mode=mode, network=private.network,
+                            timeout_seconds=private.network.request_timeout_seconds,
                             max_output_tokens=private.budget.max_output_tokens,
                             max_output_parameter=private.output_parameter)
         issues = []
@@ -469,7 +470,8 @@ def _configure_or_doctor(root: Path, args: argparse.Namespace, cli: argparse.Arg
         private = load_model_profile(source)
         mode = private.thinking_mode or ("disabled" if private.provider == "deepseek" else None)
         connection, model = provider_connection(private.provider, private.model,
-            base_url=private.base_url, credential_file=str(source), thinking_mode=mode,
+            base_url=private.base_url, credential_file=str(source), thinking_mode=mode, network=private.network,
+            timeout_seconds=private.network.request_timeout_seconds,
             max_output_tokens=private.budget.max_output_tokens,
             max_output_parameter=private.output_parameter)
         budget = private.budget
