@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-14",
+  "mode": "private_model_configuration_delivery",
+  "base_commit": "84ec548",
+  "goal": "One Git-ignored local file for model identity, endpoint, key, mode and per-task budgets, using the existing official SDK and managed CLI.",
+  "changes": [
+    "configs/model.example.json is the safe tracked template; configs/*.local.json is ignored. The actual default configs/model.local.json was created exclusively through dfx configure --init-model with an empty key and placeholder model.",
+    "Reuse Pydantic/SecretStr and existing path guards for bounded UTF-8 JSON loading. Secret field excluded from dumps and repr; private parser errors never include input bytes.",
+    "Default configure reads the private model file and the host application profile, saving public model settings, all six per-task limits and only a private credential locator. Explicit legacy environment configuration remains supported.",
+    "The official SDK adapter reads the file key only at admission/dispatch, without injecting environment variables or falling back to environment keys. Match the file endpoint to the frozen endpoint before sending; same-service key rotation does not change profile identity.",
+    "Reject private file overlap with task, application, run and generated configuration. Existing run snapshots, reports and private delivery retain only the public locator. Completed recovery makes zero new model requests.",
+    "Add init and offline model doctor to the existing CLI, extract configuration handling into one small function and pass validated ModelBudget fields explicitly. No provider HTTP client or new runtime platform.",
+    "Update the existing usage guide, blueprint, design, contracts, plan, rules and status together; competition submission templates remain untouched."
+  ],
+  "validation": {
+    "groups": [
+      {"suite": "tests/test_model_profile.py", "run_id": "31ac8e28-92fa-405a-92b6-12b5c6313dd1", "passed": 11},
+      {"suite": "tests/test_product_cli.py", "run_id": "f6b0bcf9-2b07-48db-8932-183ab4c8fa1b", "passed": 48},
+      {"suite": "tests/test_cloud_provider.py", "run_id": "b53688a5-d3f4-414b-b6e7-8ff1fca95f93", "passed": 52},
+      {"suite": "tests/test_competition.py", "run_id": "d5d04b2c-ff0a-454c-9f3e-e355fefe172a", "passed": 21}
+    ],
+    "total_passed": 132,
+    "scope": "targeted software tests; actual SDK with MockTransport and short synthetic subprocesses, not full-repository or model/application effect verification",
+    "ruff": {"run_id": "ce3eb536-f5e9-4f18-b4a8-d4a684dd9a97", "result": "passed"},
+    "pyright": {"run_id": "e081b670-d9a2-4373-8fab-388d28538557", "result": "passed"},
+    "docs": {"run_id": "a10a0693-a48e-4938-add6-4acb4873df28", "result": "passed", "registered_documents": 14, "errors": 0},
+    "product_checks": [
+      "Installed dfx.cmd configure --init-model created the ignored default private file without API calls.",
+      "Installed dfx.cmd doctor reported blocked: model_id_required and valid_api_key_required, model_verification=not_run, budget_scope=one_task.",
+      "git check-ignore confirms configs/model.local.json; git ls-files configs/*.local.json is empty."
+    ],
+    "failures_retained": [
+      {"run_id": "317c64b4-57e0-4dfc-9134-fe27528655b0", "reason": "New SDK test omitted mandatory admission; 51 passed and 1 failed. Fixed test to use the existing bounded admission; did not relax dispatch gate."},
+      {"run_id": "c1f42bee-a0c5-437c-95c3-4b2ac3122eae", "reason": "Ruff import grouping in new private-profile test; corrected."},
+      {"run_id": "a0765c60-e81a-4e1f-9cee-0677a1b4e91c", "reason": "CLI main too complex for Pyright; extracted configure/doctor helper."},
+      {"run_id": "c8664122-fc71-492f-9996-c5303560bd88", "reason": "Dynamic budget kwargs inferred invalid parameter types; use validated ModelBudget with explicit parameters, no type suppressions."}
+    ]
+  },
+  "environment": {
+    "new_dependencies": false,
+    "global_environment_changes": false,
+    "resource_or_experiment_policy_changes": false,
+    "harmonyos_installations": 0,
+    "real_model_requests": 0,
+    "real_application_runs": 0,
+    "initial_status": {"owner_valid": true, "resource_accounting": "complete", "inaccessible_paths": [], "active_state": "none", "cleanup_available": true},
+    "final_status": {
+      "owner_valid": true,
+      "resource_accounting": "complete",
+      "inaccessible_paths": [],
+      "active_state": "none",
+      "cleanup_available": true,
+      "managed_bytes_by_category": {"tools": 41432064, "python": 60882592, "env": 128206104, "cache": 114843370, "tmp": 136453778, "work": 53397738, "artifacts": 4975287, "state": 89058},
+      "export_bytes": 1731345
+    }
+  },
+  "remaining": [
+    "User fills actual service model ID, key and per-task limits in the local private file; no secrets need to be sent through chat.",
+    "Real provider protocol checks and HarmonyOS SDK/device/signing/oracle admission remain P2 work; experiments stay disabled.",
+    "Budget limits are per task, not an aggregate batch or monetary cap; batch allowance must be confirmed before real experiments."
+  ]
+}

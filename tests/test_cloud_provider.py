@@ -513,6 +513,49 @@ def test_provider_presets_custom_url_and_explicit_mode_are_not_implicit_protocol
         provider_connection("openai", "model", thinking_mode="disabled")
 
 
+def test_sdk_file_credentials_are_private_rotatable_and_do_not_fall_back_to_environment(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    source = tmp_path / "model.local.json"
+    source.write_text(json.dumps({"provider": "deepseek", "base_url": "https://provider.invalid/v1",
+                                  "model": "chosen-model", "api_key": SECRET}),
+                      encoding="utf-8")
+    monkeypatch.setenv(KEY_NAME, "unrelated-environment-key")
+    seen = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers["Authorization"])
+        assert SECRET.encode() not in request.content
+        return httpx.Response(200, json=response())
+
+    cloud = CloudChatCompletionsAdapter(ProviderSettings(provider_id="deepseek", model_id="chosen-model"),
+        CloudProviderConfig(endpoint=ENDPOINT, credential_env=KEY_NAME, credential_file=str(source)),
+        transport=httpx.MockTransport(handle))
+    identity = cloud.profile()
+    assert SECRET not in json.dumps(identity)
+    prepared = prepare(cloud)
+    cloud.invoke(prepared, admission=cloud.admission(prepared, remaining_tokens=100000, remaining_seconds=10.0))
+    assert seen == ["Bearer " + SECRET]
+    source.write_text(json.dumps({"provider": "deepseek", "base_url": "https://provider.invalid/v1",
+                                  "model": "chosen-model", "api_key": "rotated-private-key"}),
+                      encoding="utf-8")
+    assert cloud.profile() == identity
+    cloud.invoke(prepared, admission=cloud.admission(prepared, remaining_tokens=100000, remaining_seconds=10.0))
+    assert seen[-1] == "Bearer rotated-private-key"
+    source.write_text(json.dumps({"provider": "deepseek", "base_url": "https://different-provider.invalid",
+                                  "model": "chosen-model", "api_key": "other-service-private-key"}), encoding="utf-8")
+    with pytest.raises(AdapterRequestError, match="provider_credential_endpoint_changed"):
+        cloud.admission(prepared, remaining_tokens=100000, remaining_seconds=10.0)
+    assert len(seen) == 2  # Never send another service's key to the original endpoint.
+    source.unlink()
+    readonly = adapter_from_profile(identity)
+    assert readonly.profile() == identity  # Profile recovery does not need the private file.
+    with pytest.raises(AdapterRequestError, match="provider_readonly"):
+        readonly.invoke(prepared)
+    with pytest.raises(AdapterRequestError, match="provider_credential_file_invalid"):
+        cloud.invoke(prepared)
+    assert len(seen) == 2
+
+
 def test_official_sdk_resource_handles_tool_result_roundtrip_and_usage(
         monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from openai.resources.chat.completions import Completions

@@ -57,7 +57,7 @@
 | 应用执行 | ApplicationProfile 只读预检、本机受管命令通道；HarmonyOS SDK、Hvigor、ohpm、hdc 及设备按项目准备 | 平台工具链、签名和设备先由人完成一次接纳；Agent 自动准备项目依赖、构建和执行已批准检查。当前只运行短时模拟程序，模板不等于真实案例适配 |
 | 开发质量 | pytest、Ruff、Pyright | 单元/契约/状态恢复检查和静态质量；模型与应用实验单独运行 |
 
-Deep Agents 依赖 LangChain Agent 和 LangGraph；模型入口沿用 langchain-core。云端传输使用已锁定的官方 OpenAI SDK，而不是继续维护手写 HTTP 协议客户端；项目适配只负责冻结调用、预算、有限文本/工具格式与业务交接。同类 Chat Completions 服务配置模型、base URL 与 Key 环境名即可建立连接配置，实际工具续轮、推理字段和 usage 仍须实测核对。不把 Anthropic Messages、Gemini 或 Responses API 自动视为同一协议，也不承诺任意提供方兼容。
+Deep Agents 依赖 LangChain Agent 和 LangGraph；模型入口沿用 langchain-core。云端传输使用已锁定的官方 OpenAI SDK；项目适配只负责冻结调用、预算、有限文本/工具格式与业务交接。同类 Chat Completions 服务默认用 Git 忽略的 configs/model.local.json 集中配置模型、base URL、Key、模式与单任务预算；旧环境变量方式继续可选。实际工具续轮、推理字段和 usage 仍须实测核对。不把 Anthropic Messages、Gemini 或 Responses API 自动视为同一协议，也不承诺任意提供方兼容。
 
 #### 竞赛实现的复用与范围边界
 
@@ -81,7 +81,7 @@ SDK 维护模型消息和工具循环；工具边界转换为我们自己的 Act
 
 只由一层负责语义重试和预算，关闭或显式计入 SDK 的自动重试；不允许 SDK、图节点和控制器各重试一轮却只记录一次。`ModelCallStore` 已接入固定响应及模拟请求模型，覆盖调用前登记、Graph 落盘前的完整响应回放、未知发送停止、格式错误和 usage 分类。`PreparedRequest` 以唯一规范化 JSON 固定消息、工具、参数及 profile 哈希；官方 SDK 负责发送序列化，发送前 hook 重核实际请求的规范 JSON 与冻结请求一致，不声称 HTTP 原字节与 JSON 排版相同。SDK 的中性 `tool_choice=None` 由模型入口省略，其余不支持字段明确拒绝。
 
-Chat Completions 有独立冻结的 mock 与云端传输 profile。`ChatCompletionsAdapter` 保留 exact MockTransport、固定 model.invalid 端点及无凭据的旧路径；`CloudChatCompletionsAdapter` 调用官方 OpenAI SDK 2.30.0 的 `chat.completions`，新 profile 使用 schema 2、transport=openai-sdk，并固定 SDK 版本和规范请求身份。主机配置规范 HTTPS 端点与凭据环境名，构造、prepare、validate 和只读 profile 恢复不读取密钥或建立网络客户端。发送前按剩余时间、输入估计与完整输出额度准入，再读取当前密钥；SDK 和底层传输的重试均为零，关闭重定向和环境代理，响应读取仍受字节和截止时间限制。凭据值不进入配置、profile、请求/响应原件或错误报告，并从应用检查子进程环境排除。历史 cloud-httpx profile 只按原身份回读核验，不迁移为新 SDK 发送资格。软件验收以官方 SDK 通道注入 MockTransport，真实实验仍禁用。
+Chat Completions 有独立冻结的 mock 与云端传输 profile。`ChatCompletionsAdapter` 保留 exact MockTransport、固定 model.invalid 端点及无凭据的旧路径；`CloudChatCompletionsAdapter` 调用官方 OpenAI SDK 2.30.0 的 `chat.completions`，新 profile 使用 schema 2、transport=openai-sdk，并固定 SDK 版本和规范请求身份。主机运行配置保存规范 HTTPS 端点与 credential_file 私有文件位置，旧方式保存 credential_env。构造、prepare、validate 和只读 profile 恢复不读取密钥或建立网络客户端。发送前按剩余时间、输入估计与完整输出额度准入，再直接读取当前文件 Key；指定文件时不回退环境变量，也不把文件 Key 注入进程环境。SDK 和底层传输的重试均为零，关闭重定向和环境代理，响应读取仍受字节和截止时间限制。Key 只保存在本机私有配置，不进入生成的运行配置、profile、请求/响应原件或错误报告；私有文件必须位于任务、完整工程及运行目录之外，环境凭据仍从应用检查子进程环境排除。历史 cloud-httpx profile 只按原身份回读核验，不迁移为新 SDK 发送资格。软件验收以官方 SDK 通道注入 MockTransport，真实实验仍禁用。
 
 mock 与云端共用有限文字/工具协议：文本、原生工具调用和显式 reasoning_content 有限支持；SDK SkillsMiddleware 的纯文本 system blocks 按原顺序拼接。标准 nullable refusal/audio/function_call 与空 annotations 可解析，真实拒答保存后标为不完整；非空附件、流式响应、未声明选项或不完整工具调用不静默降级。混合有效/无效工具调用的整个响应停止，不执行其中有效子集。原始 usage 保存，合法计数另做归一化；缺失/错误用量保持未知，云端路径有未知 usage 时停止新发送。输入 Token 预留使用规范请求 UTF-8 字节和消息开销估计，不是提供方 tokenizer 的精确计数；估计准入、输出设置及 max_known_tokens 都不能证明实际总 Token 或计费硬上限。该协议参考 [DeepSeek Chat Completions 文档](https://api-docs.deepseek.com/api/create-chat-completion/)，查阅日期 2026-10-02；这不是已选择 DeepSeek 或已验证其真实兼容性。
 
@@ -348,7 +348,7 @@ Agent 的工作记录包括当前假设、支持/反驳事实、修复义务、�
 
 竞赛入口复用已有 SDK 修复循环、模型调用账本和候选工作区。`CloudChatCompletionsAdapter` 通过官方 SDK 提供云端请求，`LocalApplicationExecutor` 提供完整工程上的受管本机检查，意图、阶段回执和最终结果保存为 run 内文件；不要求 HTTP 应用服务或远程主机。`dfx --target TASK --config CONFIG` 经 Python 管理器冻结任务与竞赛配置，工作根为 `.dfx-local/work/competition-<ID>`。`configs/competition-demo.json` 使用模拟传输和短时 toy 工程；`configs/competition-cloud.template.json` 与 `configs/harmonyos-app.template.json` 是须填写和审查的配置模板。端点、模型、工程、命令、设备及 oracle 的占位值不代表已接纳环境。真实模型与应用开关仍为 false，软件证据与未通过项统一见 STATUS。
 
-`ApplicationProfile` 固定完整工程、工具路径、四类命令、设备类型/序列号、签名文件和独立 oracle 文件声明。`dfx doctor --application PROFILE` 只读核对路径、工程构建文件、命令占位值、oracle 文件字节及真机限制，返回具体缺项；configured 仅表示这些声明可读取，不证明设备已连接、SDK 版本匹配或签名可用。`dfx configure` 通过提供方/model/base URL/key 环境名与该执行配置生成竞赛配置，不读取密钥、不调用模型，也不改变实验开关。平台 SDK、设备配对和签名条件由人完成一次接纳；Agent 负责之后项目副本的依赖准备、构建和批准的部署/回放/业务检查。实际 Hvigor/hdc 场景 runner 和设备复位仍须本机接入，模型不能自行安装平台、改写外部环境或生成验收答案。
+`ApplicationProfile` 固定完整工程、工具路径、四类命令、设备类型/序列号、签名文件和独立 oracle 文件声明。`dfx doctor --application PROFILE` 只读核对路径、工程构建文件、命令占位值、oracle 文件字节及真机限制，返回具体缺项；configured 仅表示这些声明可读取，不证明设备已连接、SDK 版本匹配或签名可用。`dfx configure --init-model` 创建 configs/model.local.json；`dfx doctor` 仅做本机模型字段/Key 格式检查。`dfx configure --application PROFILE --save RUN` 默认从私有文件提取不含 Key 的模型/预算并结合 execution 生成竞赛配置，不调用模型、不改变实验开关、不覆盖原配置。模型/预算修改后为新任务生成新运行配置，恢复保持原参数但允许 Key 轮换；私有文件不进入运行证据。平台 SDK、设备配对和签名条件由人完成一次接纳；Agent 负责之后项目副本的依赖准备、构建和批准的部署/回放/业务检查。实际 Hvigor/hdc 场景 runner 和设备复位仍须本机接入，模型不能自行安装平台、改写外部环境或生成验收答案。
 
 主机提供完整 `project_root`，执行器冻结全部普通文件的路径、原字节摘要和大小，以及目录清单。`source_mapping` 显式给出分析快照每个文件到完整工程的唯一映射；空映射表示相同相对路径。绑定时必须覆盖完整分析基准、映射目标不重合且原字节一致，拒绝链接、重解析点和不安全路径。run 内保存独立的完整工程基准，原版和候选分别复制它，候选覆盖来自已登记的完整冻结源码和 diff；映射外的工程资源随副本保留。显式映射不接纳未映射新增源码；同路径模式也不允许新增源码覆盖无关工程资源。执行不修改 data_B 或主机原工程。
 

@@ -28,26 +28,34 @@
 
 ### 一次配置模型和应用
 
-模型请求由锁定的官方 OpenAI Python SDK 发起。OpenAI 与 DeepSeek 有地址/Key 环境名预设；通义百炼、智谱等同协议服务使用 `compatible`，指定服务的 Chat API base URL、模型 ID 和 Key 环境名。标准文本/工具调用有接入条件，具体型号、Token 字段和厂商思考扩展仍须核验；不声称所有国产型号均已实测，也不直接支持 Anthropic/Gemini 原生协议。项目代码只保留领域消息转换、预算与未知结果保护，不自写供应商 HTTP 客户端。
+模型请求由锁定的官方 OpenAI Python SDK 发起。默认把服务地址、模型 ID、Key、模式和单任务预算统一填在 `configs/model.local.json`；`configs/*.local.json` 已被 Git 忽略。OpenAI 与 DeepSeek 有地址预设，通义百炼、智谱等同协议服务使用 `compatible` 并填写服务的 Chat API base URL。具体型号、Token 字段和厂商思考扩展仍须核验；不声称所有国产型号均已实测，也不直接支持 Anthropic/Gemini 原生协议。项目代码保留领域消息转换、预算与未知结果保护，不自写供应商 HTTP 客户端。
 
-先复制并填写 `configs/harmonyos-app.template.json`：完整工程、Node/ohpm/Hvigor/hdc 路径、设备/签名和独立业务检查只配置一次。用下面的命令生成运行配置；MODEL_ID 必须来自所选服务，不能把用户候选名当成已核验的 API 名称。
+先创建私有文件，再用编辑器填写 model、api_key 和 budget；不必把 Key 或模型参数发到对话中，也不必设置环境变量。`model` 必须填写服务实际提供的 API ID，示例中的占位值不可用于实测。私有文件不得放进应用工程、任务快照或运行目录。另复制并填写 `configs/harmonyos-app.template.json` 为应用 profile：完整工程、Node/ohpm/Hvigor/hdc 路径、设备/签名和独立业务检查只配置一次。
 
 ```text
+dfx.cmd configure --init-model
+# 在编辑器中填写 configs/model.local.json
+dfx.cmd doctor
 dfx.cmd doctor --application configs/my-app.json
-dfx.cmd configure --provider deepseek --model MODEL_ID --application configs/my-app.json --save configs/my-run.json
-dfx.cmd configure --provider compatible --base-url https://SERVICE/v1 --model MODEL_ID --key-env DFX_PROVIDER_API_KEY --application configs/my-app.json --save configs/my-compatible-run.json
+dfx.cmd configure --application configs/my-app.json --save configs/my-run.json
 dfx.cmd --target reviewed/task01 --config configs/my-run.json --name task01
 ```
 
-Key 通过所选环境变量提供，不能写进配置或命令参数。`configure` 不读 Key、不联网、不打开实验开关，也不覆盖已有配置；可先保存尚缺环境的配置，并明确报告 blocked。`doctor` 只检查声明的本地文件和 oracle 字节，configured 不代表 SDK 版本、签名、设备连接或应用运行已验证。全局 `--output-format json` 放在 configure/doctor 前可读取结构化结果。
+`configure --init-model` 从受跟踪的 `configs/model.example.json` 创建私有文件，已有文件不覆盖。`configure --application ... --save ...` 默认读取该文件，也可通过 `--model-config configs/NAME.local.json` 指定另一份；模型与预算不再混用命令行覆盖。生成的运行配置保存不含 Key 的参数及私有文件位置，Key 在发送时直接读取，不注入环境变量、不写进日志、报告或交付包。修改模型/预算后生成新的运行配置用于新任务；`--resume` 沿用原运行参数和剩余额度，但允许原私有文件中的 Key 轮换。私有文件切换服务地址时，旧运行拒绝发送，避免将新服务的 Key 发往旧地址；不同服务可使用不同 NAME.local.json。私有配置包含明文 Key，应只保留在本机；Git 忽略不等于加密。项目资源清理不删除 configs 中的私有文件，撤销凭据时自行删除。
 
-DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；若选 `--thinking enabled`，配置保持完整历史并关闭裁剪。通用 compatible 预设不推测厂商思考模式；首次接入按官方协议核对，再固定模式与上下文策略。厂商特殊参数不能当成所有兼容服务的通用字段。模型通信测试使用官方 SDK 的 MockTransport；真实服务测试尚未开展。
+示例 budget 的含义：`max_calls` 模型调用次数、`max_known_tokens` Token 预算、`max_output_tokens` 单次输出上限、`max_seconds` Agent 时间上限、`max_candidates` 补丁候选数、`max_tool_calls` 工具调用次数，均按单个任务限制。发送前保守预留输入和完整输出额度；缺 usage 或未知结果不伪造费用。它不是全数据集累计预算或金额上限，批测须另按确认的总预算分批停止。默认数值只是软件准备值，首次真实测试前按账户额度调整。
+
+`doctor` 不带应用参数时检查默认私有模型文件的字段、Key 格式和占位模型名，不发送请求；`doctor --application ...` 检查应用声明的文件和 oracle 字节。两者的 configured 都不代表真实服务、SDK 版本、签名、设备连接或应用运行已验证。`configure` 不联网、不打开实验开关，不覆盖已有运行配置；可先保存尚缺应用环境的配置，并报告 blocked。全局 `--output-format json` 放在 configure/doctor 前可读取结构化结果。
+
+环境变量仍作为旧配置/自动部署的可选方式：显式使用 `configure --provider deepseek --model MODEL_ID --key-env DEEPSEEK_API_KEY --application ... --save ...`，此路径不读取私有文件。指定文件后缺 Key 会报错，不静默改读环境变量。
+
+DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文件设 `thinking_mode: "enabled"` 时保持完整历史并关闭裁剪（旧环境模式可用 `--thinking enabled`）。通用 compatible 预设不推测厂商思考模式；首次接入按官方协议核对，再固定模式与上下文策略。厂商特殊参数不能当成所有兼容服务的通用字段。模型通信测试使用官方 SDK 的 MockTransport；真实服务测试尚未开展。
 
 应用环境采用两层准备：SDK、签名和配对设备由人先提供；随后 Agent 自动执行固定的项目依赖准备、构建、部署/回放、业务与回归检查。可选 preparation 在独立原版和候选工程内执行，源码绑定与回执仍校验；失败报告环境问题，未知结果不重复安装。npm cache 指向受管目录，ohpm/Hvigor 的缓存参数须按实际工具版本明确配置。现模板中的回放/检查入口是占位值，真实 HarmonyOS 首例仍需接纳，不能把合成检查当作完成该适配。
 
 `--target` 是已经审核的任务快照目录，含 task.json、source、crash.log 和清单；不是直接传任意原工程即可实验。输入位于部署项目中且不得来自原始 data_B、archive 或指令目录；完整工程、验证命令和业务判据通过 --config 绑定。真实配置尚未接纳时只运行 --demo。省略 --name 时自动生成会话名；工作目录和批准路径自动派生。`--resume NAME` 消费该新运行保存的原位置/profile，并继续原准入和预算检查，不自动替换配置。旧运行没有新位置文件时沿下面兼容入口显式提供参数；源码/依赖变更仍可能使恢复被拒绝，不能通过新前端绕过。
 
-`--workspace` 可显式指定完整部署目录；没有时从当前目录向上寻找，或读取 DFX_PROJECT_ROOT。`--config` 包含 provider/model、应用检查和预算，凭据只通过其中指定的环境名读取，不放命令参数。普通命令不会自动修改真实实验开关。
+`--workspace` 可显式指定完整部署目录；没有时从当前目录向上寻找，或读取 DFX_PROJECT_ROOT。`--config` 是生成的不含 Key 的 provider/model、应用检查和预算运行配置；凭据按其中的私有文件位置读取，旧环境配置按指定环境名读取。普通命令不会自动修改真实实验开关。
 
 `working_context.history_selection` 可选 `legacy_refill`（缺省，保留旧计划语义）、`repair_relevance`（按已登记修复引用选择）或 `repair_frontier`（额外保护未吸收探索与换根因后的最近实际失败）。演示配置使用 frontier；其 `exploration_read_groups` 控制可选探索组上限，仍受共同视图预算约束。最新故障日志、必要义务、最近实际失败的原候选登记/检查、尚未冻结的编辑、完整知识读取及近期工具组优先保留，无关旧思考和重复读取可移出。旧候选失败不成为当前候选事实；必要内容超过预算停止，Graph 原历史不删除。新增分支的运行验收状态见 STATUS。`competition-report.json` schema 3 的 `localization_result.final.selected` 是最新候选实际关联的所选根因，alternatives 单列；位置缺项会使最终接受保持 false，实际应用检查结果仍独立保存。非空根因行不表示定位正确。
 
@@ -90,7 +98,7 @@ events.jsonl 是容量有限的操作侧录：不输出模型正文、源码、�
 
 真实模式须由主机先审阅任务快照、完整工程及业务判据，再固定配置 `execution` 中的 `project_root`、`source_mapping` 和 `commands`。分析快照排除了运行资源，不能拿它充当完整工程。映射为空时按相同相对路径绑定；非空映射须覆盖分析基线的全部源码，原字节必须匹配。四个固定命令键为 `build`、`target`、`behavior`、`regression`；原版先完成构建和指定故障复现，候选再完成这四项检查。实际应用协议须固定故障标记及各命令 oracle 哈希；模型不能改写 oracle、工程路径、命令或接受条件。环境和业务协议的接纳不等于已通过应用验证。
 
-CloudProviderConfig 只保存 HTTPS endpoint 与凭据环境名；endpoint 不允许 userinfo、query 或 fragment，凭据在准入及发送时读取，不保存到 profile、请求体、异常或日志。应用子进程排除模型 Key。Cloud 通过官方 SDK 执行 Chat Completions，SDK/传输重试均为零；保留一次请求、截止时间、响应大小和未知结果边界。冻结 canonical 请求用于账本身份，SDK 序列化前须核对相同语义，不要求 JSON 字段顺序相同。标准 nullable 响应支持，拒答或非文本结果不能变成修复成功。旧 cloud-httpx profile 仅保留只读历史语义，不能静默恢复成新传输。发送前预留输入估计与最坏输出 Token；未知 usage 后停止新发送，这不是供应商 Tokenizer 的精确硬上限，真实型号仍待核验。
+CloudProviderConfig 只保存 HTTPS endpoint、可选私有文件位置与兼容凭据环境名；endpoint 不允许 userinfo、query 或 fragment。凭据在准入及发送时读取，私有文件的 endpoint 须与原运行相同，不保存 Key 到 profile、请求体、异常或日志。文件 Key 不注入环境，应用子进程仍排除环境模式的模型 Key。Cloud 通过官方 SDK 执行 Chat Completions，SDK/传输重试均为零；保留一次请求、截止时间、响应大小和未知结果边界。冻结 canonical 请求用于账本身份，SDK 序列化前须核对相同语义，不要求 JSON 字段顺序相同。标准 nullable 响应支持，拒答或非文本结果不能变成修复成功。旧 cloud-httpx profile 仅保留只读历史语义，不能静默恢复成新传输。发送前预留输入估计与最坏输出 Token；未知 usage 后停止新发送，这不是供应商 Tokenizer 的精确硬上限，真实型号仍待核验。
 
 正式 Skill 统一在根目录 `skill/`：`bounds/SKILL.md`、`lifecycle/SKILL.md`、`recursion/SKILL.md`、`dynamic-pattern/SKILL.md`。使用标准 YAML name/description 和 Markdown 正文，不再要求 JSON 定义；每份保存完整的前提、查证步骤/分支、保留行为、反例与退出。新增包直接放在 `skill/<name>/SKILL.md`，name 与目录一致，competition 动态发现，无需改代码名单。references/scripts/assets 也放在所属包内；加载不运行脚本，不含 data_B 答案，不自动学习或晋升。
 

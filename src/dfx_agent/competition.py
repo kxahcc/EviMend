@@ -499,6 +499,16 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
         raise ValueError("real model experiments are disabled")
     if config.execution and config.execution.mode == "application" and policy["execution"]["allow_application_experiments"] is not True:
         raise ValueError("real application experiments are disabled")
+    if config.provider.credential_file is not None:
+        credential_file = _checked(Path(config.provider.credential_file))
+        if not test_scope and (credential_file.parent != repo / "configs" or
+                               not credential_file.name.endswith(".local.json")):
+            raise ValueError("private model file must use configs/*.local.json")
+        inputs = [work, task, config_path]
+        if config.execution is not None:
+            inputs.append(Path(config.execution.project_root).absolute())
+        if any(credential_file == path or credential_file.is_relative_to(path) for path in inputs):
+            raise ValueError("private credential file overlaps task, application, run or run configuration")
     auxiliary = work.parent if test_scope else managed / "tmp"
     library = auxiliary / ("competition-" + run_id + "-library")
     approval_path = ((auxiliary if test_scope else managed / "state") /

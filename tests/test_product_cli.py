@@ -413,6 +413,113 @@ def test_application_doctor_is_read_only_and_does_not_probe_devices_or_model(
     assert after == before
 
 
+def _private_profile(workspace: Path) -> Path:
+    path = workspace / "configs/model.local.json"
+    path.write_text(json.dumps({"provider": "deepseek", "model": "file-chosen-model",
+        "api_key": "file-private-key-must-not-be-saved", "thinking_mode": "disabled", "budget": {
+            "max_calls": 7, "max_known_tokens": 50000, "max_output_tokens": 1024,
+            "max_seconds": 120, "max_candidates": 2, "max_tool_calls": 30}}), encoding="utf-8")
+    return path
+
+
+def test_private_configuration_unifies_model_key_and_every_task_budget(
+    workspace: Path, application_template: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    source = _private_profile(workspace)
+    original = source.read_bytes()
+    assert cli.main(["--output-format", "json", "configure", "--application", "configs/application.json",
+                     "--save", "configs/from-file.json"]) == 0
+    output = capsys.readouterr().out
+    saved = (workspace / "configs/from-file.json").read_text(encoding="utf-8")
+    assert "file-private-key-must-not-be-saved" not in output + saved
+    value = json.loads(saved)
+    assert value["model"]["model_id"] == "file-chosen-model"
+    assert value["model"]["max_output_tokens"] == 1024
+    assert value["provider"]["credential_file"] == str(source)
+    assert {key: value[key] for key in ("max_calls", "max_known_tokens", "max_seconds", "max_candidates",
+                                     "max_tool_calls")} == {"max_calls": 7, "max_known_tokens": 50000,
+        "max_seconds": 120, "max_candidates": 2, "max_tool_calls": 30}
+    assert json.loads(output)["credential_source"] == "private_file"
+    assert source.read_bytes() == original
+
+
+def test_private_configuration_init_is_exclusive_and_does_not_request_a_model(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    (workspace / "configs/model.example.json").write_text('{"provider":"deepseek","model":"SET_MODEL","api_key":""}',
+                                                        encoding="utf-8")
+    assert cli.main(["--output-format", "json", "configure", "--init-model"]) == 0
+    assert json.loads(capsys.readouterr().out)["event"] == "model_configuration_created"
+    source = workspace / "configs/model.local.json"
+    source.write_text("private-existing-settings", encoding="utf-8")
+    assert cli.main(["--output-format", "json", "configure", "--init-model"]) == 1
+    assert source.read_text(encoding="utf-8") == "private-existing-settings"
+    assert "private-existing-settings" not in capsys.readouterr().out
+
+
+def test_private_model_doctor_never_sends_or_displays_key(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    source = _private_profile(workspace)
+    assert cli.main(["--output-format", "json", "doctor"]) == 0
+    output = capsys.readouterr().out
+    assert "file-private-key-must-not-be-saved" not in output
+    assert json.loads(output)["model_verification"] == "not_run"
+    value = json.loads(source.read_bytes())
+    value.update(api_key="", model="SET_MODEL_ID")
+    source.write_text(json.dumps(value), encoding="utf-8")
+    assert cli.main(["--output-format", "json", "doctor"]) == 1
+    assert json.loads(capsys.readouterr().out)["issues"] == ["model_id_required", "valid_api_key_required"]
+
+
+def test_private_model_and_application_doctor_emits_one_json_result(
+    workspace: Path, application_template: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    _private_profile(workspace)
+    assert cli.main(["--output-format", "json", "doctor", "--model-config", "configs/model.local.json",
+                     "--application", "configs/application.json"]) == 1
+    value = json.loads(capsys.readouterr().out)
+    assert value["status"] == "blocked" and value["model"]["status"] == "configured"
+
+
+def test_private_model_unsupported_provider_mode_is_a_safe_cli_error(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    source = _private_profile(workspace)
+    value = json.loads(source.read_bytes())
+    value["provider"] = "openai"  # The DeepSeek-specific thinking field needs removal when changing provider.
+    source.write_text(json.dumps(value), encoding="utf-8")
+    assert cli.main(["--output-format", "json", "doctor"]) == 1
+    output = capsys.readouterr().out
+    assert json.loads(output)["event"] == "error"
+    assert "file-private-key-must-not-be-saved" not in output
+
+
+def test_private_configuration_refuses_command_line_overrides_and_export_overlap(
+    workspace: Path, application_template: Path, monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    _private_profile(workspace)
+    with pytest.raises(SystemExit):
+        cli.main(["configure", "--model-config", "configs/model.local.json", "--max-tokens", "70000",
+                  "--application", "configs/application.json", "--save", "configs/run.json"])
+    application = json.loads(application_template.read_bytes())
+    application["execution"]["project_root"] = str(workspace)
+    application_template.write_text(json.dumps(application), encoding="utf-8")
+    assert cli.main(["--output-format", "json", "configure", "--application", "configs/application.json",
+                     "--save", "configs/run.json"]) == 1
+    assert not (workspace / "configs/run.json").exists()
+    assert "file-private-key-must-not-be-saved" not in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("scope", ["env", "all"])
 @pytest.mark.parametrize("discard", [False, True])
 def test_environment_deletion_is_rejected_before_invoke_and_points_to_external_setup(

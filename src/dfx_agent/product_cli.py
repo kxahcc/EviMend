@@ -23,6 +23,16 @@ _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _CAPTURE_BYTES = 32768
 
 
+def _private_model_path(root: Path, value: Path | None, *, exists: bool = True) -> Path:
+    from .model_profile import DEFAULT_MODEL_PROFILE
+
+    selected = value or Path(DEFAULT_MODEL_PROFILE)
+    path = _checked(selected if selected.is_absolute() else root / selected, exists=exists)
+    if path.parent != root / "configs" or not path.name.endswith(".local.json"):
+        raise ValueError("private model profiles must use configs/*.local.json")
+    return path
+
+
 def _name(value: str) -> str:
     if not _NAME.fullmatch(value):
         raise argparse.ArgumentTypeError("use 1-64 letters, digits, underscores or hyphens")
@@ -374,21 +384,130 @@ def parser() -> argparse.ArgumentParser:
     clean.add_argument("--plan-id")
     clean.add_argument("--discard-evidence", action="store_true")
     configure = sub.add_parser("configure", help="create a cloud/application profile without sending a model request")
-    configure.add_argument("--provider", choices=("openai", "deepseek", "compatible"), required=True)
-    configure.add_argument("--model", required=True)
+    configure.add_argument("--init-model", action="store_true", help="create the ignored private model file for editing")
+    configure.add_argument("--model-config", type=Path, help="private model/key/budget file (default: configs/model.local.json)")
+    configure.add_argument("--provider", choices=("openai", "deepseek", "compatible"), help="legacy environment-key mode")
+    configure.add_argument("--model")
     configure.add_argument("--base-url", help="Chat API base URL for a compatible service")
     configure.add_argument("--key-env", help="name of the environment variable containing the key")
-    configure.add_argument("--application", type=Path, required=True, help="host-owned application profile")
-    configure.add_argument("--save", type=Path, required=True, help="new profile inside the project")
+    configure.add_argument("--application", type=Path, help="host-owned application profile")
+    configure.add_argument("--save", type=Path, help="new profile inside the project")
     configure.add_argument("--thinking", choices=("enabled", "disabled"))
-    configure.add_argument("--max-calls", type=int, default=40)
-    configure.add_argument("--max-tokens", type=int, default=256000)
-    configure.add_argument("--max-output-tokens", type=int, default=4096)
-    configure.add_argument("--max-seconds", type=int, default=900)
+    configure.add_argument("--max-calls", type=int)
+    configure.add_argument("--max-tokens", type=int)
+    configure.add_argument("--max-output-tokens", type=int)
+    configure.add_argument("--max-seconds", type=int)
     configure.add_argument("--output-parameter", choices=("max_tokens", "max_completion_tokens"))
     doctor = sub.add_parser("doctor", help="check declared local prerequisites without a model/device call")
-    doctor.add_argument("--application", type=Path, required=True)
+    doctor.add_argument("--application", type=Path)
+    doctor.add_argument("--model-config", type=Path, help="validate a private model file locally; no API request")
     return result
+
+
+def _configure_or_doctor(root: Path, args: argparse.Namespace, cli: argparse.ArgumentParser) -> int:
+    from .model_profile import ModelBudget, load_model_profile, read_profile_credential
+    model_observation = None
+    if args.command == "configure" and args.init_model:
+        if any(getattr(args, field) is not None for field in (
+                "provider", "model", "base_url", "key_env", "application", "save", "thinking",
+                "max_calls", "max_tokens", "max_output_tokens", "max_seconds", "output_parameter")):
+            cli.error("--init-model only accepts --model-config")
+        destination = _private_model_path(root, args.model_config, exists=False)
+        template = _checked(root / "configs/model.example.json").read_bytes()
+        with destination.open("xb") as output:
+            output.write(template)
+        _emit({"event": "model_configuration_created", "path": str(destination),
+            "note": "edit model, api_key and budget in this ignored file; no API request was sent"}, args.output_format)
+        return 0
+    if args.command == "doctor" and (args.model_config is not None or args.application is None):
+        from .model_provider import provider_connection
+
+        source = _private_model_path(root, args.model_config)
+        private = load_model_profile(source)
+        mode = private.thinking_mode or ("disabled" if private.provider == "deepseek" else None)
+        provider_connection(private.provider, private.model, base_url=private.base_url,
+                            credential_file=str(source), thinking_mode=mode,
+                            max_output_tokens=private.budget.max_output_tokens,
+                            max_output_parameter=private.output_parameter)
+        issues = []
+        if private.model.startswith("SET_"):
+            issues.append("model_id_required")
+        try:
+            read_profile_credential(source)
+        except ValueError:
+            issues.append("valid_api_key_required")
+        model_observation = {"event": "model_preflight", "status": "blocked" if issues else "configured",
+            "provider": private.provider, "model": private.model, "issues": issues,
+            "model_verification": "not_run", "budget_scope": "one_task"}
+        if args.application is None:
+            _emit(model_observation, args.output_format)
+            return 1 if issues else 0
+    if args.application is None or (args.command == "configure" and args.save is None):
+        cli.error("configure requires --application and --save; use --init-model to create the private file")
+    from .application_profile import (
+        application_preflight,
+        load_application_profile,
+    )
+    application = load_application_profile(root / _relative(root, args.application))
+    observation = application_preflight(application)
+    if args.command == "doctor":
+        if model_observation is not None:
+            observation["model"] = model_observation
+            if model_observation["status"] == "blocked":
+                observation["status"] = "blocked"
+        _emit({"event": "preflight", **observation}, args.output_format)
+        return 0 if observation["status"] == "configured" else 1
+    from .competition import CompetitionConfig
+    from .model_provider import provider_connection
+    from .working_context_plan import WorkingContextPolicy
+    if args.model_config is not None or (args.provider is None and args.model is None):
+        if any(getattr(args, field) is not None for field in (
+                "provider", "model", "base_url", "key_env", "thinking", "max_calls", "max_tokens",
+                "max_output_tokens", "max_seconds", "output_parameter")):
+            cli.error("private model file owns all model/budget settings; do not combine overrides")
+        source = _private_model_path(root, args.model_config)
+        private = load_model_profile(source)
+        mode = private.thinking_mode or ("disabled" if private.provider == "deepseek" else None)
+        connection, model = provider_connection(private.provider, private.model,
+            base_url=private.base_url, credential_file=str(source), thinking_mode=mode,
+            max_output_tokens=private.budget.max_output_tokens,
+            max_output_parameter=private.output_parameter)
+        budget = private.budget
+    else:
+        if args.provider is None or args.model is None:
+            cli.error("environment-key mode requires both --provider and --model")
+        mode = args.thinking or ("disabled" if args.provider == "deepseek" else None)
+        connection, model = provider_connection(args.provider, args.model,
+            base_url=args.base_url, credential_env=args.key_env,
+            max_output_tokens=4096 if args.max_output_tokens is None else args.max_output_tokens,
+            thinking_mode=mode, max_output_parameter=args.output_parameter)
+        budget = ModelBudget(max_calls=40 if args.max_calls is None else args.max_calls,
+            max_known_tokens=256000 if args.max_tokens is None else args.max_tokens,
+            max_seconds=900 if args.max_seconds is None else args.max_seconds)
+    profile = CompetitionConfig(provider=connection, model=model, model_mode="cloud",
+        execution=application.execution, max_calls=budget.max_calls, max_known_tokens=budget.max_known_tokens,
+        max_seconds=budget.max_seconds, max_candidates=budget.max_candidates, max_tool_calls=budget.max_tool_calls,
+        working_context=WorkingContextPolicy(enabled=False) if mode == "enabled"
+            else WorkingContextPolicy(enabled=True, history_selection="repair_frontier",
+                                      context_layout="decision_frontier"))
+    destination = _checked(args.save if args.save.is_absolute() else root / args.save, exists=False)
+    if (not destination.is_relative_to(root) or destination == root or
+            any(part.casefold() in {"data_b", "archive", ".git", ".agents", ".codex"}
+                for part in destination.relative_to(root).parts)):
+        raise ValueError("configuration output must be inside the deployed project")
+    # Exclusive creation keeps an existing reviewed profile intact.
+    if connection.credential_file and (destination == Path(connection.credential_file) or
+            Path(connection.credential_file).is_relative_to(Path(application.execution.project_root).absolute())):
+        raise ValueError("private model file must be outside the application and generated run profile")
+    with destination.open("x", encoding="utf-8") as output:
+        output.write(profile.model_dump_json(indent=2) + "\n")
+    _emit({"event": "configuration_created", "path": str(destination),
+        "provider": model.provider_id, "model": model.model_id,
+        "credential_env": connection.credential_env,
+        "credential_source": "private_file" if connection.credential_file else "environment",
+        "application_prerequisites": observation["status"],
+        "model_verification": "not_run", "experiments_enabled": False}, args.output_format)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -400,47 +519,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.target or args.demo or args.resume or args.config or args.name:
                 cli.error("launch flags cannot be combined with a management command")
             if args.command in {"configure", "doctor"}:
-                from .application_profile import (
-                    application_preflight,
-                    load_application_profile,
-                )
-                application = load_application_profile(root / _relative(root, args.application))
-                observation = application_preflight(application)
-                if args.command == "doctor":
-                    _emit({"event": "preflight", **observation}, args.output_format)
-                    return 0 if observation["status"] == "configured" else 1
-                from .competition import CompetitionConfig
-                from .model_provider import provider_connection
-                from .working_context_plan import WorkingContextPolicy
-                settings: dict[str, Any] = {"max_output_tokens": args.max_output_tokens}
-                if args.output_parameter:
-                    settings["max_output_parameter"] = args.output_parameter
-                if args.thinking is not None:
-                    settings["thinking_mode"] = args.thinking
-                elif args.provider == "deepseek":
-                    settings["thinking_mode"] = "disabled"
-                connection, model = provider_connection(args.provider, args.model,
-                    base_url=args.base_url, credential_env=args.key_env, **settings)
-                profile = CompetitionConfig(provider=connection, model=model, model_mode="cloud",
-                    execution=application.execution, max_calls=args.max_calls,
-                    max_known_tokens=args.max_tokens, max_seconds=args.max_seconds,
-                    working_context=WorkingContextPolicy(enabled=False) if args.thinking == "enabled"
-                        else WorkingContextPolicy(enabled=True, history_selection="repair_frontier",
-                                                  context_layout="decision_frontier"))
-                destination = _checked(args.save if args.save.is_absolute() else root / args.save, exists=False)
-                if (not destination.is_relative_to(root) or destination == root or
-                        any(part.casefold() in {"data_b", "archive", ".git", ".agents", ".codex"}
-                            for part in destination.relative_to(root).parts)):
-                    raise ValueError("configuration output must be inside the deployed project")
-                # Exclusive creation keeps an existing reviewed profile intact.
-                with destination.open("x", encoding="utf-8") as output:
-                    output.write(profile.model_dump_json(indent=2) + "\n")
-                _emit({"event": "configuration_created", "path": str(destination),
-                    "provider": model.provider_id, "model": model.model_id,
-                    "credential_env": connection.credential_env,
-                    "application_prerequisites": observation["status"],
-                    "model_verification": "not_run", "experiments_enabled": False}, args.output_format)
-                return 0
+                return _configure_or_doctor(root, args, cli)
             if args.command == "env":
                 backend = [{"status": "Status", "prepare": "Prepare", "sync": "Init", "clean": "Clean"}[args.action]]
                 if args.action == "sync" and args.offline:
@@ -523,7 +602,7 @@ def main(argv: list[str] | None = None) -> int:
     except subprocess.TimeoutExpired:
         _emit({"event": "manager_unknown", "note": "backend exit or stop could not be confirmed; inspect managed status before starting another task"}, args.output_format)
         return 1
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError):
         _emit({"event": "error", "note": "command rejected or backend unavailable; check workspace, input paths, environment and saved state"}, args.output_format)
         return 1
 

@@ -7,6 +7,7 @@ runs/
 data_B/
 .env
 .env.*
+configs/*.local.json
 archive/
 
 # Project-owned runtime, caches and disposable workspaces

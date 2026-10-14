@@ -38,8 +38,9 @@ def config(tmp_path: Path, **overrides: object) -> Path:
     return path
 
 
+@pytest.mark.parametrize("credential_source", ["environment", "private_file"])
 def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, credential_source: str) -> None:
     monkeypatch.setenv("DFX_MANAGED_COMPETITION", "local-v1")
     requests = []
     original = competition._DemoModel.__call__
@@ -50,6 +51,15 @@ def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
 
     monkeypatch.setattr(competition._DemoModel, "__call__", observe)
     settings = config(tmp_path, max_calls=15)
+    private_key = "synthetic-private-file-credential"
+    if credential_source == "private_file":
+        private = tmp_path / "model.local.json"
+        private.write_text(json.dumps({"provider": "compatible", "base_url": "https://model.invalid",
+                                       "model": "scripted-demo", "api_key": private_key}),
+                           encoding="utf-8")
+        value = json.loads(settings.read_bytes())
+        value["provider"]["credential_file"] = str(private)
+        settings.write_text(json.dumps(value), encoding="utf-8")
     work = tmp_path / "run"
     result = run_competition(tmp_path / "unused", work, "software-acceptance", settings, REPO)
     assert result["status"] == "synthetic_checked", (work / "agent-report.json").read_text(encoding="utf-8")
@@ -102,6 +112,7 @@ def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
     assert any(item["path"].endswith("patch.diff") for item in manifest["files"])
     with zipfile.ZipFile(work / "delivery.zip") as archive:
         assert all(b"dfx-synthetic-credential-never-real" not in archive.read(item) for item in archive.namelist())
+        assert all(private_key.encode() not in archive.read(item) for item in archive.namelist())
     assert "DFX_DEMO_PROVIDER_KEY" not in os.environ
     checks = {path.name: path.read_bytes() for path in (work / "checks").glob("*.json")}
     resumed = run_competition(tmp_path / "unused", work, "software-acceptance", settings, REPO, resume=True)

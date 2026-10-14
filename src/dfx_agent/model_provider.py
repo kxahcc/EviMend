@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from importlib.metadata import version
+from pathlib import Path
 from typing import Any, Literal, cast
 
 import httpx
@@ -186,11 +187,12 @@ class ProviderSettings(BaseModel):
 
 
 class CloudProviderConfig(BaseModel):
-    """Public connection identity. The credential value is never a configuration field."""
+    """Public connection identity; only a credential locator, never its value."""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, hide_input_in_errors=True)
     endpoint: str = Field(min_length=1, max_length=2048)
     credential_env: str = Field(min_length=1, max_length=128)
+    credential_file: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def valid_connection(self) -> CloudProviderConfig:
@@ -205,11 +207,16 @@ class CloudProviderConfig(BaseModel):
             raise ValueError("invalid cloud endpoint") from None
         if not _ENV_NAME.fullmatch(self.credential_env):
             raise ValueError("invalid credential environment name")
+        if self.credential_file is not None and (not Path(self.credential_file).is_absolute() or
+                ".." in Path(self.credential_file).parts or
+                any(ord(character) < 32 for character in self.credential_file)):
+            raise ValueError("invalid credential file locator")
         return self
 
 
 def provider_connection(provider: Literal["openai", "deepseek", "compatible"], model_id: str, *,
                         base_url: str | None = None, credential_env: str | None = None,
+                        credential_file: str | None = None,
                         **settings: Any) -> tuple[CloudProviderConfig, ProviderSettings]:
     """Resolve vendor ergonomics onto the official SDK's supported Chat API.
 
@@ -229,7 +236,8 @@ def provider_connection(provider: Literal["openai", "deepseek", "compatible"], m
     if provider == "openai" and settings.get("thinking_mode") is not None:
         raise AdapterRequestError("provider_thinking_mode_unsupported")
     connection = CloudProviderConfig(endpoint=endpoint,
-                                     credential_env=credential_env if credential_env is not None else default_env)
+                                     credential_env=credential_env if credential_env is not None else default_env,
+                                     credential_file=credential_file)
     model = ProviderSettings(provider_id=provider, model_id=model_id, **settings)
     return connection, model
 
@@ -662,7 +670,7 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
         return {"schema_version": 2, "wire_profile": WIRE_PROFILE, "transport": "openai-sdk",
                 "sdk": {"package": "openai", "version": version("openai"),
                         "api": "chat.completions", "request_identity": "canonical-json"},
-                "endpoint": self.config.endpoint, "credential_env": self.config.credential_env,
+                **self.config.model_dump(mode="json"),
                 "settings": self.settings.model_dump(mode="json"),
                 "max_request_bytes": MAX_REQUEST_BYTES, "max_response_bytes": MAX_RESPONSE_BYTES,
                 "automatic_retries": 0, "follow_redirects": False, "trust_env": False,
@@ -676,7 +684,18 @@ class CloudChatCompletionsAdapter(ChatCompletionsAdapter):
             raise AdapterRequestError("provider_network_disabled")
         if not self.config.endpoint.endswith("/chat/completions"):
             raise AdapterRequestError("provider_chat_endpoint_required")
-        value = os.environ.get(self.config.credential_env)
+        if self.config.credential_file is not None:
+            from .model_profile import read_profile_credential
+
+            try:
+                value = read_profile_credential(Path(self.config.credential_file), expected_endpoint=self.config.endpoint)
+            except ValueError as error:
+                reason = str(error)
+                raise AdapterRequestError(reason if reason in {
+                    "provider_credential_missing", "provider_credential_invalid", "provider_credential_endpoint_changed"} else
+                    "provider_credential_file_invalid") from None
+        else:
+            value = os.environ.get(self.config.credential_env)
         if value is None or not value:
             raise AdapterRequestError("provider_credential_missing")
         if len(value) > 8192 or any(ord(character) <= 32 or ord(character) >= 127 for character in value):
@@ -835,7 +854,8 @@ def adapter_from_profile(profile: dict[str, Any]) -> ChatCompletionsAdapter:
             adapter: ChatCompletionsAdapter = ChatCompletionsAdapter(settings, httpx.MockTransport(never))
         elif value["transport"] in ("cloud-httpx", "openai-sdk"):
             adapter = CloudChatCompletionsAdapter(settings, CloudProviderConfig(
-                endpoint=value["endpoint"], credential_env=value["credential_env"]), allow_network=False)
+                endpoint=value["endpoint"], credential_env=value["credential_env"],
+                credential_file=value.get("credential_file")), allow_network=False)
             if value["transport"] == "cloud-httpx":
                 expected = {"schema_version": 1, "wire_profile": WIRE_PROFILE, "transport": "cloud-httpx",
                             "endpoint": adapter.config.endpoint, "credential_env": adapter.config.credential_env,

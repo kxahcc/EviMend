@@ -80,7 +80,7 @@ flowchart LR
 
 ## 5. 开发框架和资源
 
-**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。云端通信复用锁定的官方 OpenAI Python SDK；同类 Chat Completions 服务配置地址、模型名和 Key 环境变量即可接入，不自研供应商通信库。软件验收以 SDK MockTransport 和短时合成程序走同一调用路径，当前结果见 STATUS。真实服务及型号仍须小额兼容性核验，应用检查仍须接纳匹配的 **HarmonyOS 工具链与设备/模拟器**。详细选择与边界见 [开发设计](docs/development/system-design-draft.md)。
+**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。云端通信复用锁定的官方 OpenAI Python SDK；同类 Chat Completions 服务默认在 Git 忽略的 `configs/model.local.json` 统一填写地址、模型、Key 和单任务预算，环境变量保留为兼容选项，不自研供应商通信库。初始化、预检、生成不含 Key 的运行配置和参数说明见 [使用说明](src/dfx_agent/README.md#一次配置模型和应用)。软件验收以 SDK MockTransport 和短时合成程序走同一调用路径，当前结果见 STATUS。真实服务及型号仍须小额兼容性核验，应用检查仍须接纳匹配的 **HarmonyOS 工具链与设备/模拟器**。详细选择与边界见 [开发设计](docs/development/system-design-draft.md)。
 
 | 部分 | 用什么 | 为什么 |
 |---|---|---|
@@ -203,6 +203,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_managed_knowledge_workflow.py` | 固定/模拟 CLI 全流程及真实 Windows Job 验收的合成 fixture，核完整 Skill 可见性与同资源启停矩阵 |
 | `tests/test_model_provider.py`、`tests/test_provider_loop.py`、`tests/test_reporting.py`、`tests/test_offline_script.py`、`tests/test_offline_cli.py` | 模拟模型请求/响应、SDK 交接、最终摘要核验和受管脚本/命令入口；不调用真实模型 |
 | `tests/test_cloud_provider.py`、`tests/test_local_execution.py`、`tests/test_competition.py`、`tests/test_competition_process.py` | MockTransport 云端调用、短时本机程序、统一竞赛入口与不同进程原配置恢复的边界和输出软件验收；不调用真实 API 或 HarmonyOS，实际结果见 STATUS |
+| `tests/test_model_profile.py` | 私有配置字段/预算校验、无 Key 的序列化、文件容量和错误回显反例；CLI、SDK 与交付包接线分别由产品、云端和竞赛用例验收 |
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
 | `tests/test_product_cli.py`、`tests/test_progress.py` | 用户参数、输出/分页、停止归属、中断及有界侧录的软件用例；组件与实际产品验收结果见 STATUS |
 | `tests/test_managed_runtime.py`、`tests/test_managed_bootstrap.py`、`tests/test_application_profile.py` | 原生 Job 身份/停止/清理、锁定安装隔离与只读应用前置检查的软件验收 |
@@ -220,6 +221,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `configs/local-runtime.json` | 本机资源/清理策略；合成 Run、Init、测试、质量、离线 Agent、competition、聚合和 Export 的受管限制与共同磁盘预算，真实实验开关保持 false，字段语义见设计与契约 |
 | `configs/competition-demo.json`、`configs/competition-cloud.template.json` | mock_demo 软件演示配置与云端/完整工程接纳模板；模板不是当前获准的真实实验入口 |
 | `configs/harmonyos-app.template.json` | 一次配置完整工程、工具路径、设备/签名、项目依赖准备和独立检查；占位值须在真实接纳时填写 |
+| `configs/model.example.json`、`configs/model.local.json` | 无 Key 的模型模板与被 Git 忽略的本机私有配置；统一模型、Key、模式及单任务预算，使用方法见 src/dfx_agent/README.md |
 | `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
 | `.dfx-local/` | 本机环境、缓存、任务/工作副本、导出暂存与运行状态根；Git 忽略，所有当前运行入口受管 |
 | `runs/` | 历史原型产物、管理工具接入前的临时材料及本机私有 exports；Git 忽略，普通清理保留导出包 |
@@ -247,6 +249,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `decisions.py` | 将修复方向与已登记诊断、义务、实际合成失败及同范围条件结果绑定，保存可回读建议及候选方向引用；不执行检查或确认因果、业务正确性 |
 | `conditions.py` | 对主机固定合成输入计算索引、字节/元素和使用时就绪条件，保存并重新核验版本/范围绑定结果，供 Agent 回读引用；不证明源码产生这些值 |
 | `value_sources.py` | 独立核对冻结源码字节、主机 fixture 的参数角色及模拟操作事件，登记绑定、意图与合成凭据；未接入 SDK、真实解析/采样或新来源条件计算 |
+| `model_profile.py` | 有界读取本机私有模型配置，用既有 Pydantic 校验模型/预算，密钥排除序列化；生产 SDK 发送时直接读取 Key |
 | `knowledge_contracts.py` | 不可变经验、求解指导、来源权限与知识快照对象；明确前提、未知问题、保留行为、反例和有限历史范围，不授予应用资格 |
 | `knowledge.py` | 捕获主机批准的原字节、按来源交集保存经验和冻结快照、受容量限制完整回读；为独立检索复用同操作闭包，不接 SDK 或自动学习 |
 | `retrieval_contracts.py` | 完整查询、索引描述、排序命中、分页与不可变查询记录；规范匹配和容量/数值边界不证明当前任务适用性 |

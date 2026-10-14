@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "provider": "deepseek",
+  "base_url": "https://api.deepseek.com",
+  "model": "SET_CONFIRMED_TOOL_CALLING_MODEL_ID",
+  "api_key": "",
+  "thinking_mode": "disabled",
+  "budget": {
+    "max_calls": 40,
+    "max_known_tokens": 256000,
+    "max_output_tokens": 4096,
+    "max_seconds": 900,
+    "max_candidates": 4,
+    "max_tool_calls": 100
+  }
+}
