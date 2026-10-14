@@ -1,6 +1,6 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-13。
+状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-14。
 职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选交接、模型账本、逐工具授权、动作恢复和主机终止摘要已接入共享 SDK 循环；云端请求、本机完整工程检查、正式通用领域 Skill 和 competition 输入输出已有代码通道。软件验收仅使用 MockTransport 和短时 toy 工程，结果只见 STATUS；真实模型及应用开关仍禁用，提供方兼容性、可信业务判据、工具链/设备验证和方法效果仍未知。可信采值、算子适用性及因果关系的实际检验继续是未完成扩展。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
@@ -259,7 +259,7 @@ privacy 明确 local_only=true、redacted=false、share_ready=false，并披露�
 
 ## 3. 四类可迁移规则卡
 
-规则卡是通用 Skill 的知识来源，不包含案例编号到答案的映射。正式过程资源为 resources/skills/bounds.json、lifecycle.json、recursion.json、dynamic_pattern.json，按 ExperienceContent 保存触发、前提/未知查证、诊断与修复步骤、观察分支、保留行为、反例和退出条件。未知语义进入 missing_evidence，不能由通用模板代替业务判断。
+规则卡是通用 Skill 的知识来源，不包含案例编号到答案的映射。正式过程资源为 skill/bounds、lifecycle、recursion、dynamic-pattern 的标准 SKILL.md，按可读 Markdown 保存触发、前提/未知查证、诊断与修复步骤、观察分支、保留行为、反例和退出条件。未知语义进入 missing_evidence，不能由通用模板代替业务判断。
 
 W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，通过 `consult_rule` 访问；未知类别或关闭规则开关时返回通用路径。修复方向、义务、区分问题与实际失败的绑定统一见第 1.2.3 节；Agent 当前没有诊断执行探针。R1/R2 的部分有限条件已有第 3.0 节的合成计算工具，R3/R4 和业务语义仍是规则知识；提示命中不能解释为条件已满足或根因正确。
 
@@ -546,19 +546,20 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 
 #### 3.1.3 Skill 版本、验证与演进
 
-**静态过程先提供完整可读的诊断步骤，再由独立版本验证为是否更新提供依据。** `static_skills.py` 从同 run 批准知识中选择人工整理的条目，生成受限的 `SKILL.md` 并复用锁定 Deep Agents 的 `SkillsMiddleware` 加载/注入。`static_skill_handoff.py` 将完整读取、实际模型输入、动作账本与报告接起来；程序入口、启停对照和私有导出使用同一冻结身份。受管脚本/CLI 配置、独立版本/事前计划/完整合成回执及独立沙盒演进接口已实现，实际验收见 STATUS；模型草案采用独立版本消费程序入口，整链验收见 STATUS；模型来源直接进入旧知识及其新代受管 CLI 尚未接入。合成调用及可见性不证明学会经验或提高修复率。
+**静态过程提供可读诊断步骤，格式与加载复用标准能力。** `static_skills.py` 保存根目录 Skill 包的标准原文和配套文本，复用锁定 Deep Agents 的 `SkillsMiddleware`；旧投影继续按历史规则生成受限正文。`static_skill_handoff.py` 将正文、资料读取、实际模型输入和动作账本接起来，程序入口、启停对照和导出使用同一冻结身份。标准包原文不是已经验证的经验；下文的独立版本验证/演进作为冻结研究扩展保留，不进入竞赛前置。原扩展接口的实际验收见 STATUS，模型来源直接进入旧知识及其新代 CLI 尚未接入。
 
-`domain_skills.py` 的 prepare_domain_knowledge 将四份正式通用 JSON 转为 derivation_authority=host_curated、validation_scopes 为空的 SolverProjection，经 HostMaterialRegistry、KnowledgeStore、冻结快照/索引和 TaskKnowledgeBinding 接入现有知识及静态加载管道；不填写合成成功历史，不包含 data_B 答案。competition 保存精确主机批准，恢复只消费 run 原件及原批准，原临时库可不存在。CompetitionConfig 明确默认开启 rule_guidance、obligation_tracking、decision_checks、working_context、applicability 与 static_skills；原通用模块各自默认值及显式关闭能力保持原解释。configs/competition-demo.json 与 competition-cloud.template.json 固定竞赛输入，真实模板仍须填写并审查。内容、实际读取和后续可见性的验收统一引用 STATUS，不能由默认开启推定方法收益或学习晋升。
+`domain_skills.py` 的 prepare_domain_knowledge 将根目录 skill/ 动态发现的标准 SKILL.md 与包内配套文本原文分块桥接为 derivation_authority=host_curated、validation_scopes 为空的 SolverProjection，经 HostMaterialRegistry、KnowledgeStore、冻结快照/索引和 TaskKnowledgeBinding 接入现有知识及静态加载管道；不填写合成成功历史，不包含 data_B 答案。competition 保存精确主机批准，恢复只消费 run 原件及原批准，原临时库可不存在。CompetitionConfig 明确默认开启 rule_guidance、obligation_tracking、decision_checks、working_context、applicability 与 static_skills；原通用模块各自默认值及显式关闭能力保持原解释。configs/competition-demo.json 与 competition-cloud.template.json 固定竞赛输入，真实模板仍须填写并审查。内容、实际读取和后续可见性的验收统一引用 STATUS，不能由默认开启推定方法收益或学习晋升。
 
 | 静态入口/对象 | 当前约束 |
 |---|---|
 | StaticSkillPolicy | 完整 schema 1、显式 enabled 和升序唯一 entry_ids；只接受批准快照成员且 derivation_authority=host_curated。未指定不是开启空库，未知成员、模型推断投影及他 run 批准均拒绝 |
-| prepare_run_static_skills | 使用同 run 已物化的知识和外部 TaskKnowledgeBinding，主机应通过 knowledge_run 准入后调用。编译核对 owner、绑定批准及快照完整来源/权限/范围，不消费或认证检索索引。Agent 传入完整共同 max_calls/max_tool_calls，发布前核验资源、关闭读取、原生元数据及双份 ASCII 报告表示余量，随后发布 static-skills-profile.json 及 static-skills/<内容身份>/SKILL.md。失败可能留下局部资源；不自动续写、覆盖或将残留前完整发布 |
-| 冻结 profile 与正文 | profile 完整保存开关、选择、快照、renderer、提示摘要、文件摘要/大小及原 SDK 元数据。正文保留前提和未知问题、步骤及观察分支、保留行为、反例、退出条件和完整 canonical SolverProjection。描述不得被 SDK 截短；内容身份绑定投影摘要。原 KnowledgeSnapshot 的 skill_files 仍为空，静态资源另有 profile，不改旧代含义 |
-| 同资源启停 | 两组生成完全相同正文和元数据，shared_static_skill_profile 仅去掉 enabled。开启注入含 read_skill 调用说明的目录；关闭仍加载、核验相同元数据并允许读取完整正文，只取消目录注入。工具定义和完整读取结果均相同，普通检索结果中的投影摘要可按共同工具说明推导同一 Skill ID；没有额外调用、工具或 Token 预算 |
+| prepare_run_static_skills | 使用同 run 已物化的知识和外部 TaskKnowledgeBinding，主机应通过 knowledge_run 准入后调用。编译核对 owner、绑定批准及快照完整来源/权限/范围，不消费或认证检索索引。Agent 传入完整共同 max_calls/max_tool_calls，发布前核验资源、关闭读取、原生元数据及双份 ASCII 报告表示余量，随后发布 static-skills-profile.json 及 static-skills/<标准name或旧内容身份>/SKILL.md 及批准配套文本。失败可能留下局部资源；不自动续写、覆盖或将残留前完整发布 |
+| 冻结 profile 与正文 | standard_skill_v1 保留标准 name、原 SKILL.md 及所有批准配套文本的精确路径/摘要/大小和原 SDK 元数据；正文不附加 JSON 投影。原文经内部知识桥接，普通检索仍可得到完整指导；通用适用性前提要求模型核对正文的具体前提，程序不解析领域标题为事实。approved_procedure_v1 继续按旧规则渲染完整 canonical SolverProjection，旧回读不换成新资源。原 KnowledgeSnapshot 的 skill_files 仍为空，静态资源另有 profile |
+| 同资源启停 | 两组使用完全相同的标准原文、配套文件和元数据，shared_static_skill_profile 仅去掉 enabled。开启注入目录；关闭保留相同读取能力。新标准包的 read_skill 支持 resource_path，旧投影/版本继续使用原工具定义和哈希 ID；不同 renderer 的工具定义不能当作相同配置直接比较。没有额外调用或 Token 预算 |
 | StaticSkillService / read_run_static_skills | 构造不创建资源；回读以调用者冻结 profile、外部批准及 run 内来源重编译核对全部原字节。外部库可不存在，不能依赖本地 profile 自报权限、最新快照或检查点缓存；未知 ID 不拼接路径，缺失/改写/额外成员、链接与共享文件拒绝 |
 | FrozenSkillsMiddleware | 用 SDK 原生发现、YAML 元数据解析和 system message 注入，薄层约束负责完整批准清单、资源回读和缓存一致性。before_agent 与 modify_request 均核原件；已有缓存须与原元数据完全一致且加载错误为空，不能静默跳过失败资源。恢复在可写账本前只读检查锁定 SQLite saver 最新检查点及未合并的 Skill channel writes；准入与实际静态运行均显式使用 SDK 严格 serializer。最终 solver 输入在派发前验证唯一、完整、末尾原生目录块，关闭组不得含该目录；异步加载采用相同验证入口 |
-| Backend / 容量 | 后端仅枚举批准的虚拟根和下载精确清单内 SKILL.md；拒绝目录扩展、源码读取、支持文件、写入及执行。单文件、条目数和资源/profile 总量受 static_skills 常量约束；静态报告双份片段受 static_skill_handoff.MAX_STATIC_SKILL_REPORT_BYTES 约束，启停都预留完整目录余量，最终再次按实际 ASCII 缩进检查。实际 solver 原件审计沿用其共同单件/总量门并计入关闭重读；不将知识的独立闭包门误前 solver 总量门。这些分阶段门不是整轮全局 I/O 或全领域报告容量保证 |
+| 加载模式与消费 | 默认/on-demand 只注入名称与 description，read_skill 返回选中正文，resource_path 返回选中包内文本；资料读取分别计入 resource_actions，不清除正文工具 unread 标记。标准 metadata 扩展 dfx-load: always 将原正文固定在 always_loaded_body，随启用目录进入实际输入并计预算，配套文本仍按需；报告 always_loaded_skill_ids 区分注入与工具阅读。旧 renderer 不取得新工具参数。普通经验检索仍返回完整投影，可能包含全包文本；需要控制逐份披露时用 read_skill |
+| Backend / 容量 | 后端仅枚举批准的虚拟根及清单；完整 SKILL.md 或 package-relative 配套文本经 read_skill 回核读取，不授予源码/任意目录读取、写入或执行。标准包只接 UTF-8 文本，包内文件/总量及全部资源/profile 容量受 skill_packages/static_skills 常量约束，超限或不可读明确拒绝，不截断。静态报告双份片段受现有共同门约束；实际 solver 原件沿用原单件/总量门。这些是分阶段门，不认证整轮全局 I/O 或应用效果 |
 
 目录提示说明人工静态指导没有当前事实、应用资格或新的文件/执行权限；完整正文只能提供待核对的步骤，不能直接满足修复义务或接受门。显式 StaticSkillPolicy 要求批准知识及显式 ApplicabilityPolicy，开启和关闭均使用 session/report/completion 13/10/7 与相同 20 项工具；未指定静态策略保持原代，拒绝静态字段、工具和资源残留。read_skill 只读选中的完整正文、元数据及内容身份，经既有 read_source 能力、父模型响应和动作预算授权，结果未知不重派。报告分别记录成功完整读取及其后真正可见的 solver 数量/有序身份摘要；没有后续模型输入时不宣称已使用。未知/拒绝/孤立记录和全部实际成本保留，原件、完整回执及实际输入随私有包导出；缺账本只能核原件，使用和成本保持未知。恢复须提供原外部批准与完全相同策略，不要求外部库存在。清单 5 固定共同知识与 shared_static_skill_profile，变体显式登记 static_skills_enabled；底座模型、工具、预算和接受门保持相同。实际能力与完成证据以 STATUS 为准。
 

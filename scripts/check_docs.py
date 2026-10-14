@@ -49,6 +49,10 @@ def check() -> tuple[list[str], list[str], int]:
     active = {
         p for p in visible
         if p.endswith(".md") and p.split("/")[0] not in EXCLUDED
+        # Skill packages are executable-product guidance, registered as a
+        # library in DEVELOPMENT. Their standard frontmatter is checked by
+        # the SDK loader/tests, rather than project-document status headers.
+        and p.split("/")[0] != "skill"
         and (ROOT / p).is_file()
     }
     errors.extend(f"Unregistered Markdown: {p}" for p in sorted(active - registry.keys()))

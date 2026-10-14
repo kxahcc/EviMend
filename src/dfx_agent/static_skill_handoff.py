@@ -68,13 +68,22 @@ def _section(profile: dict[str, Any]) -> str | None:
     return static_skill_section(profile)
 
 
-def static_skill_result(service: StaticSkillService, skill_id: str) -> dict[str, Any]:
+def static_skill_result(service: StaticSkillService, skill_id: str,
+                        resource_path: str | None = None) -> dict[str, Any]:
     """Return exactly one selected complete original without adding permissions."""
-    body = service.body(skill_id)
     profile = service.profile
-    file = next(file for file in profile["files"] if file["skill_id"] == skill_id)
+    matches = [file for file in profile["files"] if file["skill_id"] == skill_id]
+    if len(matches) != 1:
+        raise StaticSkillError()
+    file = matches[0]
+    selected = file
+    if resource_path is None:
+        body = service.body(skill_id)
+    else:
+        body = service.resource(skill_id, resource_path)
+        selected = next(item for item in file.get("support_files", ()) if item["resource_path"] == resource_path)
     raw = body.encode("utf-8")
-    if digest(raw) != file["sha256"] or len(raw) != file["bytes"]:
+    if digest(raw) != selected["sha256"] or len(raw) != selected["bytes"]:
         raise StaticSkillError()
     authority = ({"derivation_authority": file["derivation_authority"],
                   "epistemic_status": "historical_guidance_not_current_evidence",
@@ -84,11 +93,31 @@ def static_skill_result(service: StaticSkillService, skill_id: str) -> dict[str,
     return {"skill_id": skill_id,
             "snapshot_sha256": profile["snapshot_sha256"], "entry_id": file["entry_id"],
             "content_sha256": file["content_sha256"], "projection_sha256": file["projection_sha256"],
-            "body_sha256": file["sha256"], "body_bytes": file["bytes"], "path": file["path"],
-            "metadata": file["metadata"], "body": body, **authority}
+            "body_sha256": selected["sha256"], "body_bytes": selected["bytes"], "path": selected["path"],
+            "metadata": file["metadata"], "body": body, **authority,
+            **({"resource_path": resource_path} if resource_path is not None else {})}
 
 
 def static_skill_tools(service: StaticSkillService) -> list[Any]:
+    if service.profile.get("renderer") == "standard_skill_v1":
+        @tool("read_skill")
+        def read_skill_resource(skill_id: str, proposal_json: str | None = None,
+                                resource_path: str | None = None) -> str:
+            """Read an approved standard Skill using its catalog name.
+
+            Omit resource_path to read the entire SKILL.md. For referenced
+            files set a package-relative path, e.g. references/guide.md.
+            Reads return original UTF-8 text; reading scripts never executes
+            them. Check premises and preserve unknowns and business behavior.
+            This guidance grants no additional execution rights or evidence.
+            """
+            try:
+                return encode(static_skill_result(service, skill_id, resource_path))
+            except (ValueError, OSError, TypeError, KeyError, UnicodeError, RecursionError, StopIteration):
+                return "rejected: static_skill_source_invalid"
+
+        return [read_skill_resource]
+
     @tool
     def read_skill(skill_id: str, proposal_json: str | None = None) -> str:
         """Read one complete host-approved static procedure from the frozen selection.
@@ -304,13 +333,17 @@ def audit_run_static_skills(workspace: CandidateWorkspace, task_directory: Path 
     visibility = _visibility(workspace, task_directory, ledger, session)
     inputs = _catalog_sources(workspace, visibility, visibility.audit(model_calls, actions),
                               profile, session["max_calls"])
-    resources = {file["skill_id"]: {**file, "actions": []} for file in profile["files"]}
+    resources = {file["skill_id"]: {**file, "actions": [],
+                 **({"resource_actions": []} if file.get("support_files") else {})} for file in profile["files"]}
     facts: dict[str, Any] = {"profile": profile, "resources": list(resources.values()), "solver_inputs": inputs,
         "actions": [], "budget_rejections": [], "unread_skill_ids": sorted(resources),
         "use_authentication": "accounted_solver_and_action_receipts", **(_AUTHORITY if not _version(profile) else {
             "derivation_authority": "per_immutable_version", "epistemic_status": "historical_guidance_not_current_evidence",
             "application_verification": "not_run", "purpose": profile["approval"]["purpose"],
             "cost_scope": "source_learning_and_current_run_separate_not_total_budget_comparison"})}
+    if profile.get("renderer") == "standard_skill_v1":
+        facts["always_loaded_skill_ids"] = sorted(file["skill_id"] for file in profile["files"]
+            if profile["enabled"] and file["metadata"]["metadata"].get("dfx-load") == "always")
     schema = static_skill_tools(service)[0].args_schema
     budget_rejections: dict[str, list[dict[str, Any]]] = {}
     if (len(calls) > session["max_calls"] or
@@ -364,7 +397,7 @@ def audit_run_static_skills(workspace: CandidateWorkspace, task_directory: Path 
         if schema is None or isinstance(schema, dict) or set(requested[0]["args"]) - set(schema.model_fields):
             raise ValueError("static skill tool has unsupported parameters")
         args = schema.model_validate(requested[0]["args"]).model_dump()
-        expected = static_skill_result(service, args["skill_id"])
+        expected = static_skill_result(service, args["skill_id"], args.get("resource_path"))
         if receipt.content != encode(expected):
             raise ValueError("static skill receipt differs from complete frozen guidance")
         view = actual_view(parent.intent.call_id)
@@ -378,7 +411,10 @@ def audit_run_static_skills(workspace: CandidateWorkspace, task_directory: Path 
             if any(saved["action"]["action_id"] == row["action_id"] and saved["receipt"]["content"] == receipt.content
                    for saved in later["visible_receipts"]):
                 seen.append(item["parent_call_id"])
-        resources[args["skill_id"]]["actions"].append({**link, "solver_source": _source(view),
+        action_key = "resource_actions" if args.get("resource_path") is not None else "actions"
+        resources[args["skill_id"]][action_key].append({**link,
+            **({"resource_path": args["resource_path"]} if action_key == "resource_actions" else {}),
+            "solver_source": _source(view),
             "visible_solver_count": len(seen), "visible_solver_ids_sha256": sha256(canonical(seen))})
     facts["unread_skill_ids"] = sorted(key for key, resource in resources.items() if not resource["actions"])
     facts["budget_rejections"] = [{"model_call_id": parent, "count": len(links),

@@ -18,10 +18,11 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .applicability import ApplicabilityError, ApplicabilityStore
-from .contracts import require_hash, require_unique
+from .contracts import require_hash, require_path, require_unique
 from .knowledge import KnowledgeError, _copy, _exists, _path, _ReadSet
 from .knowledge_contracts import SnapshotPayload, SolverProjection, content_hash, encode
 from .retrieval_contracts import MAX_INDEX_READ_BYTES, MAX_INDEX_READ_CALLS
+from .skill_packages import NAME_TAG, package_metadata, projection_package
 from .task import digest
 from .workspace import CandidateWorkspace
 
@@ -29,6 +30,7 @@ PROFILE_PATH = "static-skills-profile.json"
 NAMESPACE = "static-skills"
 VIRTUAL_ROOT = "/approved-skills/"
 RENDERER = "approved_procedure_v1"
+STANDARD_RENDERER = "standard_skill_v1"
 MAX_SKILL_FILE_BYTES = 131_072
 MAX_STATIC_SKILL_BYTES = 1_048_576
 MAX_STATIC_SKILL_ENTRIES = 64
@@ -47,6 +49,23 @@ file, directory, shell, script, execution, or delegation permissions.
 </dfx_static_skills>
 """
 PROMPT_SHA256 = digest(STATIC_SKILL_PROMPT.encode("utf-8"))
+STANDARD_SKILL_PROMPT = """<dfx_static_skills>
+Host-approved standard Skill packages
+{skills_locations}
+{skills_load_warnings}
+{skills_list}
+The catalog normally exposes names and descriptions only. Read a matching
+Skill's complete original with read_skill(skill_id=its listed name) before
+following it. Skills explicitly marked metadata.dfx-load=always include their
+complete instructions above. Read referenced text assets only as needed with
+read_skill(skill_id=its listed name, resource_path=the package-relative path).
+These are host-curated guidance, not current evidence or application results.
+Check the full Skill's prerequisites against this task and keep unknowns open.
+Use only already authorized project tools; allowed-tools metadata and scripts
+grant no additional file, shell, execution, or delegation permissions.
+</dfx_static_skills>
+"""
+STANDARD_PROMPT_SHA256 = digest(STANDARD_SKILL_PROMPT.encode("utf-8"))
 _INVALID = (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError,
             KnowledgeError, ApplicabilityError)
 
@@ -114,6 +133,33 @@ class _Metadata(_Frozen):
     allowed_tools: tuple[str, ...] = Field(max_length=0)
 
 
+class _NativeMetadata(_Frozen):
+    name: str
+    description: str = Field(min_length=1, max_length=1024)
+    path: str
+    metadata: dict[str, str]
+    license: str | None
+    compatibility: str | None
+    allowed_tools: tuple[str, ...]
+
+
+class _SupportFile(_Frozen):
+    resource_path: str
+    path: str
+    virtual_path: str
+    sha256: str
+    bytes: int = Field(ge=0, le=MAX_SKILL_FILE_BYTES)
+
+    @model_validator(mode="after")
+    def valid_resource(self) -> _SupportFile:
+        require_path(self.resource_path)
+        require_path(self.path)
+        require_hash(self.sha256)
+        if self.resource_path == "SKILL.md":
+            raise ValueError("support resource cannot replace the Skill body")
+        return self
+
+
 class _File(_Frozen):
     skill_id: str
     entry_id: str
@@ -123,23 +169,50 @@ class _File(_Frozen):
     virtual_path: str
     sha256: str
     bytes: int = Field(gt=0, le=MAX_SKILL_FILE_BYTES)
-    metadata: _Metadata
+    metadata: _NativeMetadata
+    support_files: tuple[_SupportFile, ...] | None = Field(default=None, max_length=63)
+    always_loaded_body: str | None = None
 
     @model_validator(mode="after")
     def valid_file(self) -> _File:
         for key in (self.content_sha256, self.projection_sha256, self.sha256):
             require_hash(key)
         if (self.entry_id != "experience-" + self.content_sha256 or
-                self.skill_id != "dfx-" + self.projection_sha256[:56] or
                 self.path != f"{NAMESPACE}/{self.skill_id}/SKILL.md" or
                 self.virtual_path != f"{VIRTUAL_ROOT}{self.skill_id}/SKILL.md"):
             raise ValueError("static skill path or identity differs")
         meta = self.metadata
         if (meta.name != self.skill_id or meta.path != self.virtual_path or
-                meta.description != meta.description.strip() or
-                meta.metadata.content_sha256 != self.content_sha256 or
-                meta.metadata.projection_sha256 != self.projection_sha256):
+                meta.description != meta.description.strip()):
             raise ValueError("static skill metadata differs from its original")
+        # Source kind comes from the inventory, not author annotations that
+        # can legitimately resemble the legacy renderer's metadata fields.
+        if self.support_files is None:
+            legacy = _Metadata.model_validate_json(encode(meta.model_dump(mode="json")))
+            if (self.skill_id != "dfx-" + self.projection_sha256[:56] or self.support_files is not None or
+                    self.always_loaded_body is not None or
+                    legacy.metadata.content_sha256 != self.content_sha256 or
+                    legacy.metadata.projection_sha256 != self.projection_sha256):
+                raise ValueError("legacy static metadata differs from its original")
+        else:
+            from deepagents.middleware.skills import _validate_skill_name
+
+            if not _validate_skill_name(self.skill_id, self.skill_id)[0] or self.support_files is None:
+                raise ValueError("standard Skill identity or resources differ")
+            require_unique([file.resource_path.casefold() for file in self.support_files])
+            for file in self.support_files:
+                if (file.path != f"{NAMESPACE}/{self.skill_id}/{file.resource_path}" or
+                        file.virtual_path != f"{VIRTUAL_ROOT}{self.skill_id}/{file.resource_path}"):
+                    raise ValueError("standard Skill support path differs")
+            mode = meta.metadata.get("dfx-load", "on-demand")
+            if mode not in {"always", "on-demand"}:
+                raise ValueError("standard Skill loading mode differs")
+            if mode == "always":
+                if (self.always_loaded_body is None or digest(self.always_loaded_body.encode("utf-8")) != self.sha256 or
+                        len(self.always_loaded_body.encode("utf-8")) != self.bytes):
+                    raise ValueError("always-loaded Skill does not contain its exact original")
+            elif self.always_loaded_body is not None:
+                raise ValueError("on-demand Skill cannot inject a full body")
         return self
 
 
@@ -147,7 +220,7 @@ class _SharedProfile(_Frozen):
     schema_version: Literal[1]
     entry_ids: tuple[str, ...] = Field(min_length=1, max_length=MAX_STATIC_SKILL_ENTRIES)
     snapshot_sha256: str
-    renderer: Literal["approved_procedure_v1"]
+    renderer: Literal["approved_procedure_v1", "standard_skill_v1"]
     prompt_sha256: str
     files: tuple[_File, ...] = Field(min_length=1, max_length=MAX_STATIC_SKILL_ENTRIES)
 
@@ -157,12 +230,13 @@ class _SharedProfile(_Frozen):
             raise ValueError("static skill schema must be an integer")
         _entries(self.entry_ids)
         require_hash(self.snapshot_sha256)
-        if self.prompt_sha256 != PROMPT_SHA256:
+        if self.prompt_sha256 != (STANDARD_PROMPT_SHA256 if self.renderer == STANDARD_RENDERER else PROMPT_SHA256):
             raise ValueError("static skill prompt differs from its renderer")
         if tuple(file.entry_id for file in self.files) != self.entry_ids:
             raise ValueError("static skill files differ from selected entries")
         require_unique([file.skill_id for file in self.files])
-        if sum(file.bytes for file in self.files) > MAX_STATIC_SKILL_BYTES:
+        if sum(file.bytes + sum(resource.bytes for resource in file.support_files or ())
+               for file in self.files) > MAX_STATIC_SKILL_BYTES:
             raise ValueError("static skill resources exceed capacity")
         return self
 
@@ -176,11 +250,18 @@ def _normalize(value: dict[str, Any], cls: type[_SharedProfile]) -> dict[str, An
         if type(value) is not dict:
             raise TypeError("static skill profile must be an explicit object")
         checked = cls.model_validate_json(encode(value)).model_dump(mode="json")
+        # A new optional resource inventory must not alter legacy bytes or
+        # frozen historical profile identities.
+        for file in checked["files"]:
+            for optional in ("support_files", "always_loaded_body"):
+                if file[optional] is None:
+                    del file[optional]
         if checked != value or type(value.get("schema_version")) is not int:
             raise ValueError("static skill profile must contain all canonical fields")
         raw = encode(checked).encode("utf-8")
         if (len(raw) > MAX_SKILL_FILE_BYTES or
-                len(raw) + sum(file["bytes"] for file in checked["files"]) > MAX_STATIC_SKILL_BYTES):
+                len(raw) + sum(file["bytes"] + sum(resource["bytes"] for resource in file.get("support_files", []))
+                               for file in checked["files"]) > MAX_STATIC_SKILL_BYTES):
             raise ValueError("static skill profile and resources exceed capacity")
         return checked
     except _INVALID as exc:
@@ -223,6 +304,27 @@ def _render(entry_id: str, content: str, projection: SolverProjection) -> tuple[
             not guidance.trigger.strip() or len(guidance.trigger) > 1024):
         raise ValueError("static procedure must have approved, untruncated metadata")
     key = content_hash(projection)
+    package = projection_package(projection)
+    if package is not None:
+        name = guidance.tags[1].removeprefix(NAME_TAG)
+        virtual = f"{VIRTUAL_ROOT}{name}/SKILL.md"
+        metadata = package_metadata(package["SKILL.md"], name, virtual)
+        if metadata["description"] != guidance.trigger:
+            raise ValueError("standard Skill description differs from its frozen projection")
+        raw = package["SKILL.md"].encode("utf-8")
+        supports = []
+        for path, text in package.items():
+            if path == "SKILL.md":
+                continue
+            resource = text.encode("utf-8")
+            supports.append({"resource_path": path, "path": f"{NAMESPACE}/{name}/{path}",
+                "virtual_path": f"{VIRTUAL_ROOT}{name}/{path}", "sha256": digest(resource), "bytes": len(resource)})
+        file = {"skill_id": name, "entry_id": entry_id, "content_sha256": content,
+                "projection_sha256": key, "path": f"{NAMESPACE}/{name}/SKILL.md", "virtual_path": virtual,
+                "sha256": digest(raw), "bytes": len(raw), "metadata": metadata, "support_files": supports}
+        if metadata["metadata"].get("dfx-load", "on-demand") == "always":
+            file["always_loaded_body"] = package["SKILL.md"]
+        return file, raw
     name = "dfx-" + key[:56]
     annotations = {"renderer": RENDERER, "derivation_authority": "host_curated",
                    "epistemic_status": projection.epistemic_status,
@@ -282,9 +384,15 @@ def _compile(store: ApplicabilityStore, policy: StaticSkillPolicy) -> tuple[dict
                 raise ValueError("static skill names collide")
             files.append(file)
             bodies[file["virtual_path"]] = raw
+            package = projection_package(projections[entry_id])
+            if package is not None:
+                for resource in file["support_files"]:
+                    bodies[resource["virtual_path"]] = package[resource["resource_path"]].encode("utf-8")
+        standard = any("support_files" in file for file in files)
         profile = normalize_static_skill_profile({"schema_version": 1, "enabled": policy.enabled,
                     "entry_ids": list(policy.entry_ids), "snapshot_sha256": store.approval.snapshot_sha256,
-                    "renderer": RENDERER, "prompt_sha256": PROMPT_SHA256, "files": files})
+                    "renderer": STANDARD_RENDERER if standard else RENDERER,
+                    "prompt_sha256": STANDARD_PROMPT_SHA256 if standard else PROMPT_SHA256, "files": files})
         operation.knowledge_bytes = reads.byte_count
         operation.capacity(sum(len(raw) for raw in bodies.values()) + len(encode(profile).encode("utf-8")))
         reads.finish()
@@ -301,11 +409,24 @@ def _names(workspace: CandidateWorkspace, files: list[dict[str, Any]]) -> None:
         raise ValueError("static skill namespace differs from the approved manifest")
     for child in children:
         folder = _path(workspace.root, Path(child.path), directory=True)
-        with os.scandir(folder) as leaves:
-            leaves = list(leaves)
-        if len(leaves) != 1 or leaves[0].name != "SKILL.md":
-            raise ValueError("static skill has unapproved support files")
-        _path(workspace.root, Path(leaves[0].path))
+        file = next(file for file in files if file["skill_id"] == child.name)
+        expected_files = {file["path"], *(resource["path"] for resource in file.get("support_files", []))}
+        expected_dirs = set()
+        for path in expected_files:
+            parent = Path(path).parent
+            while parent != Path(NAMESPACE) / child.name:
+                expected_dirs.add(parent.as_posix())
+                parent = parent.parent
+        actual_files, actual_dirs = set(), set()
+        for parent, folders, leaves in os.walk(folder, followlinks=False):
+            for name in folders:
+                path = _path(workspace.root, Path(parent) / name, directory=True)
+                actual_dirs.add(path.relative_to(workspace.root).as_posix())
+            for name in leaves:
+                path = _path(workspace.root, Path(parent) / name)
+                actual_files.add(path.relative_to(workspace.root).as_posix())
+        if actual_files != expected_files or actual_dirs != expected_dirs:
+            raise ValueError("static skill has unapproved support files or directories")
 
 
 class _ApprovedBackend(BackendProtocol):
@@ -370,7 +491,8 @@ class StaticSkillService:
             workspace = self._store.workspace
             _names(workspace, profile["files"])
             reads = _ReadSet(workspace.root, max_read_bytes=2 * MAX_STATIC_SKILL_BYTES,
-                             max_read_calls=2 * (MAX_STATIC_SKILL_ENTRIES + 1))
+                             max_read_calls=2 * (1 + sum(1 + len(file.get("support_files", []))
+                                                       for file in profile["files"])))
             raw = reads.read(workspace.root / PROFILE_PATH)
             if raw != self._profile_json.encode("utf-8"):
                 raise ValueError("static skill profile original differs")
@@ -379,6 +501,11 @@ class StaticSkillService:
                                  expected_bytes=file["bytes"])
                 if raw != bodies[file["virtual_path"]]:
                     raise ValueError("static skill body differs from approved renderer")
+                for resource in file.get("support_files", []):
+                    raw = reads.read(workspace.root / resource["path"], expected_hash=resource["sha256"],
+                                     expected_bytes=resource["bytes"])
+                    if raw != bodies[resource["virtual_path"]]:
+                        raise ValueError("static skill support file differs from approved original")
             reads.finish()
             _names(workspace, profile["files"])
             return bodies
@@ -389,6 +516,16 @@ class StaticSkillService:
         if type(skill_id) is not str:
             raise StaticSkillError()
         matches = [file for file in self.profile["files"] if file["skill_id"] == skill_id]
+        if len(matches) != 1:
+            raise StaticSkillError()
+        return self._validate()[matches[0]["virtual_path"]].decode("utf-8")
+
+    def resource(self, skill_id: str, resource_path: str) -> str:
+        """Read one exact frozen support file without granting script execution."""
+        if type(skill_id) is not str or type(resource_path) is not str:
+            raise StaticSkillError()
+        matches = [resource for file in self.profile["files"] if file["skill_id"] == skill_id
+                   for resource in file.get("support_files", []) if resource["resource_path"] == resource_path]
         if len(matches) != 1:
             raise StaticSkillError()
         return self._validate()[matches[0]["virtual_path"]].decode("utf-8")
@@ -408,9 +545,16 @@ class StaticSkillService:
         return static_skill_section(self.profile)
 
 
-def _skill_list(skills: list[SkillMetadata]) -> str:
-    return "\n".join(f"- **{skill['name']}**: {skill['description']}\n"
-                     f"  -> read_skill(skill_id={json.dumps(skill['name'])})" for skill in skills)
+def _skill_list(skills: list[SkillMetadata], profile: dict[str, Any] | None = None) -> str:
+    lines = []
+    originals = ({file["skill_id"]: file["always_loaded_body"] for file in profile["files"]
+                  if "always_loaded_body" in file} if profile is not None else {})
+    for skill in skills:
+        lines.append(f"- **{skill['name']}**: {skill['description']}\n"
+                     f"  -> read_skill(skill_id={json.dumps(skill['name'])})")
+        if skill["name"] in originals:
+            lines.append("\nComplete always-loaded Skill original:\n" + originals[skill["name"]])
+    return "\n".join(lines)
 
 
 def static_skill_section(profile: dict[str, Any]) -> str | None:
@@ -420,9 +564,10 @@ def static_skill_section(profile: dict[str, Any]) -> str | None:
         return None
     native = SkillsMiddleware(backend=_ApprovedBackend(profile["files"], {}),
                               sources=[(VIRTUAL_ROOT, "Approved static")], system_prompt=None)
-    return STATIC_SKILL_PROMPT.format(skills_locations=native._format_skills_locations(),
+    prompt = STANDARD_SKILL_PROMPT if profile["renderer"] == STANDARD_RENDERER else STATIC_SKILL_PROMPT
+    return prompt.format(skills_locations=native._format_skills_locations(),
         skills_load_warnings="", skills_list=_skill_list(
-            cast(list[SkillMetadata], [file["metadata"] for file in profile["files"]])))
+            cast(list[SkillMetadata], [file["metadata"] for file in profile["files"]]), profile))
 
 
 class FrozenSkillsMiddleware(SkillsMiddleware):
@@ -434,8 +579,9 @@ class FrozenSkillsMiddleware(SkillsMiddleware):
         bodies = {file["virtual_path"]: b"" for file in profile["files"]}
         # Exact originals replace these placeholders before SDK loading.
         backend = _ApprovedBackend(profile["files"], bodies, self._check_resources)
+        prompt = STANDARD_SKILL_PROMPT if profile["renderer"] == STANDARD_RENDERER else STATIC_SKILL_PROMPT
         super().__init__(backend=backend, sources=[(VIRTUAL_ROOT, "Approved static")],
-                         system_prompt=STATIC_SKILL_PROMPT if profile["enabled"] else None)
+                         system_prompt=prompt if profile["enabled"] else None)
 
     def _check_resources(self) -> None:
         backend = cast(_ApprovedBackend, self._backend)
@@ -448,7 +594,7 @@ class FrozenSkillsMiddleware(SkillsMiddleware):
 
     def _format_skills_list(self, skills: list[SkillMetadata]) -> str:
         # Native catalog formatting otherwise assumes an unregistered read_file.
-        return _skill_list(skills)
+        return _skill_list(skills, self._service.profile)
 
     def before_agent(self, state: Any, runtime: Any, config: RunnableConfig) -> Any:
         self._service._validate()
@@ -495,6 +641,11 @@ def prepare_run_static_skills(store: ApplicabilityStore | CandidateWorkspace,
         for file in profile["files"]:
             (workspace.root / NAMESPACE / file["skill_id"]).mkdir()
             store.io._publish(f"{NAMESPACE}/{file['skill_id']}", "SKILL.md", bodies[file["virtual_path"]])
+            for resource in file.get("support_files", []):
+                target = workspace.root / resource["path"]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                store.io._publish(target.parent.relative_to(workspace.root).as_posix(), target.name,
+                                  bodies[resource["virtual_path"]])
         store.io._publish("", PROFILE_PATH, encode(profile).encode("utf-8"))
         read_run_static_skills(store, profile)
         return profile

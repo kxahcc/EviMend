@@ -143,7 +143,7 @@ class _DemoModel:
             self._receipt(messages[-1]["content"])
         import re
 
-        skill = re.search(r"dfx-[a-f0-9]{56}", canonical(messages))
+        skill = re.search(r'read_skill\(skill_id="([a-z0-9-]+)"\)', canonical(messages).replace('\\"', '"'))
         source_sha = self.task["source_snapshot_sha256"]
         plan: dict[str, Any] = {"task_id": self.task["task_id"], "run_id": self.run_id,
             "diagnosis_id": "diagnosis-1", "plan": {"source_snapshot_sha256": source_sha,
@@ -156,7 +156,7 @@ class _DemoModel:
         steps: list[tuple[str, dict[str, Any]]] = [
             ("read_log", {}), ("read_source", {"path": "src/main.ets"}),
             ("record_diagnosis", {"path": "src/main.ets", "line": 1, "reason": "invalid toy value violates required output"}),
-            ("read_skill", {"skill_id": skill.group() if skill else "missing"}),
+            ("read_skill", {"skill_id": skill.group(1) if skill else "missing"}),
             ("record_obligation", {"obligation_id": "preserve-value", "statement": "preserve required value semantics",
                                    "evidence_ids": ["source-1"]}),
             ("plan_repair_action", {"plan_json": canonical(plan)}),
@@ -525,7 +525,7 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
         previous_report = None
         if approval_path.exists():
             raise ValueError("competition approval already exists; choose a new work ID")
-        knowledge, entry_ids = prepare_domain_knowledge(repo / "resources/skills", library, task, run_id)
+        knowledge, entry_ids = prepare_domain_knowledge(repo / "skill", library, task, run_id)
         _atomic_json(approval_path, knowledge.approval.model_dump(mode="json"))
     executor = LocalApplicationExecutor(execution, managed_root=managed,
         allow_application=policy["execution"]["allow_application_experiments"],

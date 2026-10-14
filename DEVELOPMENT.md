@@ -1,6 +1,6 @@
 # 项目蓝图与开发导览
 
-状态：当前开发入口。最后维护：2026-10-13。
+状态：当前开发入口。最后维护：2026-10-14。
 职责：先用通俗语言说明要做什么、如何做和重点在哪，再提供文件导航。这里是设计的概览；具体技术决策以开发设计为准，实际进度以 STATUS 为准。
 
 ## 1. 我们最终要做出什么
@@ -64,7 +64,7 @@ flowchart LR
 
 **我们的重点是成熟 runtime 上的领域 harness。** Skills 属于方法设计和交付的一部分：把经验变成有适用前提、查证分支、保留行为及退出条件的过程，例如“容量与元素数怎么检查”。贡献通过可迁移程序、选择/更新机制和效果证明，文件数量不作为成绩。基础模型继续规划通过云端 API 接入通用大模型，不规划参数微调。
 
-正式通用领域过程位于 `resources/skills/bounds.json`、`lifecycle.json`、`recursion.json` 和 `dynamic_pattern.json`，分别指导边界、生命周期、递归进展及动态模式检查。每份 ExperienceContent 都包含触发条件、前提与未知问题、诊断修复步骤和分支、保留行为、反例及退出条件，不包含 data_B 的实际答案。competition 由主机批准并冻结这些原字节，再通过已有检索、三态交接和 read_skill 提供完整过程；是否带来收益仍须对照验证。
+根目录 `skill/` 是唯一的 Skill 维护和竞赛提交入口。`bounds/`、`lifecycle/`、`recursion/`、`dynamic-pattern/` 各有标准 `SKILL.md`，使用 YAML 的 name/description 和可读 Markdown 保存前提、查证步骤、保留行为及反例。新增自设计或外部 Skill 直接放入独立子目录，配套资料、脚本和模板放在该包内，不再维护 JSON 定义。competition 动态发现并冻结这些原文，复用 SDK 目录解析及现有 read_skill：启动只给名称与触发描述，正文和引用资料按需读取。脚本读取不会自动执行，外部工具要求须另行接纳；实际验收与效果边界见 STATUS。
 
 任务内 context、memory 和 Skills 服务于同一修复决定。完整历史留在本机，任务记忆保存假设、证据、义务和候选检查；模型每步看到按修复阶段构建的决策工作集。定位时重点是竞争根因、矛盾与待查证问题，改代码时是恢复条件和保留行为，失败后是原候选反例和修订问题。竞赛配置用 decision_frontier 复用当前已保存决策，展示具体问题与反证入口；repair_frontier 筛选原文，跨诊断保留最近实际失败，并给移出探索留下有界的版本回读导航。必要工具正文只发送一份，完整语义和原历史保持。任务语义记忆是增量条目，通用语义摘要在竞赛入口尚未启用；这些安排不证明模型效果。方法与能力边界见 [设计第7.1节](docs/development/system-design-draft.md#71-以当前修复决定组织工作上下文)。
 
@@ -159,7 +159,6 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `src/dfx_agent/` | Python 证据与修复 Agent、候选工作区、SDK 闭环、云端请求和本机检查通道、竞赛交付及受控策略；实际验收见 STATUS，模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 competition / repair / resume / aggregate / export / verify-export 入口 |
 | `scripts/bootstrap.py`、`setup.cmd`、`dfx.cmd` | 无 PowerShell 的一次安装/外部环境清理、仓库快捷启动；初始安装需要普通 Python 3.11+，不借用 Codex 路径 |
-| `dfx.cmd`、`setup.cmd` | 安装后的标准命令快捷入口及首次受管安装入口；内部依赖既有 PowerShell 7 后端，实际安装验收状态见 STATUS |
 | `scripts/local.ps1` | 历史研究/导出及 PS 开发兼容入口；生产 competition、安装和基础检查已由 Python 管理入口承担，真实实验开关仍关闭 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
 | `scripts/local_bootstrap.ps1`、`scripts/local_test.ps1`、`scripts/local_quality.ps1` | Job 内的固定依赖安装、pytest 和文档/Ruff/Pyright 检查，不接受任意 shell 命令 |
@@ -181,6 +180,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_knowledge_run.py`、`tests/test_knowledge_sdk.py`、`tests/test_knowledge_reporting.py` | 批准知识复制、实际 SDK/模拟请求、预算与只读恢复、查询/回执全文审计、同知识矩阵及迁移导出；不证明语义适用或修复收益 |
 | `tests/test_solver_visibility.py`、`tests/test_applicability_handoff.py`、`tests/test_applicability_sdk.py`、`tests/test_applicability_provider.py`、`tests/test_applicability_reporting.py` | 实际发送依据、三态完整指导、未知回退、兄弟结果未见、共同预算、恢复与原件审计、同工具对照及迁移导出 |
 | `tests/test_static_skills.py`、`tests/test_static_skill_handoff.py`、`tests/test_static_skill_sdk.py`、`tests/test_static_skill_resume_cache.py`、`tests/test_static_skill_reporting.py` | 静态编译、原生目录、完整读取、共同预算、固定/模拟 SDK 失败后修订、恢复前漂移拒绝、实际可见性、启停对照及私有导出；合成调用不证明修复收益或学习效果 |
+| `tests/test_domain_skills.py`、`tests/test_standard_skill_packages.py`、`tests/test_skill_resources.py` | 根目录标准 Skill 动态接入、原文/引用资产冻结、按需及显式强加载、旧格式兼容和实际 SDK/Mock 读取恢复；不认证模型选择或修复收益 |
 | `tests/test_working_context.py` | 显式焦点、来源复核、义务/证据闭包、历史反例范围、冻结回读和必要包超限的合成反例；不证明实际模型已使用或效果 |
 | `tests/test_working_context_scale.py` | 同一千文件合成任务的 off/on 分析器测量及原默认预算复验；重复/不同内容分开，部分 I/O 代理与总调用耗时分开，不是模型或应用效果评测 |
 | `src/dfx_agent/working_context_plan.py`、`tests/test_working_context_plan.py`、`tests/test_working_context_handoff.py` | SDK 可见工具结果到当前焦点、必要上下文和实际发送；冻结来源、完整组、后续检查进展与崩溃/未知恢复的合成验收 |
@@ -214,9 +214,8 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `resources/preparation/case-oracles.json` | 两个候选案例的有限接口输入与独立预期；仅供 evaluator，应用准入待核定，不进入求解上下文 |
-| `resources/skills/bounds.json`、`lifecycle.json`、`recursion.json`、`dynamic_pattern.json` | 四类正式通用 ExperienceContent：触发、前提/未知问题、步骤/分支、保留行为、反例与退出条件；不含 data_B 答案，不表示验证收益 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
-| `skill/` | 竞赛模板保留位置；正式通用领域过程在 `resources/skills/` |
+| `skill/` | 唯一 Skill 源库与提交入口；四类标准 SKILL.md 及后续外部 Skill 的 references/scripts/assets 均放在所属包内。它们是产品指导资源，不采用设计文档的状态头；格式由锁定 SDK 解析及软件测试核验 |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
 | `configs/local-runtime.json` | 本机资源/清理策略；合成 Run、Init、测试、质量、离线 Agent、competition、聚合和 Export 的受管限制与共同磁盘预算，真实实验开关保持 false，字段语义见设计与契约 |
 | `configs/competition-demo.json`、`configs/competition-cloud.template.json` | mock_demo 软件演示配置与云端/完整工程接纳模板；模板不是当前获准的真实实验入口 |
@@ -258,7 +257,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `knowledge_handoff.py` | 普通经验搜索/回读 SDK 工具、查询容量预检及实际调用/回执全文重算；历史指导不升级为当前事实 |
 | `solver_visibility.py` | 在实际模型请求发出前固定最终输入；从完整已发送结果与工作上下文取得可见依据，摘要不授予事实引用权限 |
 | `applicability_handoff.py` | 三态准备、审查和回读 SDK 工具；绑定实际输入焦点，保留完整指导、未知问题和调用来源，支持同工具关闭对照 |
-| `static_skills.py` | 从 run 批准人工知识生成冻结过程正文/清单，复用原生 SkillsMiddleware 并核验资源和缓存；开启注入目录，关闭保留相同正文和读取能力 |
+| `static_skills.py` | 将批准的标准 Skill 原文/配套文件冻结到 run，复用原生 SkillsMiddleware；保留旧人工投影的历史渲染与回读，开启注入目录，关闭保留相同读取能力 |
 | `version_skill_contracts.py`、`version_skills.py` | 候选验证与已发表版本的不同启动批准、完整原件/祖先成本、原生 SDK 过程消费及原批准恢复；新代程序接口的实际验收和 CLI 边界见 STATUS/原型说明 |
 | `feedback_contracts.py`、`feedback.py` | 核验已停止开发运行，保存可独立回读的反馈原件及完整待审核经验过程；人工提议；模拟提炼由独立 LearningStore 承担，均不自动入库或晋升 Skill |
 | `learning_contracts.py`、`learning.py`、`learning_source.py` | 独立主机批准、完整日志/候选补丁输入、MockTransport 提炼与显式格式修复、成本及 model_inference 待审核草案；执行恢复绑定原根/capsule，独立来源包只读核完整原件和全操作成本，不取得新预算；版本消费入口与 Agent 启动边界另见 STATUS |
@@ -272,7 +271,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `working_context.py` | 独立从显式主机焦点和已登记记录构建只读上下文包，复核来源/版本和引用闭包；实际发送与历史材料由 working_context_plan/materials/projection 接入 |
 | `model_provider.py` | 官方 OpenAI SDK 的薄接入、模型配置预设及领域消息/预算边界；单次有界调用，旧 profile 只读回放；不自写 HTTP 请求协议或声明所有服务均已实测 |
 | `local_execution.py` | 固定完整工程、source_mapping、可选依赖准备及四项检查；独立原版/候选副本保存受管回执，未知执行不重做；真实环境尚未验证 |
-| `domain_skills.py` | 读取四份正式通用过程，以主机批准固定原字节、知识快照和静态选择；不学习、晋升或声明收益 |
+| `domain_skills.py`、`skill_packages.py` | 动态发现根目录标准 Skill 包，复用 SDK 元数据解析并桥接已有批准知识和冻结选择；保留原文及配套文本，不解析领域标题为另一套作者 schema，不学习或晋升 |
 | `competition.py` | 统一任务、配置、模型、本机检查和领域资源；保留失败修订及恢复原件，生成 competition-report.json、result.md 和私有 delivery.zip；mock_demo 只用模拟模型和合成判据 |
 | `offline_script.py` | 校验固定响应及模拟协议 JSON 脚本、策略与限额，建立隔离响应流；期望答案只供合成执行器 |
 | `reporting.py` | 从版本、诊断、模型/工具账本和检查重建最终摘要，核验补丁及可验证报告字段；不执行模型或应用 |

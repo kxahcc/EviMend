@@ -595,6 +595,9 @@ def _repair_knowledge(item: dict[str, Any], value: dict[str, Any]) -> tuple[str,
         return None
     tool = item["action"]["tool_name"]
     if tool == "read_skill":
+        if answer.get("resource_path") is not None:
+            return canonical(["skill_resource", answer["skill_id"], answer["snapshot_sha256"],
+                answer["projection_sha256"], answer["resource_path"], answer["body_sha256"]]), "latest_skill_resource"
         return canonical(["skill", answer["skill_id"], answer["snapshot_sha256"], answer["content_sha256"],
             answer["projection_sha256"], answer["body_sha256"], answer.get("version_id")]), "latest_complete_skill_version"
     if tool in {"search_experience", "read_experience"}:
