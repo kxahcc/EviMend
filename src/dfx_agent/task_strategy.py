@@ -109,8 +109,11 @@ Use actual failed-check feedback to revise the affected direction rather than re
 
 
 def build_system_prompt(features: PolicyFeatures, *, application_checks: bool = False,
-                        require_candidate_diagnosis: bool = False) -> str:
+                        require_candidate_diagnosis: bool = False, source_checks: bool = False,
+                        analysis_only: bool = False) -> str:
     """Return a strong shared task policy plus only the enabled method guidance."""
+    if sum((application_checks, source_checks, analysis_only)) > 1:
+        raise ValueError("verification modes are mutually exclusive")
     sections = [_BASE_STRATEGY]
     if features.rule_guidance:
         sections.append(_RULE_GUIDANCE)
@@ -133,24 +136,56 @@ def build_system_prompt(features: PolicyFeatures, *, application_checks: bool = 
             "Trust only returned stage receipts; missing, unknown or inconclusive stages are not passes.")
         prompt = prompt.replace("The observation is real within its synthetic scope", "The observation is real within its recorded scope")
         prompt = prompt.replace("available offline check", "available host-fixed local check")
+    if source_checks:
+        prompt = prompt.replace(
+            "The current offline check supplies synthetic evidence only; do not fabricate compiler, device, business, or regression runs.",
+            "The host-fixed checks execute the baseline and candidate source within the declared validation_scope, "
+            "using only the declared mocked_interfaces. Read the actual source_execution receipts. "
+            "A source check pass does not establish full application, device or platform-API correctness. "
+            "Do not request a device, SDK, signing or emulator unless an explicitly supplied check requires it.")
+        prompt = prompt.replace("The observation is real within its synthetic scope",
+                                "The observation is real within its recorded source-execution scope")
+        prompt = prompt.replace("offline workflow", "repair workflow")
+    if analysis_only:
+        prompt = prompt.replace(
+            "Produce a concrete, minimal repair supported by inspected evidence, then request the available verification.",
+            "Produce a concrete, minimal repair supported by inspected evidence and report it as an unverified proposal.")
+        prompt = prompt.replace(
+            "Freeze the complete draft through register_candidate and use only its returned immutable candidate_id with run_check.",
+            "Freeze the complete draft through register_candidate and report its immutable candidate_id. "
+            "No executable verification is configured: do not request or repeatedly call run_check trying to obtain a pass.")
+        prompt = prompt.replace(
+            "The current offline check supplies synthetic evidence only; do not fabricate compiler, device, business, or regression runs.",
+            "Verification remains not_run. Source reasoning is not executed evidence; "
+            "do not fabricate compiler, replay, device, business or regression results.")
+        prompt += ("\nThis is an analysis-only run. Use the supplied source and log to produce a diagnosis and patch. "
+                   "Do not stall waiting for device access or invent a runtime. Clearly separate inspected facts, "
+                   "inferred repair reasoning and missing executable validation.")
     return prompt
 
 
 def build_task_message(*, task_id: str, run_id: str, source_snapshot_sha256: str,
                        capabilities: frozenset[str], resume: bool, application_checks: bool = False,
-                       require_candidate_diagnosis: bool = False) -> str:
+                       require_candidate_diagnosis: bool = False, source_checks: bool = False,
+                       analysis_only: bool = False, validation_scope: str | None = None,
+                       mocked_interfaces: list[str] | None = None) -> str:
     """Serialize checked host identity without introducing task-data instructions."""
     require_identifiers([task_id, run_id, *capabilities])
     require_hash(source_snapshot_sha256)
     if not isinstance(resume, bool):
         raise TypeError("resume must be a boolean")
+    if sum((application_checks, source_checks, analysis_only)) > 1:
+        raise ValueError("verification modes are mutually exclusive")
+    if source_checks and (not validation_scope or not validation_scope.strip() or mocked_interfaces is None):
+        raise ValueError("source task requires validation scope and declared mocked interfaces")
     context = {
         "task_id": task_id,
         "run_id": run_id,
         "source_snapshot_sha256": source_snapshot_sha256,
         "capabilities": sorted(capabilities),
         "resume": resume,
-        "verification_level": "application_execution" if application_checks else "offline_synthetic",
+        "verification_level": ("source_execution" if source_checks else "not_run" if analysis_only else
+                               "application_execution" if application_checks else "offline_synthetic"),
         "application_verification": "not_run",
         "request": (
             "Continue the existing repair using registered evidence and durable receipts, within the original total budget."
@@ -161,4 +196,13 @@ def build_task_message(*, task_id: str, run_id: str, source_snapshot_sha256: str
     }
     if require_candidate_diagnosis:
         context["candidate_localization"] = "required: register_candidate must link a registered diagnosis with selected original root-cause lines"
+    if source_checks:
+        context.update(source_verification="not_run", validation_scope=validation_scope,
+                       mocked_interfaces=mocked_interfaces)
+    if analysis_only:
+        context.update(source_verification="not_run", validation_scope="analysis_only")
+        if not resume:
+            context["request"] = (
+                "Analyze the authorized snapshot and crash log, locate the cause, and prepare a behavior-preserving candidate.")
+        context["request"] += " No executable checks are configured; return an unverified proposal without waiting for runtime access."
     return json.dumps(context, ensure_ascii=False, sort_keys=True)

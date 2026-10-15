@@ -29,6 +29,12 @@ def _competition_receipt(result: dict) -> dict:
     fields = ("schema_version", "status", "accepted", "application_verification", "report_path",
               "candidate_count", "model_calls")
     receipt = {key: result[key] for key in fields}
+    if "source_verification" in result:
+        if (result["source_verification"] not in {"pass", "fail", "inconclusive", "not_run"} or
+                result.get("verification_level") not in {"not_run", "source_execution", "application_execution"}):
+            raise ValueError("invalid source verification console receipt")
+        receipt["source_verification"] = result["source_verification"]
+        receipt["verification_level"] = result["verification_level"]
     if (type(receipt["schema_version"]) is not int or receipt["schema_version"] < 1 or
             type(receipt["accepted"]) is not bool or
             any(type(receipt[key]) is not int or receipt[key] < 0 for key in ("candidate_count", "model_calls")) or

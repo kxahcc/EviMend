@@ -20,6 +20,7 @@ from .contracts import (
     Diagnosis,
     Evidence,
     RepairObligation,
+    execution_evidence_kind,
     require_hash,
     require_identifiers,
     require_path,
@@ -138,8 +139,8 @@ def candidate_focus_matches(diagnosis: Diagnosis, candidate: CandidatePatch, fac
             candidate.diagnosis_id is None or candidate.diagnosis_id != previous.diagnosis_id):
         return False
     return any(
-        fact.kind in ("local_execution", "application_execution") and
-        fact.execution_scope == ("application" if fact.kind == "application_execution" else "synthetic") and
+        fact.kind in ("local_execution", "source_execution", "application_execution") and
+        fact.execution_scope is not None and fact.kind == execution_evidence_kind(fact.execution_scope) and
         fact.evaluated_candidate_id == previous.candidate_id and
         fact.execution_snapshot_sha256 == previous.candidate_snapshot_sha256
         for fact in facts
@@ -387,8 +388,8 @@ class _Builder:
                 raise ValueError("model inference lacks its registered basis")
             if digest(item.statement.encode()) != item.artifact_sha256:
                 raise ValueError("model inference content hash changed")
-        elif item.kind in ("local_execution", "application_execution"):
-            if (item.execution_scope != ("application" if item.kind == "application_execution" else "synthetic") or
+        elif item.kind in ("local_execution", "source_execution", "application_execution"):
+            if (item.execution_scope is None or item.kind != execution_evidence_kind(item.execution_scope) or
                     item.evaluated_candidate_id is None or
                     item.location is not None or item.basis_ids):
                 raise ValueError("execution fact is not registered candidate feedback in the same scope")

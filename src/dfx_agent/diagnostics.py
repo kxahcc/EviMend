@@ -15,6 +15,7 @@ from .contracts import (
     RepairObligation,
     SourceLocation,
     admit_evidence,
+    execution_evidence_kind,
     require_identifiers,
     require_path,
     validate_references,
@@ -241,7 +242,7 @@ class AnalysisStore:
                     result.status != "fail" or result.idempotency_key != feedback.execution_id):
                 raise ValueError("feedback has no matching failed check and version")
             facts.append(admit_evidence({**identity, "record_id": feedback.evidence_id,
-                         "kind": "application_execution" if result.execution_scope == "application" else "local_execution",
+                         "kind": execution_evidence_kind(result.execution_scope),
                          "artifact_sha256": digest(result.model_dump_json().encode()), "statement": result.detail,
                          "execution_id": result.idempotency_key, "evaluated_candidate_id": feedback.candidate_id,
                          "execution_snapshot_sha256": feedback.candidate_snapshot_sha256, "execution_scope": result.execution_scope},

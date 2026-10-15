@@ -34,6 +34,7 @@ from .contracts import (
     Diagnosis,
     Evidence,
     RepairObligation,
+    execution_evidence_kind,
     require_hash,
     validate_references,
 )
@@ -289,10 +290,11 @@ class ApplicabilityStore:
             elif fact.kind == "model_inference":
                 if not fact.basis_ids or fact.execution_id is not None:
                     raise ValueError("frozen inference lacks its registered basis")
-            elif fact.kind == "local_execution":
+            elif fact.kind in ("local_execution", "source_execution", "application_execution"):
                 candidate = value["candidates"][fact.evaluated_candidate_id]
                 if (fact.execution_snapshot_sha256 != candidate["candidate_snapshot_sha256"] or
-                        fact.execution_scope != "synthetic" or fact.location is not None or fact.basis_ids):
+                        fact.execution_scope is None or fact.kind != execution_evidence_kind(fact.execution_scope) or
+                        fact.location is not None or fact.basis_ids):
                     raise ValueError("frozen execution candidate version differs")
             else:
                 raise ValueError("application evidence is not admitted in this slice")
@@ -338,7 +340,7 @@ class ApplicabilityStore:
                 return visited[identifier]
             visiting.add(identifier)
             fact = Evidence.model_validate_json(encode(value["evidence"][identifier]))
-            current = fact.kind == "local_execution"
+            current = fact.kind in ("local_execution", "source_execution", "application_execution")
             if current and (proposal.candidate_id is None or fact.evaluated_candidate_id != proposal.candidate_id or
                             fact.execution_snapshot_sha256 != proposal.candidate_snapshot_sha256):
                 raise ValueError("historical candidate evidence cannot be used as current support")

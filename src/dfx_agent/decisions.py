@@ -13,6 +13,7 @@ from .conditions import ConditionRecord, ConditionScope, ConditionStore
 from .contracts import (
     Contract,
     Record,
+    execution_evidence_kind,
     require_hash,
     require_identifiers,
     require_unique,
@@ -153,8 +154,8 @@ class DecisionStore:
         if (result is None or result.status != "fail" or result.idempotency_key != feedback.execution_id or
                 feedback.candidate_snapshot_sha256 != candidate["candidate_snapshot_sha256"] or
                 feedback.observation != result.detail or feedback.scope != result.execution_scope or
-                feedback.evidence_kind != ("application_execution" if result.execution_scope == "application"
-                                           else "local_execution") or feedback.link_authority != "model_inference"):
+                feedback.evidence_kind != execution_evidence_kind(result.execution_scope) or
+                feedback.link_authority != "model_inference"):
             raise ValueError("feedback has no matching saved failed check in the same scope")
         if not set(feedback.violated_obligation_ids) <= set(candidate["restores"] + candidate["preserves"]):
             raise ValueError("feedback obligation is not linked to the candidate")

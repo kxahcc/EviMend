@@ -12,6 +12,20 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
+ExecutionScope = Literal["synthetic", "source", "application"]
+ExecutionEvidenceKind = Literal["local_execution", "source_execution", "application_execution"]
+
+
+def execution_evidence_kind(scope: ExecutionScope | None) -> ExecutionEvidenceKind:
+    """Keep executed source tests distinct from test doubles and full applications."""
+    if scope == "synthetic":
+        return "local_execution"
+    if scope == "source":
+        return "source_execution"
+    if scope == "application":
+        return "application_execution"
+    raise ValueError("an unexecuted check cannot provide execution evidence")
+
 
 class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -61,7 +75,7 @@ class Record(RecordIdentity):
 
 class Evidence(RecordIdentity):
     source_snapshot_sha256: str | None = None
-    kind: Literal["log_observation", "source_fact", "model_inference", "local_execution", "application_execution"]
+    kind: Literal["log_observation", "source_fact", "model_inference", "local_execution", "source_execution", "application_execution"]
     producer: Literal["input", "source_reader", "model", "execution_backend"]
     artifact_sha256: str
     statement: str = Field(min_length=1)
@@ -72,7 +86,7 @@ class Evidence(RecordIdentity):
     execution_id: str | None = None
     evaluated_candidate_id: str | None = None
     execution_snapshot_sha256: str | None = None
-    execution_scope: Literal["synthetic", "application"] | None = None
+    execution_scope: ExecutionScope | None = None
 
     @model_validator(mode="after")
     def valid_provenance(self) -> Evidence:
@@ -83,6 +97,7 @@ class Evidence(RecordIdentity):
             "log_observation": "input", "source_fact": "source_reader",
             "model_inference": "model", "local_execution": "execution_backend",
             "application_execution": "execution_backend",
+            "source_execution": "execution_backend",
         }
         if self.producer != allowed[self.kind]:
             raise ValueError("evidence kind and producer disagree")
@@ -99,6 +114,9 @@ class Evidence(RecordIdentity):
                 raise ValueError("candidate execution evidence needs complete version and scope")
             require_hash(self.evaluated_candidate_id or "")
             require_hash(self.execution_snapshot_sha256 or "")
+        if self.kind == "source_execution" and (self.execution_scope != "source" or
+                self.evaluated_candidate_id is None or self.execution_snapshot_sha256 is None):
+            raise ValueError("source execution evidence requires its candidate version and source scope")
         if self.location and self.location.snapshot_sha256 != self.source_snapshot_sha256:
             raise ValueError("evidence location refers to another snapshot")
         if len(set(self.basis_ids)) != len(self.basis_ids) or self.record_id in self.basis_ids:

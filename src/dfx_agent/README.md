@@ -3,11 +3,11 @@
 状态：当前使用说明。最后维护：2026-10-15。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
-当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 保留固定响应和模拟模型协议，把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。新增 `competition` 统一主机配置、云端请求适配器、完整工程的本机检查、正式通用领域 Skill 和竞赛交付。统一入口的软件验收证据和未通过项见 [STATUS](../../docs/STATUS.md)。本批只用 MockTransport 与短时合成程序，不运行真实云端或 HarmonyOS 实验；合成 `offline_checked` 或 `synthetic_checked` 不能解释为应用修复成功。公开脱敏、真实环境接纳及修复效果仍待验证。
+当前产品在普通 Windows x64 本机分析应用源码和故障日志，调用云端模型定位、编辑并输出补丁；不要求完整 HarmonyOS 工程、平台 SDK、签名、真机或模拟器。默认 analysis 无执行配置，可选 --validation 接纳宿主真实源码回放及失败修订，--application 保留完整应用扩展。现有 Deep Agents 循环、上下文、Skills、预算、停止/恢复共用；repair/resume、旧离线聚合与 Export/Verify 保留其原模拟语义。实际软件证据见 [STATUS](../../docs/STATUS.md)；本阶段只做 MockTransport/短时软件自检，不启动真实模型或 data_B 修复实验，不把 synthetic 当成源码或应用成绩。
 
 ### 标准用户命令与部署
 
-**产品入口是安装后的 dfx CLI：给它经审核的任务与配置，自动定位、改代码、检查和根据失败修订，输出补丁及报告。** 当前交付范围为 Windows x64 完整项目目录；首次安装需要普通 Python 3.11+ 引导，安装后使用项目环境中的标准 console entry。生产 CLI、安装、受管测试不依赖 PowerShell 或 Codex；不改全局 PATH、pip 或注册表。独立 wheel 和跨平台不在当前范围，具体验收见 STATUS。
+**产品入口是安装后的 dfx CLI：给它经审核的源码/日志任务和模型配置，即可定位、修改并交出补丁；提供验证器后自动检查和按反馈修订。** 当前交付范围为 Windows x64 完整项目目录；首次安装需要普通 Python 3.11+ 引导，安装后使用项目环境中的标准 console entry。生产 CLI、安装、受管测试不依赖 PowerShell 或 Codex，不改全局 PATH、pip 或注册表。独立 wheel 和其他操作系统尚未验收。
 
 首次安装从项目根执行 `setup.cmd`。它先建立原生 Windows Job 限额，再下载核对固定 uv/Python，执行 `uv sync --locked` 并检查 SDK、dfx help/version；完成后才记录环境身份。已有环境且依赖已缓存时用 `setup.cmd --offline`。安装产物集中在 `.dfx-local`；资源盘点不完整、包未缓存或同步失败时明确停止，不改身份文件冒充安装。不需要登录或安装 Codex。
 
@@ -26,24 +26,33 @@
 .\dfx env clean --scope cache --apply --plan-id PREVIEW_PLAN_ID
 ```
 
-### 一次配置模型和应用
+### 配置模型与可选验证
 
 模型请求由锁定的官方 OpenAI Python SDK 发起。默认把服务地址、模型 ID、Key、模式和单任务预算统一填在 `configs/model.local.json`；`configs/*.local.json` 已被 Git 忽略。OpenAI 与 DeepSeek 有地址预设，通义百炼、智谱等同协议服务使用 `compatible` 并填写服务的 Chat API base URL。具体型号、Token 字段和厂商思考扩展仍须核验；不声称所有国产型号均已实测，也不直接支持 Anthropic/Gemini 原生协议。项目代码保留领域消息转换、预算与未知结果保护，不自写供应商 HTTP 客户端。
 
-先创建私有文件，再用编辑器填写 model、api_key 和 budget；不必把 Key 或模型参数发到对话中，也不必设置环境变量。`model` 必须填写服务实际提供的 API ID，示例中的占位值不可用于实测。私有文件不得放进应用工程、任务快照或运行目录。另复制并填写 `configs/harmonyos-app.template.json` 为应用 profile：完整工程、Node/ohpm/Hvigor/hdc 路径、设备/签名和独立业务检查只配置一次。
+先创建私有文件，在编辑器填写 model、api_key 和 budget；不必把 Key 或参数发到对话，也不必设置环境变量。model 必须是服务实际 API ID，占位值不可实测。私有文件不放进任务、可执行源码工程或运行目录。默认生成 analysis 配置即可分析/产出未验证补丁，不用先配置任何设备或应用工具链：
 
 ```text
 dfx.cmd configure --init-model
 # 在编辑器中填写 configs/model.local.json
 dfx.cmd doctor
-dfx.cmd doctor --application configs/my-app.json
-dfx.cmd configure --application configs/my-app.json --save configs/my-run.json
+dfx.cmd configure --save configs/my-run.json
 dfx.cmd --target reviewed/task01 --config configs/my-run.json --name task01
 ```
 
-`configure --init-model` 从受跟踪的 `configs/model.example.json` 创建私有文件，已有文件不覆盖。`configure --application ... --save ...` 默认读取该文件，也可通过 `--model-config configs/NAME.local.json` 指定另一份；模型与预算不再混用命令行覆盖。生成的运行配置保存不含 Key 的参数及私有文件位置，Key 在发送时直接读取，不注入环境变量、不写进日志、报告或交付包。修改模型/预算后生成新的运行配置用于新任务；`--resume` 沿用原运行参数和剩余额度，但允许原私有文件中的 Key 轮换。私有文件切换服务地址时，旧运行拒绝发送，避免将新服务的 Key 发往旧地址；不同服务可使用不同 NAME.local.json。私有配置包含明文 Key，应只保留在本机；Git 忽略不等于加密。项目资源清理不删除 configs 中的私有文件，撤销凭据时自行删除。
+`configure --init-model` 从 configs/model.example.json 创建私有文件，已有文件不覆盖。`configure --save ...` 默认读该文件，--model-config configs/NAME.local.json 可选择另一份；不能再混用模型/预算命令行覆盖。生成配置保存不含 Key 的参数与私有位置，发送时直接读 Key，不注入环境或记录到日志/交付。更改模型/预算为新任务重新 configure；恢复保留原参数/剩余额度，允许 Key 轮换。私有文件切换 endpoint 时旧运行拒绝发送，不把新服务 Key 发到旧地址。明文 Key 只留本机，Git 忽略不等于加密，项目清理不删 configs 私有文件。
 
-示例 budget 的含义：`max_calls` 模型调用次数、`max_known_tokens` Token 预算、`max_output_tokens` 单次输出上限、`max_seconds` Agent 时间上限、`max_candidates` 补丁候选数、`max_tool_calls` 工具调用次数，均按单个任务限制。发送前保守预留输入和完整输出额度；缺 usage 或未知结果不伪造费用。最后候选已完成全部可信应用检查、定位完整且无未知调用/其他错误时，后续仅以 model_budget、wall_time 或 action_budget 终止不撤销接受；停止原因和完整成本仍保存，不追加调用或放宽预算。未知调用、其他错误、未完成检查或最新候选失败仍不能接受。它不是全数据集累计预算或金额上限，批测须另按确认的总预算分批停止。默认数值只是软件准备值，首次真实测试前按账户额度调整。
+需要源码级验证时，复制并填写 [source-validation.template.json](../../configs/source-validation.template.json)，作为独立 source profile；模板是字段说明，不是已经适配所有 .ets 的运行器。填写实际宿主运行时/独立检查文件的绝对路径、project_root、源码映射、四阶段 argv、oracle_sha256/independent_oracles、原版故障标记和非零退出码。validation_scope 明确相关函数/输入、语义和排除项，mocked_interfaces 显式列替代接口（没有时为 []）。配置完成后：
+
+```text
+dfx.cmd doctor --validation configs/my-source.json
+dfx.cmd configure --validation configs/my-source.json --save configs/my-source-run.json
+dfx.cmd --target reviewed/task01 --config configs/my-source-run.json --name source01
+```
+
+--validation 与 --application 互斥；后者只在另选完整 HarmonyOS 验证时使用 configs/harmonyos-app.template.json。缺设备/SDK 不阻塞默认分析或已接纳的宿主源码检查。本轮尚未授权真实调用/数据修复，上述真实运行示例须等待相应开关与数据边界接纳，不由 configure 自动放行。
+
+示例 budget 的含义：`max_calls` 模型调用次数、`max_known_tokens` Token 预算、`max_output_tokens` 单次输出上限、`max_seconds` Agent 时间上限、`max_candidates` 补丁候选数、`max_tool_calls` 工具调用次数，均按单个任务限制。发送前保守预留输入和完整输出；缺 usage/结果不伪造费用。最新候选已完成所选层级必要检查、定位完整且无未知调用/其他错误，之后仅因 model_budget/wall_time/action_budget 无法生成结束语，不撤销可信结果，停止原因/成本保留。缺检查、新候选失败或未知仍阻断；analysis 不因有补丁获得验证接受。这不是全数据集累计或金额限额，批测另按总预算分批停止；准备数值实测前调整。
 
 同一私有文件的 `network` 管理网络容错：`max_retries` 是首次请求之后的重试上限，允许 0–5；`request_timeout_seconds` 是一次逻辑模型调用的总时限，包含所有尝试和退避等待；`connect_timeout_seconds` 是每次连接的上限。准备值见 `configs/model.example.json`，设 5 次重试意味着最多 6 次网络尝试。生成运行配置时同时固定这些参数；调整后为新任务重新 configure，恢复不增加原额度。
 
@@ -51,19 +60,29 @@ dfx.cmd --target reviewed/task01 --config configs/my-run.json --name task01
 
 模型调用次数按逻辑调用计，安全失败的网络尝试另行展示 `model_network_attempt` / `model_network_finished`。完整响应的网络计数保存到原调用的 `response_metadata.dfx_network`；失败时侧录保留已观察计数，调用账本仍按未知结果处理，不从侧录推算 Token 或费用。只有已知未进入推理的连接失败/429 重试沿用本次 Token 预留；没有完整 usage 时停止后续模型调用。旧冻结运行配置/profile 没有 network 字段时保持原零重试语义，不在旧运行上自动启用；重新 configure 的私有文件未填 network 时采用当前配置默认值。
 
-`doctor` 不带应用参数时检查默认私有模型文件的字段、Key 格式和占位模型名，不发送请求；`doctor --application ...` 检查应用声明的文件和 oracle 字节。两者的 configured 都不代表真实服务、SDK 版本、签名、设备连接或应用运行已验证。`configure` 不联网、不打开实验开关，不覆盖已有运行配置；可先保存尚缺应用环境的配置，并报告 blocked。全局 `--output-format json` 放在 configure/doctor 前可读取结构化结果。
+doctor 默认只检查私有模型字段/Key 格式和占位型号；--validation 加源码运行器/判据/范围的只读预检，--application 加可选应用预检。configured 只表示声明可读取，不证明服务可用、ArkTS/宿主语义等价或故障已经复现。configure 不联网、不执行代码/设备、不打开开关或覆盖配置；未填妥验证路径可报告 blocked，但默认 analysis 无完整应用前置。全局 --output-format json 放在 configure/doctor 前可读结构化结果。
 
-环境变量仍作为旧配置/自动部署的可选方式：显式使用 `configure --provider deepseek --model MODEL_ID --key-env DEEPSEEK_API_KEY --application ... --save ...`，此路径不读取私有文件。指定文件后缺 Key 会报错，不静默改读环境变量。
+环境变量仍是兼容选项：显式使用 `configure --provider deepseek --model MODEL_ID --key-env DEEPSEEK_API_KEY --save ...`，按需另加 --validation 或 --application，该路径不读私有文件。文件模式缺 Key 报错，不静默回退环境变量。
 
 DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文件设 `thinking_mode: "enabled"` 时保持完整历史并关闭裁剪（旧环境模式可用 `--thinking enabled`）。通用 compatible 预设不推测厂商思考模式；首次接入按官方协议核对，再固定模式与上下文策略。厂商特殊参数不能当成所有兼容服务的通用字段。模型通信测试使用官方 SDK 的 MockTransport；真实服务测试尚未开展。
 
-应用环境采用两层准备：SDK、签名和配对设备由人先提供；随后 Agent 自动执行固定的项目依赖准备、构建、部署/回放、业务与回归检查。可选 preparation 在独立原版和候选工程内执行，源码绑定与回执仍校验；失败报告环境问题，未知结果不重复安装。npm cache 指向受管目录，ohpm/Hvigor 的缓存参数须按实际工具版本明确配置。现模板中的回放/检查入口是占位值，真实 HarmonyOS 首例仍需接纳，不能把合成检查当作完成该适配。
+宿主源码验证由 Agent 在独立原版/候选副本运行固定检查；可选 preparation 只做批准的项目依赖准备，未知不重复执行，不安装全局运行时或平台。build 在 source 模式指局部语法/装载，target 回放故障输入，behavior/regression 检查独立预期和原有行为。实际装载当次相关源码，披露抽取/转译、平台 mock 和未覆盖语义；不以 Python 重写正确算法、旧日志重读或固定结果替代。只有另选 application 时，才需要 SDK/签名/设备和应用场景接纳。
 
-`--target` 是已经审核的任务快照目录，含 task.json、source、crash.log 和清单；不是直接传任意原工程即可实验。输入位于部署项目中且不得来自原始 data_B、archive 或指令目录；完整工程、验证命令和业务判据通过 --config 绑定。真实配置尚未接纳时只运行 --demo。省略 --name 时自动生成会话名；工作目录和批准路径自动派生。`--resume NAME` 消费该新运行保存的原位置/profile，并继续原准入和预算检查，不自动替换配置。旧运行没有新位置文件时沿下面兼容入口显式提供参数；源码/依赖变更仍可能使恢复被拒绝，不能通过新前端绕过。
+--target 是审核过的任务快照，含 task.json、source、crash.log 和清单，不直接执行任意原工程指令。输入位于部署项目中，不直接传原始 data_B、archive 或指令目录；原始数据只读，任务另行准备。analysis 只绑定模型/预算；source/application 通过 --config 绑定相应执行源码和固定判据。真实条件未接纳时仅做受管合成自检。省略 --name 自动命名，工作根/批准路径自动派生。--resume 沿原输入/profile/预算，不替换配置；旧位置文件缺失用兼容显式参数，源码/依赖变化仍可能拒绝恢复。
 
-`--workspace` 可显式指定完整部署目录；没有时从当前目录向上寻找，或读取 DFX_PROJECT_ROOT。`--config` 是生成的不含 Key 的 provider/model、应用检查和预算运行配置；凭据按其中的私有文件位置读取，旧环境配置按指定环境名读取。普通命令不会自动修改真实实验开关。
+--workspace 可指定完整部署目录，否则向上寻找或读取 DFX_PROJECT_ROOT。--config 保存不含 Key 的模型/预算及可选检查；凭据按私有文件位置或兼容环境名读取。普通命令不改变真实实验开关。
 
-`working_context.history_selection` 可选 `legacy_refill`（缺省，保留旧计划语义）、`repair_relevance`（按已登记修复引用选择）或 `repair_frontier`（额外保护未吸收探索与换根因后的最近实际失败）。演示配置使用 frontier；其 `exploration_read_groups` 控制可选探索组上限，仍受共同视图预算约束。最新故障日志、必要义务、最近实际失败的原候选登记/检查、尚未冻结的编辑、完整知识读取及近期工具组优先保留，无关旧思考和重复读取可移出。旧候选失败不成为当前候选事实；必要内容超过预算停止，Graph 原历史不删除。新增分支的运行验收状态见 STATUS。`competition-report.json` schema 3 的 `localization_result.final.selected` 是最新候选实际关联的所选根因，alternatives 单列；竞赛运行在 register_candidate 冻结前要求传入已登记的 diagnosis_id，该诊断须选中假设并给出有效原版根因行。缺项拒绝且保留草稿：补充完整诊断后可用同一草稿重新登记，无需重做编辑。旧记录最终位置缺项仍使接受保持 false，实际应用检查结果独立保存；新会话冻结这一要求，恢复不能改写旧语义。非空根因行不表示定位正确。
+### 无设备的真实源码回放示例
+
+[resources/source-validation/example](../../resources/source-validation/example/) 提供普通 Node.js 示例，无 npm 包或平台 SDK。project/src/last-value.js 是故障源码，project 外的 oracle.cjs 用 vm.Script 实际装载原版/候选字节；vm 不是安全沙箱，仅运行已审核示例。build 检查语法，target 回放单元素输入并要求原版 LastValueIndexFault/退出 7，behavior 拒绝固定取索引 0 的错误修复，regression 检查空输入/错误类型异常、冻结数组与合法 undefined 元素。
+
+按 source-validation.template.json 填实际 node.exe 与 oracle.cjs 绝对路径，project_root 指向该示例 project，四阶段使用同一 oracle 和对应阶段参数；四处 oracle_sha256/independent_oracles.sha256 都填实际 oracle 字节摘要，baseline_target_exit_codes=[7]，baseline_fault_pattern=LastValueIndexFault，mocked_interfaces=[]，validation_scope 声明纯 JavaScript 末元素逻辑。prepare 任务时只取 project/src 与相应故障日志，oracle 留在 evaluator；不要把示例的已知修法或隐藏检查放入真实求解上下文。完整软件接线见 tests/test_source_replay_example.py，运行仍经受管入口。
+
+该示例是独立 JavaScript 软件检查，不来自 data_B，不是通用 .ets/ArkTS 编译器、平台模拟器或已适配竞赛数据的证明。真实 .ets 按案例审查可执行相关逻辑、抽取/转译语义与 mock；缺适配仍能 analysis/产出补丁，但不报告 source_verified。源码级通过只覆盖声明输入和行为，平台生命周期/原生接口等未覆盖保持未知。
+
+### 上下文、诊断和运行反馈
+
+`working_context.history_selection` 可选 `legacy_refill`（缺省，旧计划语义）、`repair_relevance`（按已登记修复引用）或 `repair_frontier`（保护探索与换根因后实际失败）。演示使用 frontier，探索组数仍受共同字节预算。日志、义务、原候选失败、草稿、完整知识与近期组优先，重复无关内容可移出；旧候选不冒充当前事实，必要内容超限停止，Graph 历史保留。competition-report schema 3/4 的 localization_result.final.selected 只取最新候选关联所选根因，备选单列。register_candidate 冻结前须传完整 diagnosis_id/所选假设/原版根因行，缺项保留草稿可补诊断再提交。实际检查与定位分开，缺定位不接受但不抹掉检查事实；旧会话语义不改，非空行不证明正确。
 
 frontier 可显式设置 `context_layout: "decision_layers"`，以阶段问题、假设/未知、事实/推断、运行条件/业务义务、候选检查和失败修订组织原语义记录，替换默认 `record_panel`。竞赛演示与云端模板选择 `decision_frontier`，进一步读取当前范围匹配的已保存决策，并展示原待证问题、区分问题和反证引用；检查和草稿状态优先，提示不要求每个未知都追加调查。各布局冻结到 profile，旧布局/历史不变。编译回组须完整还原原投影，不能只发送摘要却认证原文可见；建议不代替执行权限或最终接受。新发送计划另外给被移出原版/冻结候选读取提供有界回读导航，跨诊断找回旧探索；导航可因窗口不足省略，不挤掉已选原文，历史草稿不冒充可复原版本。必要未表达工具正文只发送一份，实际完整组保持；SDK 自动摘要仍关闭，竞赛入口尚无通用语义摘要开关。软件验收状态见 STATUS。
 
@@ -73,7 +92,7 @@ frontier 可显式设置 `context_layout: "decision_layers"`，以阶段问题�
 
 events.jsonl 是容量有限的操作侧录：不输出模型正文、源码、日志正文、工具参数或凭据，不展示虚构百分比/ETA。到限、损坏或缺失会声明 truncated/unknown/unavailable；原账本和最终接受仍独立。CLI status/report 是运行视图，不能代替原件核验或效果指标；当前摘要读取拒绝超过 32 MiB 的完整报告，拒绝展示不更改其原始结果或应用接受。查看旧运行不补造实时事件时间；私有 delivery.zip 保存打包时的事件快照，打包成功后的完成事件仍可能仅在 work 中。
 
-退出码：0 为管理/查看完成，或 Agent 获得应用接受；2 为 Agent 已结束但未获得应用接受（含 demo 合成通过）；1 为错误或管理状态未知；130 为中断。因此 demo 正常完成时退出 2，report 的退出 0 不表示其 accepted=true。
+退出码：0 为管理/查看完成、analysis 正常产出，或获得所选层级接受；2 为已结束但仍未解决/验证未通过（含 demo 合成通过）；1 为错误或管理状态未知；130 为中断。analysis_completed/patch_proposed 可退出 0，但 accepted=false，不表示修复通过；source_verified 按声明源码范围接受且 application_verification=not_run。demo 正常退出 2，report 的退出 0 只表示查看完成。
 
 ### 兼容管理入口与竞赛输出
 
@@ -89,20 +108,20 @@ events.jsonl 是容量有限的操作侧录：不输出模型正文、源码、�
 
 `mock_demo` 自建合成任务和完整玩具工程，不传 `-CompetitionTaskPath`。它用脚本响应走同一 CloudChatCompletionsAdapter/SDK 调用通道，并由短时本机程序提供失败后修订和四项检查的合成反馈。演示中的定位、补丁、usage 和检查都不是真实模型或应用效果；即使合成检查通过，仍保持 `accepted=false`、`application_verification=not_run`。实际软件验收结果只见 STATUS。
 
-工作目录固定为 `.dfx-local/work/competition-<ID>/`，新运行不能覆盖旧目录。控制台只打印 schema、status、accepted、application_verification、候选数、模型调用数和报告路径等简短概要，不打印原始输入、模型请求或凭据。输出职责如下：
+工作目录固定为 `.dfx-local/work/competition-<ID>/`，新运行不覆盖旧目录。控制台只显示 schema/status、验证层级、source/application 结果、接受范围、候选数、调用数和报告位置等概要，不打印原始输入、请求或凭据。输出职责如下：
 
 | 产物 | 用途与边界 |
 |---|---|
-| `competition-report.json` | schema 3 竞赛结构化结果：初次与最新候选关联的所选根因/备选、全部候选/补丁与检查、独立的实际检查层级/结果和任务接受、失败反馈/修订、停止原因、成本、固定终态观察计时、来源及未知指标；旧报告仍按原代读取 |
+| `competition-report.json` | analysis/source 新报告 schema 4，保存原定位/候选/检查/失败/成本/计时及 verification_level、source_verification、validation_scope、mocked_interfaces、acceptance_scope；accepted 按声明层级解释，source 通过不成为应用成功。旧 schema 1–3 保留原应用限定语义 |
 | `result.md` | 面向审阅者的定位、修复、验证和限制说明；控制台 report_path 指向此文件 |
 | `delivery.zip` | 未脱敏的私有交付原件及字节/哈希清单，供保留和审阅；字节核验不等于评测重聚合、根因认证或修复成功证明 |
 | `agent-report.json`、账本及 Graph 检查点 | SDK 运行轨迹与恢复依据；agent-report 不是最终竞赛接受报告 |
 | `events.jsonl` | 新运行的有限实时操作观察；不充作接受、成本或历史时间证据 |
 | `product-config.json`、`product-launch.json` | 新前端恢复时定位原配置和任务；真正准入仍由原固定事实与外部批准决定 |
 
-`configs/competition-demo.json` 是受管软件演示配置；`configs/competition-cloud.template.json` 说明后续真实提供方与工程接纳字段，包含待填写值，不能直接作为当前实验配置。本机策略 `configs/local-runtime.json` 的 `allow_model_experiments` 和 `allow_application_experiments` 均保持 false，本批不得通过环境变量或配置修改解锁真实云端、HarmonyOS 构建或设备运行。
+configs/competition-demo.json 是合成演示；competition-cloud.template.json 默认轻量 analysis 云端准备配置；source-validation.template.json 是可选宿主检查字段模板；harmonyos-app.template.json 仅完整应用扩展。占位值不代表可运行或已接纳。local-runtime.json 的真实模型/应用开关仍 false，本轮不安装新依赖、不自行启动真实云端/数据修复或平台任务；source 模式不要求应用开关，但不能借此绕过实验安排。
 
-真实模式须由主机先审阅任务快照、完整工程及业务判据，再固定配置 `execution` 中的 `project_root`、`source_mapping` 和 `commands`。分析快照排除了运行资源，不能拿它充当完整工程。映射为空时按相同相对路径绑定；非空映射须覆盖分析基线的全部源码，原字节必须匹配。四个固定命令键为 `build`、`target`、`behavior`、`regression`；原版先完成构建和指定故障复现，候选再完成这四项检查。实际应用协议须固定故障标记，以及各命令 oracle_sha256。ApplicationProfile 中四阶段 independent_oracles 的绝对 path、sha256、max_bytes 会由 configure 自动绑定进 execution；文件须留在可写完整工程、分析任务和运行工作区之外。执行器在新运行及每项准备/检查前后重新核对原字节；漂移返回 inconclusive 并保留实际执行回执，不把零退出码认作通过。模型不能改写 oracle、工程路径、命令或接受条件，哈希一致也不认证判据的业务语义。环境和业务协议的接纳不等于已通过应用验证。
+analysis 不配置 execution，不构造假检查。需要真实源码验证时，主机审阅任务、宿主装载/转译/mock 语义和独立业务判据，再冻结 project_root、source_mapping、commands、validation_scope/mocked_interfaces。映射空则同路径，非空须覆盖分析基线且原字节一致；不能用漏改候选的替代代码运行。source 四命令检查局部装载、故障输入、业务与回归，原版先装载/故障复现、候选再完整检查。故障标记、非零退出码、各 oracle_sha256/independent_oracles 文件绑定必填，oracle 必须在可写源码工程/任务/run 外；每阶段前后核源码和判据，漂移保留 inconclusive。模型无权改命令/判据，哈希不认证语义。application 扩展另要求完整工程/平台，不能拿分析快照冒充完整应用。
 
 CloudProviderConfig 只保存 HTTPS endpoint、可选私有文件位置、兼容凭据环境名及可选 network 策略；endpoint 不允许 userinfo、query 或 fragment。凭据在准入和每次网络尝试前核对，私有文件的 endpoint 须与原运行相同，当前调用中 Key 改变则停止，不保存 Key 到 profile、请求体、异常或日志。文件 Key 不注入环境，应用子进程仍排除环境模式的模型 Key。显式 network 配置复用公开 AsyncOpenAI/HTTPX AsyncClient，由 SDK 负责安全失败的退避重试，外层总截止时间覆盖发送和等待；底层连接重试关闭，避免叠加另一层。缺 network 的旧配置继续用原同步零重试通道。冻结 canonical 请求用于账本身份，每次 SDK 序列化后均须核对相同语义，不要求 JSON 字段顺序相同。标准 nullable 响应支持，拒答或非文本结果不能变成修复成功。旧 cloud-httpx profile 仅保留只读历史语义，不能静默恢复成新传输。发送前预留输入估计与最坏输出 Token；未知 usage 后停止新发送，这不是供应商 Tokenizer 的精确硬上限，真实型号仍待核验。
 
@@ -110,11 +129,11 @@ CloudProviderConfig 只保存 HTTPS endpoint、可选私有文件位置、兼容
 
 竞赛默认启用原生触发目录；默认启动只展示名称和描述，`read_skill(skill_id="bounds")` 返回完整原文，`read_skill(skill_id="bounds", resource_path="references/guide.md")` 按需返回包内已冻结文本（示例路径须实际存在）。当前四份按需选择；必须常驻的少量包可设标准 metadata 扩展 `dfx-load: always`，正文随目录进入实际请求并计预算，关闭 static_skills_enabled 同时关闭强加载注入。省略或 on-demand 保持按需。正文工具读取、资料读取和强加载注入分别记录，不把资料读取认作完整 Skill 阅读。普通 search_experience 保持完整投影，可能带整个包的文本；需要逐份消费时用 read_skill。资源只接 UTF-8 文本，二进制附件明确拒绝。格式和读取不是效果证据，收益须真实同预算比较。
 
-P2 的固定受管检查命令可向 scripts/preparation/check_case_observations.py 传入 `--observations OBSERVATIONS.json --case TC_JSError_021`；默认 oracle 是 resources/preparation/case-oracles.json，也可显式 --oracles。该选择要求021的全部4向量，缺项或混入022拒绝；不传 --case 则沿用联合7向量。通过只表示该 JSON 与有限预期一致，仍为 accepted=false/application_verification=not_run，必须适配实际候选 ArkTS/设备输入、固定检查包及页面/回归。
+P2 的固定检查可向 scripts/preparation/check_case_observations.py 传 --observations OBSERVATIONS.json --case TC_JSError_021；默认 oracle 为 resources/preparation/case-oracles.json。要求021全部4向量，不传 --case 仍为联合7向量；缺项/混入022拒绝。独立运行该比较器只证明 JSON 与有限预期一致，仍 accepted=false/application_verification=not_run。要成为 source_execution，观察必须来自实际原版/候选相关源码的固定宿主回放并绑定输入、版本、语义和判据；不要求设备，但手工 JSON 不能冒充执行。完整页面/设备覆盖只属于另选的 application 扩展。
 
-`-Resume` 必须沿用相同工作 ID、任务和配置，保留原完整工程、work 内全部原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原批准。恢复消费 run 内原知识和静态资源，不能重建缺失工程、重新生成批准或把新资源加入旧运行。执行源码/依赖身份、配置、工程、映射、协议和批准有漂移时拒绝；恢复准入拒绝返回 3 并保留原终态。已完成模型/检查调用只回放结果，已发出但结果未知的调用停止并不重发。无待执行工作的完成恢复即使用满额度也保留原结果和终态观察计时；仍有待执行工作时不能重置原预算/截止时间。绑定 oracle 的新执行保存 execution schema 3。旧 schema 1/2 应用执行只读核验原件，派生结果为 inconclusive（明确未启动则 not_run），accepted=false，不补写执行时核验；缺绑定的旧应用配置不得新执行，须新建配置和运行。旧报告没有可信完成时间且无新进展时耗时保持未知，不能把空闲和恢复时间算成旧修复耗时；首次报告观察区间也不等于定位/修复阶段耗时。字段与旧代回读边界见[规格第 1.3.1 节](../../docs/design-contracts.md#131-案例接纳与协议冻结)，实际通过范围见 STATUS。
+--resume/-Resume 沿原工作 ID、任务、配置、work 全部原件及 state 原批准；analysis 不要求工程，source/application 须保留原 project_root 对应源码工程/运行器/判据，application 另要求完整应用资源。不重建缺失输入、重新批准或替换 Skill。源码/依赖、配置/映射/协议/批准漂移则准入退出 3，保留原终态。完成调用只回放，已发未知不重发；完成恢复不因额度用尽丢结果或膨胀耗时，待执行恢复不重置预算/截止。source execution 为 schema 4，既有 oracle 绑定 application/synthetic 为 schema 3；旧1/2应用缺运行时oracle认证仍只读派生 inconclusive（明确未启动 not_run）、accepted=false，不倒填或新启动。旧未知完成时间不推造，首次报告观察也不等于分阶段耗时。字段见 [规格第1.3.1节](../../docs/design-contracts.md#131-案例接纳与协议冻结)，实际验收见 STATUS。
 
-Stop 终止当前受管 Job，Status 查看状态。Clean 默认只预览，示例仅预览缓存；预览 work 可用 `Clean -Scope work`，保留条件、PlanId 和显式丢弃要求沿用 [本机管理协议](../../docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。需要恢复时须保留原工程、任务、work 与 state 原批准；mock_demo 的原工程和任务位于 `.dfx-local/tmp/`，不能先清掉再续跑。交付包不会自动授权清理，也不能代替恢复原件。
+Stop 终止当前受管 Job，Status 查看状态。Clean 默认预览，范围/PlanId/丢弃约束见 [本机管理协议](../../docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。恢复须保留原任务、work/state批准和所选执行模式的输入；analysis 无工程要求，mock_demo 的玩具工程/任务在 .dfx-local/tmp，不能先清再恢复。交付包不授权清理或替代恢复原件。
 
 删除整个环境时，先用 `dfx.cmd env clean --scope env` 预览，再退出 Agent，使用独立普通 Python 的 `setup.cmd --clean --scope env --apply --plan-id PLAN_ID`。all 还须明确丢弃运行证据；预览和应用都带相同 `--discard-evidence`。安装后的 dfx 在 env/all 应用前拒绝并给出指引，因为仍运行的 CLI 会锁住自身解释器；不做后台自删或部分清理。外部入口继续核对 owner、实际路径、活动状态和预览指纹，保留 data_B、Git 文件和 runs/exports。
 
@@ -122,9 +141,9 @@ Stop 终止当前受管 Job，Status 查看状态。Clean 默认只预览，示�
 
 从项目根目录查看受管状态并运行合成自检：
 
-```powershell
-.\scripts\local.ps1 Status
-.\scripts\local.ps1 Run -Task test -TestPath tests/test_agent_loop.py
+```text
+.dfx-local\env\Scripts\python.exe -B -m dfx_agent.managed_runtime --workspace . Status
+.dfx-local\env\Scripts\python.exe -B -m dfx_agent.managed_runtime --workspace . Run -Task test -TestPath tests/test_agent_loop.py
 ```
 
 `working_context.py` 提供独立 packet 接口：显式 WorkingContextFocus 生成来源/版本已核验的引用闭包，verify_working_context 只在同一来源点回读；它本身不是历史恢复器。`working_context_plan.py` 则接入实际 SDK 模型边界，从当前可见的授权工具回执取得焦点，冻结原消息、来源原字节、完整组选择和发送回执。必要记录附入启动任务的引用数据区，随后可独立启用通用压缩；原 Graph 历史保持完整。旧计划按物化材料回读，后来合法完成检查不会改变过去输入；必要包或视图超字节预算明确停止。字段及边界见 [模块规格第 3.1 节](../../docs/design-contracts.md#31-工作上下文经验与-skill-的实施契约)。独立 packet 的合成自检入口为：
@@ -272,7 +291,7 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 
 `provenance.py` 在新运行创建工作目录前读取受限主机源码清单、uv.lock、pyproject.toml、.python-version 与本机配置，记录文件大小/原字节哈希、实际 Python 标识和安装依赖的 distribution metadata 版本。标准入口在导入 CLI 前冻结主机源码基线，导入后及运行前后复核。Git commit、dirty 和状态摘要只保存初始观察；续跑比较源码、仓库输入和实际环境组成的 compatibility_sha256，不因只改文档/测试或纯文档提交拒绝，也不覆盖原 Git 事实。
 
-恢复来源预检早于可写账本、条件登记、Graph 和模型调用；mock 响应偏移用只读账本取得。记录分层核验源码清单、兼容摘要与完整 provenance_sha256，自洽不等于认证制作者。只读报告/聚合/Verify 不捕获当前环境来回填历史来源；W10 包原样携带嵌入的 session/report，无需新 sidecar。清单不保存主机源码全文或未提交 diff，依赖版本不证明已加载二进制完整性；快照不锁住外部写入者。正式实测仍须提供冻结的主机实现、安装环境和应用工具链/设备依据。
+恢复来源预检早于可写账本/Graph/模型调用，mock 偏移只读取得；原清单、兼容摘要与 provenance 自洽不等于制作者认证。只读报告/聚合/Verify 不用当前环境回填历史，W10 保留嵌入原件。清单不含主机全文/diff，distribution 元数据不证明已加载二进制，快照不锁外部写入。正式源码级实测另保全主机实现/环境、宿主运行器、相关源码/转译/mock/协议；只有完整 application 才另需平台工具链/设备依据。
 
 ### 私有证据导出：预览、应用、包内核验
 
@@ -336,7 +355,7 @@ run 内 `experience-bindings/approved.json` 保存主机批准，`experience-que
 
 完整知识、冻结材料及输出共同受 `applicability_contracts.py` 的容量约束，不同根之间采用保守计数；捕获和审计读取另有累计字节/次数门，闭合收尾也计入。发布前先完成原件关闭核验，冻结上下文还按下一次审计的实际路径预检预算；回读从原诊断材料重验引用、位置和版本，重写哈希不能绕过准入。`prepare_context` 前段复用的当前任务核验仍由外层 Job 保护，尚无完整累计 I/O 计量；不得把这些边界当实际性能或 Token 指标。合成验收入口为 `.\scripts\local.ps1 Run -Task test -TestPath tests/test_applicability_contracts.py` 和同入口的 `tests/test_applicability.py`。SDK 入口显式传入 applicability_policy=ApplicabilityPolicy(enabled=True/False)，两组固定相同三项三态工具、完整知识和总预算；不传该参数保持普通经验运行。session/report/completion 使用 12/9/6，冻结实际 solver-inputs 请求；模型不能指定当前焦点或父调用。准备工具必须已见查询；已见诊断和假设时冻结 context 并提供 review_proposal_schema，否则返回 unknown 与普通指导，审查要求已见完整 context，兄弟工具后产生记录及摘要里的 ID 不取得可见权限。缺焦点回普通指导与 unknown，关闭组只提供普通指导。报告保留完整 context/review 和实际调用来源，恢复先只读核原件及原配置，导出能从包内重核。独立内层对象仍保留其显式主机输入边界，SDK 外层新增 actual_solver_input 认证，语义仍为推断。受管软件自检见 test_solver_visibility.py、test_applicability_handoff.py、test_applicability_sdk.py、test_applicability_provider.py 和 test_applicability_reporting.py；三态与静态策略已通过 schema 5/6 显式知识配置接入固定/模拟脚本及受管 CLI，自动模型学习仍待接入。
 
-`acceptance.py` 当前只供独立程序调用：准备者冻结与候选无关的共同协议，可信打包器绑定完整运行源码，执行端按检查 ID 回传原版和候选的结果，接受门对缺失、模拟、版本错配和行为失败返回 `not_verified`。该独立契约接口不负责本机执行；competition 使用 local_execution.py 的完整工程绑定与四项固定命令，真实环境及业务 oracle 仍须主机接纳。该模块的合成 `verified_under_protocol` 测试值不是本项目已修复应用的成绩，软件通道的实际验收见 STATUS。
+acceptance.py 保留独立完整应用对象契约：共同协议/可信打包/按检查 ID 回执，缺项/模拟/错版/行为失败为 not_verified。它不负责执行，也不是默认 analysis/source 的前置；competition 复用 local_execution 的实际模式/四命令及分层报告。其合成 verified_under_protocol 不代表源码或应用实测成绩；宿主语义和业务 oracle 须另接纳，实际软件证据见 STATUS。
 
 `static_skills.py` 从 run 内批准的人工条目生成完整过程及冻结清单，read_run_static_skills 只读重核；Agent 程序入口 run_fixed_agent/run_provider_agent 显式接收 static_skill_policy=StaticSkillPolicy(enabled=..., entry_ids=...)，同时必须提供启动知识和显式 ApplicabilityPolicy。两组注册相同 read_skill，共用原预算；关闭只去目录注入，保留相同全文结果和普通检索，标准包使用目录名/元数据 name，旧投影继续按摘要取得历史 ID。报告从完整原件和账本区分读取/实际可见性，清单 5 固定共同静态资源，私有导出保留全部正文/回执/实际输入。恢复仅接原 knowledge_approval 及相同策略，从 run 原件核验，无需外部库；可写恢复前核原生缓存，静态 saver 使用严格 serializer。字段与容量见[规格第 3.1.3 节](../../docs/design-contracts.md#313-skill-版本验证与演进)。受管软件自检包括 test_static_skills.py、test_static_skill_handoff.py、test_static_skill_sdk.py、test_static_skill_resume_cache.py 和 test_static_skill_reporting.py，均使用同一 local.ps1 Run -Task test -TestPath 入口。固定/模拟脚本 schema 5/6 与受管 CLI 已消费明确知识批准及静态选择，不要手工向旧 run 加资源。独立版本验证入口见下文，合成可见性不代表修复或学习收益。
 
@@ -357,4 +376,4 @@ run 内 `experience-bindings/approved.json` 保存主机批准，`experience-que
 
 来源历史成本通过显式程序入口 `VersionSkillService.research_cost_inventory()` 读取：先认证当前冻结任务/批准及 run 原件，再由 `research_accounting.py` 提取完整学习调用、事前验证矩阵/原行成本和发表/退回历史。相同调用或验证 run 跨来源只计一次，冲突原件拒绝；缺少预定角色或 usage 保持 unknown，人工学习为 not_run/null，退回种子也不抹掉模型子版本历史成本。`union_research_cost_inventories` 可只读合并多个完整清单；清单一致性校验不能替代外部批准和原闭包认证。该入口不调用模型、不写文件、不改变旧 session/report/清单或共享预算；部署实际成本、全流程计时与公平比较仍待接入。测试和实际结果见 DEVELOPMENT/STATUS。
 
-`backends.py` 和 `remote_service.py` 另提供 HTTPX 客户端及 FastAPI 模拟服务的程序接口。`tests/test_remote_contract.py` 使用进程内 `TestClient`，显式推进模拟工作者状态，检查请求幂等、响应丢失后的恢复、取消待确认、产物哈希及离线行为；不启动常驻服务、真实设备或应用构建。模拟服务只返回 `scope=synthetic` 和 `application_verification=not_run`。当前本机执行软件通道由 local_execution.py 和 competition 承担；真实 HarmonyOS 工程、SDK、设备及业务协议尚未接纳和验证，不能把 HTTP 协议或 mock_demo 自检当作应用验证。
+backends.py/remote_service.py 保留 HTTPX/FastAPI 进程内模拟接口，test_remote_contract 验幂等/丢响应/取消待确认/产物/离线语义，不启动常驻服务或真实设备。模拟只产生 synthetic/not_run，不成为源码或应用验证。默认本机源码检查由 local_execution/competition 承担；真实 `.ets` 宿主语义与业务协议待接纳，完整 SDK/设备仅 application 可选扩展，不作轻量使用前置。

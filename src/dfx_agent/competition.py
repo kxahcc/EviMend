@@ -37,7 +37,7 @@ from .policies import PolicyFeatures
 from .progress import emit_progress, progress_scope
 from .static_skills import StaticSkillPolicy
 from .task import digest, prepare_task, verify_task
-from .verification import _atomic_json
+from .verification import AnalysisOnlyExecutor, OfflineExecutor, _atomic_json
 from .working_context_plan import WorkingContextPolicy
 from .workspace import CandidateWorkspace
 
@@ -61,8 +61,6 @@ class CompetitionConfig(BaseModel):
 
     @model_validator(mode="after")
     def valid_mode(self) -> CompetitionConfig:
-        if self.model_mode == "cloud" and self.execution is None:
-            raise ValueError("cloud mode requires a reviewed full project and all four check commands")
         if self.model_mode == "mock_demo" and self.execution is not None:
             raise ValueError("mock_demo uses only its declared synthetic project")
         return self
@@ -190,12 +188,12 @@ def _previous_report(work: Path, task: dict[str, Any], run_id: str) -> dict[str,
         return None
     value = json.loads(_checked(path).read_bytes())
     original = {key: item for key, item in value.items() if key != "report_sha256"}
-    if (value.get("schema_version") not in (1, 2, 3) or value.get("scope") != "competition_task" or
+    if (value.get("schema_version") not in (1, 2, 3, 4) or value.get("scope") != "competition_task" or
             value.get("task_id") != task["task_id"] or value.get("run_id") != run_id or
             value.get("source_snapshot_sha256") != task["source_snapshot_sha256"] or
             value.get("report_sha256") != digest(canonical(original).encode())):
         raise ResumeAdmissionRejected("competition report source or integrity differs")
-    if value["schema_version"] in (2, 3):
+    if value["schema_version"] in (2, 3, 4):
         start = datetime.fromisoformat(json.loads(_checked(work / "session.json").read_bytes())["started_at"])
         _validate_report_timing(value, start)
     return value
@@ -237,7 +235,7 @@ def _report_timing(work: Path, facts: dict[str, Any], previous: dict[str, Any] |
         raise ValueError("competition timing requires timezone-aware host observations")
     terminal_sha = digest(canonical(_terminal_facts(facts)).encode())
     if previous is not None:
-        if previous["schema_version"] in (2, 3):
+        if previous["schema_version"] in (2, 3, 4):
             timing = _validate_report_timing(previous, start)
             if timing["terminal_facts_sha256"] == terminal_sha:
                 return timing
@@ -333,28 +331,43 @@ def _location_lines(hypothesis: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecutor,
+def _report(work: Path, solver: dict[str, Any], executor: OfflineExecutor,
             config: CompetitionConfig, *, previous_report: dict[str, Any] | None = None,
             observed_at: datetime | None = None) -> dict[str, Any]:
     completion = solver["completion"]
     attempts = []
     for artifact in completion["candidate_artifacts"]:
         result = artifact["check"]
-        evidence = None if result is None else executor.evidence(result["idempotency_key"])
+        read_evidence = getattr(executor, "evidence", None)
+        evidence = None if result is None or read_evidence is None else read_evidence(result["idempotency_key"])
         attempts.append({"candidate": artifact["candidate"], "patch_path": artifact["patch_path"],
                          "patch_sha256": artifact["patch_sha256"], "check": result, "execution": evidence})
     latest = attempts[-1] if attempts else None
     first_check = attempts[0]["check"] if attempts else None
     application_state = (latest["execution"]["application_verification"]
                          if latest and latest["execution"] else "not_run")
+    source_state = (latest["execution"].get("source_verification", "not_run")
+                    if latest and latest["execution"] else "not_run")
+    source_config = executor.config if isinstance(executor, LocalApplicationExecutor) and executor.config.mode == "source" else None
+    source_mode = source_config is not None
+    analysis_only = isinstance(executor, AnalysisOnlyExecutor)
     level = (latest["execution"]["verification_level"] if latest and latest["execution"] else
              latest["check"]["level"] if latest and latest["check"] else "not_run")
     localization_result = _localization_result(completion["localization"], latest, solver["source_snapshot_sha256"])
-    accepted = bool(latest and latest["execution"] and application_state == "pass" and latest["execution"]["accepted"] and
-                    localization_result["final"]["complete"])
+    application_pass = bool(latest and latest["execution"] and application_state == "pass" and
+                            latest["execution"]["accepted"])
+    source_pass = bool(source_mode and latest and latest["execution"] and level == "source_execution" and
+                       source_state == "pass" and latest["execution"]["status"] == "pass" and
+                       application_state == "not_run")
+    accepted = bool((application_pass or source_pass) and localization_result["final"]["complete"])
     software_pass = bool(latest and latest["check"] and latest["check"]["status"] == "pass")
-    outcome = ("application_verified" if accepted else "synthetic_checked"
+    outcome = ("source_verified" if accepted and source_pass else "application_verified" if accepted else "synthetic_checked"
                if software_pass and level == "offline_synthetic" else "unresolved")
+    if analysis_only and solver["stopped_reason"] is None:
+        if latest and localization_result["final"]["complete"]:
+            outcome = "patch_proposed"
+        elif not latest and any(localization_result[key]["complete"] for key in ("initial", "latest")):
+            outcome = "analysis_completed"
     # Budget exhaustion after a completed check does not invalidate that check
     # or require one more paid model call just to say goodbye. Unknown sends,
     # actions and other failures still prevent product acceptance.
@@ -365,7 +378,8 @@ def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecut
     session = completion["execution_provenance"]
     actions = solver["actions"]
     diagnosis = completion["localization"]
-    facts = {"schema_version": 3, "scope": "competition_task", "task_id": solver["task_id"], "run_id": solver["run_id"],
+    facts = {"schema_version": 4 if source_mode or analysis_only else 3,
+        "scope": "competition_task", "task_id": solver["task_id"], "run_id": solver["run_id"],
         "status": outcome, "accepted": accepted, "application_verification": application_state, "verification_level": level,
         "root_cause_authority": "model_inference", "localization": diagnosis, "attempts": attempts,
         "localization_result": localization_result,
@@ -385,12 +399,25 @@ def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecut
             ("Synthetic model usage is fixture data, not measured cloud consumption." if config.model_mode == "mock_demo"
              else "Provider-reported usage is recorded; missing usage and monetary cost remain unknown."),
             "Curated skills and obligation links are guidance; application effect and comparative gains require experiments."]}
+    if source_mode or analysis_only:
+        facts.update(source_verification=source_state,
+            validation_scope=source_config.validation_scope if source_config is not None else "analysis_only",
+            mocked_interfaces=source_config.mocked_interfaces if source_config is not None else [],
+            acceptance_scope="source_execution" if source_mode else "unverified_proposal")
+        facts["metrics"].update(source_repair_success=True if accepted and source_pass else None,
+                                application_repair_success=None)
+        facts["limitations"].append(
+            "Source verification covers only the declared replay scope and mocks; it is not full application or device verification."
+            if source_mode else "No executable verification is configured; diagnosis and patches remain unverified.")
     facts["timing"] = _report_timing(work, facts, previous_report, observed_at or datetime.now(UTC))
     facts["report_sha256"] = digest(canonical(facts).encode())
     _atomic_json(work / "competition-report.json", facts)
-    lines = ["# 故障修复结果", "", f"状态：{outcome}；应用接受：{accepted}",
+    lines = ["# 故障修复结果", "", f"状态：{outcome}；当前验证层级接受：{accepted}",
         f"检查层级：{level}；实际应用检查：{application_state}", "",
         "定位依据和根因解释由模型提出；准确率需独立标签评测。", ""]
+    if source_mode or analysis_only:
+        lines += [f"源码执行验证：{source_state}；范围：{facts['validation_scope']}",
+                  "替身接口：" + (", ".join(facts["mocked_interfaces"]) or "无"), ""]
     for label, title in (("initial", "初次定位"), ("latest", "最新定位"), ("final", "最新候选关联的最终定位")):
         projected = localization_result[label]
         if label != "final" and projected["diagnosis_id"] is None:
@@ -521,19 +548,20 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
         task, execution = prepare_demo(auxiliary / ("competition-" + run_id + "-demo"), resume=resume)
     else:
         task = _checked(task)
-        assert config.execution is not None
         execution = config.execution
-    if execution.independent_oracles is not None:
+    if execution is not None and execution.independent_oracles is not None:
         for reference in execution.independent_oracles.values():
             oracle_path = Path(os.path.abspath(reference.path))
             if oracle_path.is_relative_to(task) or oracle_path.is_relative_to(work):
                 raise ValueError("independent oracle files must remain outside the analysis task and run")
-    executor = LocalApplicationExecutor(execution, managed_root=managed,
-        allow_application=policy["execution"]["allow_application_experiments"],
-        excluded_env_names=(config.provider.credential_env,))
-    if not resume and execution.mode == "application":
+    executor: OfflineExecutor = (AnalysisOnlyExecutor() if execution is None else
+        LocalApplicationExecutor(execution, managed_root=managed,
+            allow_application=policy["execution"]["allow_application_experiments"],
+            excluded_env_names=(config.provider.credential_env,)))
+    if not resume and isinstance(executor, LocalApplicationExecutor) and executor.config.mode in ("source", "application"):
         executor.verify_oracles()
-    frozen = {"config": config.model_dump(mode="json"), "task": verify_task(task), "execution": execution.model_dump(mode="json")}
+    frozen = {"config": config.model_dump(mode="json"), "task": verify_task(task),
+              "execution": None if execution is None else execution.model_dump(mode="json")}
     approval = None
     knowledge = None
     if resume:
@@ -587,9 +615,13 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
     report = _report(work, solver, executor, config, previous_report=previous_report)
     private_delivery(work, task, policy["limits"]["max_export_package_bytes"])
     emit_progress("run_finished", status=report["status"], accepted=report["accepted"])
-    return {"schema_version": 1, "status": report["status"], "accepted": report["accepted"],
+    result = {"schema_version": 1, "status": report["status"], "accepted": report["accepted"],
         "application_verification": report["application_verification"], "report_path": str(work / "result.md"),
         "candidate_count": len(report["attempts"]), "model_calls": solver["model_calls"]}
+    if report["schema_version"] == 4:
+        result.update(source_verification=report["source_verification"], verification_level=report["verification_level"],
+                      validation_scope=report["validation_scope"], mocked_interfaces=report["mocked_interfaces"])
+    return result
 
 
 def run_competition(task: Path, work: Path, run_id: str, config_path: Path,

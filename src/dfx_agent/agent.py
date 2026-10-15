@@ -53,6 +53,7 @@ from .contracts import (
     RepairObligation,
     SourceLocation,
     admit_evidence,
+    execution_evidence_kind,
     require_path,
 )
 from .decisions import DecisionRequest, DecisionStore, feedback_key
@@ -110,7 +111,12 @@ from .static_skills import (
 )
 from .task import digest, verify_task
 from .task_strategy import build_system_prompt, build_task_message
-from .verification import CheckLedger, OfflineExecutor, _atomic_json
+from .verification import (
+    AnalysisOnlyExecutor,
+    CheckLedger,
+    OfflineExecutor,
+    _atomic_json,
+)
 from .working_context_plan import WorkingContextPolicy, WorkingContextStore
 from .workspace import CandidateWorkspace, TextEdit
 
@@ -411,6 +417,9 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             result = ledger.completed(candidate_id)
             if result is None or result.status != "fail":
                 raise ValueError("no failed registered check exists")
+            scope = result.execution_scope
+            if scope is None:
+                raise ValueError("an unexecuted check has no execution feedback")
             record = json.loads((workspace.candidates / candidate_id / "candidate.json").read_text(encoding="utf-8"))
             allowed = set(record["restores"] + record["preserves"])
             if (not violated_obligation_ids or len(set(violated_obligation_ids)) != len(violated_obligation_ids) or
@@ -419,9 +428,8 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             feedback = Counterexample(candidate_id=candidate_id,
                                       candidate_snapshot_sha256=record["candidate_snapshot_sha256"],
                                       execution_id=result.idempotency_key,
-                                      evidence_kind=("application_execution" if result.execution_scope == "application"
-                                                     else "local_execution"),
-                                      scope=result.execution_scope, link_authority="model_inference",
+                                      evidence_kind=execution_evidence_kind(scope),
+                                      scope=scope, link_authority="model_inference",
                                       violated_obligation_ids=violated_obligation_ids,
                                       observation=result.detail)
             folder = workspace.root / "feedback"
@@ -753,8 +761,14 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                        knowledge_store=knowledge_store, applicability_policy=applicability_policy,
                        solver_visibility=solver_visibility, static_skill_service=static_service,
                        require_candidate_diagnosis=require_candidate_diagnosis)
-        application_checks = isinstance(executor, LocalApplicationExecutor) and executor.config.mode == "application"
+        local_config = executor.config if isinstance(executor, LocalApplicationExecutor) else None
+        application_checks = local_config is not None and local_config.mode == "application"
+        source_checks = local_config is not None and local_config.mode == "source"
+        analysis_only = isinstance(executor, AnalysisOnlyExecutor)
+        validation_scope = local_config.validation_scope if local_config is not None else None
+        mocked_interfaces = local_config.mocked_interfaces if local_config is not None else None
         system_prompt = build_system_prompt(policy_features, application_checks=application_checks,
+                                           source_checks=source_checks, analysis_only=analysis_only,
                                            require_candidate_diagnosis=require_candidate_diagnosis)
         session_identity = {"schema_version": (14 if version_profile is not None else 13 if static_profile is not None else
                             12 if applicability_profile is not None else (10 if knowledge_profile is None else 11)),
@@ -773,6 +787,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                 source_snapshot_sha256=workspace.source_snapshot_sha256,
                                 capabilities=capabilities, resume=False,
                                 application_checks=application_checks,
+                                source_checks=source_checks, analysis_only=analysis_only,
+                                validation_scope=validation_scope, mocked_interfaces=mocked_interfaces,
                                 require_candidate_diagnosis=require_candidate_diagnosis).encode("utf-8")),
                             "tool_schema_sha256": digest(canonical([
                                 {"name": item.name, "description": item.description,
@@ -899,6 +915,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     task_id=workspace.task_id, run_id=run_id,
                     source_snapshot_sha256=workspace.source_snapshot_sha256,
                     capabilities=capabilities, resume=resume, application_checks=application_checks,
+                    source_checks=source_checks, analysis_only=analysis_only,
+                    validation_scope=validation_scope, mocked_interfaces=mocked_interfaces,
                     require_candidate_diagnosis=require_candidate_diagnosis)}]}, config)
         except ModelLimit as exc:
             error = str(exc)

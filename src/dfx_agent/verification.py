@@ -1,7 +1,7 @@
-"""Candidate-bound offline checks and crash-reconcilable execution intents.
+"""Candidate-bound check records with explicit execution scope and unknowns.
 
-This module deliberately cannot certify application behavior. The separate
-remote simulation and acceptance gate also require real execution evidence.
+Test doubles, source replay, full applications and unexecuted proposals retain
+their original authority; a check label alone never establishes acceptance.
 """
 
 from __future__ import annotations
@@ -12,11 +12,21 @@ import stat
 from pathlib import Path
 from typing import Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
-from .contracts import require_hash, require_path
+from .contracts import ExecutionScope, require_hash, require_path
 from .task import digest
 from .workspace import CandidateWorkspace
+
+VerificationLevel = Literal["offline_synthetic", "source_execution", "application_execution", "not_run"]
+
+
+def verification_level(executor: OfflineExecutor) -> VerificationLevel:
+    """Legacy test doubles retain their original offline-synthetic identity."""
+    level = getattr(executor, "verification_level", "offline_synthetic")
+    if level not in ("offline_synthetic", "source_execution", "application_execution", "not_run"):
+        raise ValueError("unsupported executor verification level")
+    return level
 
 
 class CheckResult(BaseModel):
@@ -27,10 +37,20 @@ class CheckResult(BaseModel):
     protocol_sha256: str
     status: Literal["pass", "fail", "inconclusive"]
     detail: str
-    level: Literal["offline_synthetic", "application_execution"] = "offline_synthetic"
+    level: VerificationLevel = "offline_synthetic"
+
+    @model_validator(mode="after")
+    def unexecuted_is_unknown(self) -> CheckResult:
+        if self.level == "not_run" and self.status != "inconclusive":
+            raise ValueError("unexecuted verification cannot report pass or fail")
+        return self
 
     @property
-    def execution_scope(self) -> Literal["synthetic", "application"]:
+    def execution_scope(self) -> ExecutionScope | None:
+        if self.level == "not_run":
+            return None
+        if self.level == "source_execution":
+            return "source"
         return "application" if self.level == "application_execution" else "synthetic"
 
 
@@ -48,6 +68,19 @@ class ReplayOnlyExecutor:
 
     def check(self, *, key: str, source: Path) -> tuple[Literal["pass", "fail", "inconclusive"], str]:
         raise ValueError("replay-only executor cannot run a check")
+
+
+class AnalysisOnlyExecutor:
+    """Record that no executable verification capability was configured."""
+
+    verification_level: VerificationLevel = "not_run"
+
+    def __init__(self) -> None:
+        self.protocol_sha256 = digest(b"dfx-analysis-only-v1:no-execution-configured")
+
+    def check(self, *, key: str, source: Path) -> tuple[Literal["pass", "fail", "inconclusive"], str]:
+        require_hash(key)
+        return "inconclusive", "no executable verification configured; patch is unverified"
 
 
 def _atomic_json(path: Path, value: dict[str, object]) -> None:
@@ -123,7 +156,7 @@ class CheckLedger:
             raise ValueError("check result identity changed")
         from .local_execution import LocalApplicationExecutor
 
-        if isinstance(self.executor, LocalApplicationExecutor) and self.executor.config.mode == "application":
+        if isinstance(self.executor, LocalApplicationExecutor) and self.executor.config.mode in ("application", "source"):
             # Revalidate persisted process facts. Legacy application checks lack
             # execution-time oracle bindings and are exposed as inconclusive,
             # without changing either original ledger or execution receipts.
@@ -144,11 +177,7 @@ class CheckLedger:
             _atomic_json(path, {"state": "pending", "idempotency_key": key, "candidate_id": candidate_id,
                                 "check_id": check_id, "protocol_sha256": self.executor.protocol_sha256})
         status, detail = self.executor.check(key=key, source=source)
-        from .local_execution import LocalApplicationExecutor
-
-        level: Literal["offline_synthetic", "application_execution"] = (
-            "application_execution" if isinstance(self.executor, LocalApplicationExecutor) and
-            self.executor.config.mode == "application" else "offline_synthetic")
+        level = verification_level(self.executor)
         result = CheckResult(candidate_id=candidate_id, check_id=check_id, idempotency_key=key,
                              protocol_sha256=self.executor.protocol_sha256, status=status, detail=detail, level=level)
         _atomic_json(path, {"state": "done", "idempotency_key": key, "candidate_id": candidate_id,

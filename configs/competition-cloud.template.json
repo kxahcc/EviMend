@@ -3,27 +3,7 @@
   "model_mode": "cloud",
   "provider": {"endpoint": "https://api.deepseek.com/chat/completions", "credential_env": "DEEPSEEK_API_KEY"},
   "model": {"provider_id": "deepseek", "model_id": "SET_CONFIRMED_TOOL_CALLING_MODEL_ID", "max_output_tokens": 4096, "timeout_seconds": 60.0, "thinking_mode": "disabled"},
-  "execution": {
-    "mode": "application",
-    "project_root": "SET_REVIEWED_FULL_PROJECT_ABSOLUTE_PATH",
-    "source_mapping": {},
-    "commands": {
-      "build": {"argv": ["SET_ABSOLUTE_BUILD_EXECUTABLE", "SET_ARGUMENTS"], "timeout_seconds": 120, "oracle_sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-      "target": {"argv": ["SET_ABSOLUTE_REPLAY_EXECUTABLE", "SET_ARGUMENTS"], "timeout_seconds": 120, "oracle_sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-      "behavior": {"argv": ["SET_ABSOLUTE_BEHAVIOR_EXECUTABLE", "SET_ARGUMENTS"], "timeout_seconds": 120, "oracle_sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-      "regression": {"argv": ["SET_ABSOLUTE_REGRESSION_EXECUTABLE", "SET_ARGUMENTS"], "timeout_seconds": 120, "oracle_sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
-    },
-    "independent_oracles": {
-      "build": {"path": "SET_ABSOLUTE_INDEPENDENT_BUILD_ORACLE", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-      "target": {"path": "SET_ABSOLUTE_INDEPENDENT_TARGET_ORACLE", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-      "behavior": {"path": "SET_ABSOLUTE_INDEPENDENT_BEHAVIOR_ORACLE", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-      "regression": {"path": "SET_ABSOLUTE_INDEPENDENT_REGRESSION_ORACLE", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
-    },
-    "baseline_target_exit_codes": [1],
-    "baseline_fault_pattern": "SET_EXACT_BASELINE_FAULT_MARKER",
-    "max_check_seconds": 600,
-    "credential_env_names": ["DEEPSEEK_API_KEY"]
-  },
+  "execution": null,
   "policy_features": {"rule_guidance": true, "obligation_tracking": true, "decision_checks": true},
   "working_context": {"enabled": true, "history_selection": "repair_frontier", "exploration_read_groups": 6, "context_layout": "decision_frontier"},
   "applicability_enabled": true,

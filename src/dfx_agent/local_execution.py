@@ -1,7 +1,8 @@
-"""Host-fixed, bounded application checks inside the existing managed Job.
+"""Host-fixed source replay and application checks in the existing managed Job.
 
 The synthetic mode exercises the same copy/overlay/process/receipt path, but
-never produces application success. This is a process boundary, not an OS
+never produces source or application success. Source replay declares its local
+coverage and mocks without claiming full application behavior. This is a process boundary, not an OS
 filesystem sandbox: commands and their independent oracles belong to the host.
 """
 
@@ -26,7 +27,7 @@ from .contracts import require_hash, require_path
 from .evidence_io import local_evidence_path
 from .progress import emit_progress
 from .task import digest, snapshot_digest
-from .verification import _atomic_json
+from .verification import VerificationLevel, _atomic_json
 from .workspace import CandidateWorkspace, _manifest
 
 STAGES = ("build", "target", "behavior", "regression")
@@ -39,7 +40,12 @@ def application_check_state(record: dict[str, Any]) -> str:
     Legacy stage receipts lack process_started. Their exited/timeout evidence
     can prove an attempt; ambiguous launches remain inconclusive, not not_run.
     """
-    if record.get("mode") != "application":
+    return execution_check_state(record, "application")
+
+
+def execution_check_state(record: dict[str, Any], mode: Literal["source", "application"]) -> str:
+    """Derive an actual attempt for one scope without upgrading another scope."""
+    if record.get("mode") != mode:
         return "not_run"
     if record.get("state") == "pending":
         return "inconclusive"
@@ -92,7 +98,11 @@ class LocalCheckConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     schema_version: int = Field(default=1, ge=1, le=1)
-    mode: Literal["synthetic", "application"] = "synthetic"
+    mode: Literal["synthetic", "source", "application"] = "synthetic"
+    validation_scope: str | None = Field(default=None, min_length=1, max_length=8192,
+                                         exclude_if=lambda value: value is None)
+    mocked_interfaces: list[str] | None = Field(default=None, max_length=128,
+                                              exclude_if=lambda value: value is None)
     project_root: str
     source_mapping: dict[str, str] = Field(default_factory=dict)
     commands: dict[str, LocalCommand]
@@ -128,9 +138,17 @@ class LocalCheckConfig(BaseModel):
         for name in self.credential_env_names:
             if not name or not name.replace("_", "a").isalnum() or "=" in name:
                 raise ValueError("invalid credential environment name")
-        if self.mode == "application" and (not self.baseline_fault_pattern or
+        if self.mode in ("source", "application") and (not self.baseline_fault_pattern or
                 any(command.oracle_sha256 is None for command in self.commands.values())):
-            raise ValueError("application checks require a fixed fault marker and independent oracle hashes")
+            raise ValueError("source/application checks require a fixed fault marker and independent oracle hashes")
+        if self.mode == "source" and self.independent_oracles is None:
+            raise ValueError("source checks require independent oracle file bindings")
+        if self.mode == "source" and (not self.validation_scope or not self.validation_scope.strip() or
+                                      self.mocked_interfaces is None):
+            raise ValueError("source checks require validation scope and an explicit mocked interface list")
+        if self.mocked_interfaces is not None and (len(set(self.mocked_interfaces)) != len(self.mocked_interfaces) or
+                any(not item.strip() or len(item) > 1024 or "\x00" in item for item in self.mocked_interfaces)):
+            raise ValueError("invalid mocked interface declaration")
         if self.independent_oracles is not None:
             if set(self.independent_oracles) != set(STAGES):
                 raise ValueError("independent oracle bindings are required for all four stages")
@@ -420,6 +438,14 @@ class _ProcessTree:
 class LocalApplicationExecutor:
     """OfflineExecutor interface plus read-only structured execution evidence."""
 
+    @property
+    def verification_level(self) -> VerificationLevel:
+        if self.config.mode == "source":
+            return "source_execution"
+        if self.config.mode == "application":
+            return "application_execution"
+        return "offline_synthetic"
+
     def __init__(self, config: LocalCheckConfig, workspace: CandidateWorkspace | None = None, *,
                  managed_root: Path, lease_path: Path | None = None, stop_path: Path | None = None,
                  allow_application: bool = False, excluded_env_names: tuple[str, ...] = ()):
@@ -532,8 +558,8 @@ class LocalApplicationExecutor:
         """
         references = self.config.independent_oracles
         if references is None:
-            if self.config.mode == "application":
-                raise ValueError("application execution requires bound independent oracle files; reconfigure for a new run")
+            if self.config.mode in ("application", "source"):
+                raise ValueError("source/application execution requires bound independent oracle files; reconfigure for a new run")
             return
         for oracle in references.values():
             path = Path(oracle.path)
@@ -789,11 +815,16 @@ class LocalApplicationExecutor:
         if _inventory(root / "project-base", self.config.max_project_bytes) != self.project_manifest:
             raise ValueError("frozen full project changed")
         receipt_root.mkdir()
-        record: dict[str, Any] = {**identity, "schema_version": 3 if self.config.independent_oracles is not None else 2,
+        record: dict[str, Any] = {**identity, "schema_version": (4 if self.config.mode == "source" else
+            3 if self.config.independent_oracles is not None else 2),
             "state": "pending", "started_at": _now(),
             "finished_at": None, "status": "inconclusive", "detail": "check pending", "baseline": None, "stages": [],
-            "verification_level": "application_execution" if self.config.mode == "application" else "offline_synthetic",
+            "verification_level": self.verification_level,
             "application_verification": "not_run", "application_success": False, "accepted": False}
+        if self.config.mode == "source":
+            record["source_verification"] = "not_run"
+            record["validation_scope"] = self.config.validation_scope
+            record["mocked_interfaces"] = self.config.mocked_interfaces
         _atomic_json(path, record)
         deadline = time.monotonic() + self.config.max_check_seconds
         if self.deadline is not None:
@@ -883,6 +914,8 @@ class LocalApplicationExecutor:
         # the pending intent and may only be read as unknown on recovery.
         record.update(state="done", finished_at=_now())
         record["application_verification"] = application_check_state(record)
+        if self.config.mode == "source":
+            record["source_verification"] = execution_check_state(record, "source")
         _atomic_json(path, record)
         return record["status"], record["detail"]
 
@@ -900,9 +933,10 @@ class LocalApplicationExecutor:
             # creating a receipt, approving a pass or relaunching a process.
             return {"state": "initialization_interrupted", "idempotency_key": key,
                     "status": "inconclusive", "detail": "local check initialization was interrupted; no relaunch",
-                    "verification_level": "application_execution" if self.config.mode == "application" else "offline_synthetic",
+                    "verification_level": self.verification_level,
                     "application_verification": "inconclusive" if self.config.mode == "application" else "not_run",
-                    "application_success": False, "accepted": False, "baseline": None, "stages": []}
+                    "application_success": False, "accepted": False, "baseline": None, "stages": [],
+                    **({"source_verification": "inconclusive"} if self.config.mode == "source" else {})}
         record = json.loads(_checked(path).read_text(encoding="utf-8"))
         if (record.get("protocol_sha256") != self.protocol_sha256 or record.get("idempotency_key") != key or
                 record.get("project_sha256") != self.project_sha256 or record.get("command_sha256") != self.command_sha256 or
@@ -913,16 +947,23 @@ class LocalApplicationExecutor:
             raise ValueError("local execution candidate evidence changed")
         if record.get("state") == "pending":
             return {**record, "status": "inconclusive", "detail": "local check outcome is unknown; no relaunch",
-                    "verification_level": "application_execution" if self.config.mode == "application" else "offline_synthetic",
+                    "verification_level": self.verification_level,
                     "application_verification": application_check_state(record),
-                    "application_success": False, "accepted": False}
+                    "application_success": False, "accepted": False,
+                    **({"source_verification": execution_check_state(record, "source")}
+                       if self.config.mode == "source" else {})}
         if record.get("state") != "done" or record.get("status") not in ("pass", "fail", "inconclusive"):
             raise ValueError("invalid local execution evidence state")
         schema = record.get("schema_version")
-        if schema not in (1, 2, 3):
+        if schema not in (1, 2, 3, 4):
             raise ValueError("unsupported local execution evidence schema")
-        if schema == 3 and self.config.independent_oracles is None:
+        if schema in (3, 4) and self.config.independent_oracles is None:
             raise ValueError("bound local execution evidence has no independent oracle protocol")
+        if (self.config.mode == "source") != (schema == 4):
+            raise ValueError("source execution evidence requires its explicit source scope schema")
+        if schema == 4 and (record.get("validation_scope") != self.config.validation_scope or
+                            record.get("mocked_interfaces") != self.config.mocked_interfaces):
+            raise ValueError("source execution validation scope declaration changed")
         preparations = record.get("preparation", [])
         if self.config.preparation is None and preparations:
             raise ValueError("unexpected project preparation evidence")
@@ -939,12 +980,12 @@ class LocalApplicationExecutor:
             expected_status = ("pass" if result["exit_code"] == 0 else "fail") if result["reason"] == "exited" else "inconclusive"
             if result["status"] != expected_status or (result["reason"] == "exited" and not result["subtree_stopped"]):
                 raise ValueError("local stage status disagrees with process outcome")
-            if schema in (2, 3) and (type(result.get("process_started")) is not bool or
+            if schema in (2, 3, 4) and (type(result.get("process_started")) is not bool or
                     (result["reason"] == "exited" and result["process_started"] is not True)):
                 raise ValueError("local stage execution observation changed")
-            if schema in (2, 3) and type(result.get("source_binding_verified")) is not bool:
+            if schema in (2, 3, 4) and type(result.get("source_binding_verified")) is not bool:
                 raise ValueError("local stage source binding observation is missing")
-            if schema == 3 and type(result.get("oracle_binding_verified")) is not bool:
+            if schema in (3, 4) and type(result.get("oracle_binding_verified")) is not bool:
                 raise ValueError("local stage oracle binding observation is missing")
             stage_path = folder / f"{result['role']}-{result['stage']}.json"
             if json.loads(_checked(stage_path).read_text(encoding="utf-8")) != result:
@@ -966,7 +1007,7 @@ class LocalApplicationExecutor:
             reproduced = (len(base_results) == 2 and [result["stage"] for result in base_results] == ["build", "target"] and
                 all(result["role"] == "baseline" for result in base_results) and base_results[0]["status"] == "pass" and
                 (schema == 1 or all(result["source_binding_verified"] for result in base_results)) and
-                (schema != 3 or all(result["oracle_binding_verified"] for result in base_results)) and
+                (schema not in (3, 4) or all(result["oracle_binding_verified"] for result in base_results)) and
                 base_results[1]["reason"] == "exited" and base_results[1]["subtree_stopped"] and
                 base_results[1]["exit_code"] in self.config.baseline_target_exit_codes and
                 (self.config.baseline_fault_pattern is None or self.config.baseline_fault_pattern in captured.get(("baseline", "target"), "")))
@@ -975,24 +1016,26 @@ class LocalApplicationExecutor:
         preparation_passed = (self.config.preparation is None or
             (len(preparations) == 2 and all(result["stage"] == "prepare" and result["status"] == "pass" and
                                           result["subtree_stopped"] and result.get("source_binding_verified") is True
-                                          and (schema != 3 or result.get("oracle_binding_verified") is True)
+                                          and (schema not in (3, 4) or result.get("oracle_binding_verified") is True)
                                           for result in preparations)))
         passed = (record["status"] == "pass" and preparation_passed and
                   (record.get("baseline") or {}).get("fault_reproduced") is True and
                   [result["stage"] for result in record["stages"]] == list(STAGES) and
                   (schema == 1 or all(result["source_binding_verified"] for result in record["stages"])) and
-                  (schema != 3 or all(result["oracle_binding_verified"] for result in record["stages"])) and
+                  (schema not in (3, 4) or all(result["oracle_binding_verified"] for result in record["stages"])) and
                   all(result["role"] == "candidate" and result["status"] == "pass" and result["subtree_stopped"] for result in record["stages"]))
         if record["status"] == "pass" and not passed:
             raise ValueError("local execution pass is missing required evidence")
         application = passed and self.config.mode == "application"
-        level = "application_execution" if self.config.mode == "application" else "offline_synthetic"
+        level = self.verification_level
         application_state = application_check_state(record)
         saved_state = ("pass" if application else "not_run") if schema == 1 else application_state
         if (record["application_success"] is not application or record["accepted"] is not application or
                 record["application_verification"] != saved_state or
-                (schema in (2, 3) and record.get("verification_level") != level)):
+                (schema in (2, 3, 4) and record.get("verification_level") != level)):
             raise ValueError("local execution evidence overstates application verification")
+        if self.config.mode == "source" and record.get("source_verification") != execution_check_state(record, "source"):
+            raise ValueError("local execution evidence overstates source verification")
         if self.config.mode == "application" and schema != 3:
             # Preserve validation of legacy originals above, but never upgrade
             # their unchecked oracle declaration into present-day acceptance.

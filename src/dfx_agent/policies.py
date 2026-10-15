@@ -203,8 +203,8 @@ class Counterexample(BaseModel):
     candidate_id: str
     candidate_snapshot_sha256: str
     execution_id: str
-    evidence_kind: Literal["local_execution", "application_execution"]
-    scope: Literal["synthetic", "application"]
+    evidence_kind: Literal["local_execution", "source_execution", "application_execution"]
+    scope: Literal["synthetic", "source", "application"]
     link_authority: Literal["model_inference", "verified_check"]
     violated_obligation_ids: list[str] = Field(min_length=1)
     observation: str = Field(min_length=1)
@@ -218,6 +218,8 @@ class Counterexample(BaseModel):
         if any(not IDENTIFIER.fullmatch(value) for value in self.violated_obligation_ids):
             raise ValueError("invalid feedback obligation identifier")
         require_unique(self.violated_obligation_ids)
+        if (self.scope == "source") != (self.evidence_kind == "source_execution"):
+            raise ValueError("source counterexample evidence kind and scope disagree")
         return self
 
 

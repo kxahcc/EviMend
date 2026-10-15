@@ -5,9 +5,9 @@
 
 ## 1. 我们最终要做出什么
 
-**做一个面向 HarmonyOS 应用的故障定位与自修复 Agent：给它故障日志、应用源码和允许的测试入口，它自动找原因、修改代码、运行检查；失败后根据反馈继续修，最后交出补丁和验证报告。**
+**做一个普通电脑可运行的故障定位与自修复 Agent：给它 HarmonyOS 等应用的源码和故障日志，配置云端模型，它自动找原因、修改代码；有宿主验证器时回放相关真实源码，失败后根据反馈继续修，最后交出补丁和验证报告。** Windows x64 是当前部署范围，不要求 HarmonyOS 真机、模拟器、签名或完整应用构建环境，也不承诺其他操作系统已经验收。
 
-当前产品形态是命令行 Agent，competition 处理单个故障。面向用户的入口设计采用 Strix 式直接传参：`dfx --target 任务快照 --config 配置` 启动，`--resume NAME` 恢复，`status/logs/stop/report NAME` 追踪会话；实际安装及验收状态见 STATUS。任务快照同时含源码与故障日志，完整应用和四项检查命令由配置固定。现阶段不把任意原工程自动认定为已审核任务。已有离线聚合入口按显式清单汇总记录，真实应用批量调度与聚合在实测接入阶段完成。人负责准备任务、运行条件和可信的业务验收要求；系统负责分析、改代码和有界重试。
+当前产品形态是命令行 Agent，competition 处理单个故障。面向用户的入口设计采用 Strix 式直接传参：`dfx --target 任务快照 --config 配置` 启动，`--resume NAME` 恢复，`status/logs/stop/report NAME` 追踪会话；实际安装及验收状态见 STATUS。任务快照同时含源码与故障日志，不再强制绑定完整应用。analysis 模式可以直接分析和产出未验证补丁；source_execution 模式使用预先接纳的宿主运行器检查原版和冻结候选，得到限于相应逻辑与输入的验证结论。synthetic 用于软件自检，完整 application 验证保留为可选扩展。人准备允许输入与可信业务要求，系统负责读取、修改、调用已批准检查和有界修订；没有检查能力时如实报告未验证。
 
 用户最终拿到三类结果：
 
@@ -15,7 +15,9 @@
 - **修复产物**：实际可应用的代码补丁，说明改变了什么。
 - **验证记录**：原故障是否复现、补丁后是否消失、功能/回归是否通过、尝试了几轮、用了多少资源。无法完成时明确指出卡在哪里。
 
-这些是目标产品能力，现有实现与验证范围见 [STATUS](docs/STATUS.md)。当前交付重点是把已有 Agent 主链收口成可接云端模型和本机应用检查的竞赛版：输入任务与运行配置，交出定位、补丁、检查结果和资源报告。云端请求、本机执行和统一 competition 入口接到同一 SDK 循环，软件验收使用模拟传输和短时程序；完成证据与能力边界统一见 STATUS。真实模型及 HarmonyOS 环境的接纳和效果验证仍须后续安排。
+默认 `dfx configure --save RUN` 生成 analysis 配置；`--validation PROFILE` 选择宿主源码检查，`--application PROFILE` 选择完整应用扩展，二者互斥。analysis 输出 `analysis_completed` 或 `patch_proposed`，不表示验证成功；`source_verified` 仅表示声明的宿主源码协议通过，`application_verified` 才表示完整应用协议通过。报告 schema 4 的 accepted 按这个验证层级解释，不能脱离 verification_level 和覆盖说明引用；历史报告保持原含义。
+
+这些是目标产品能力，现有实现与验证范围见 [STATUS](docs/STATUS.md)。当前交付重点是消除完整应用/设备的默认绑定，将已有 SDK 循环、云端请求、上下文、Skills 和本机执行收口为轻量竞赛版。软件验收使用模拟传输和短时程序；真实模型兼容性、代表案例宿主源码回放及方法效果仍须后续接纳，不能由本次路线修正推定通过。
 
 ## 2. 用一个例子理解它怎样工作
 
@@ -25,7 +27,7 @@
 2. **找原因**：发现前面按 N 个字节分配容量，后面却想放 N 个 16 位元素，需要 2N 个字节；报错发生在使用处，问题来自容量与使用方式不一致。
 3. **检查业务含义**：继续读生成和校验逻辑，确认这段数据应该如何编码、谁还会使用它。
 4. **提出补丁**：选择与这些用途一致的容量或构造方式，输出实际 diff；不能只靠缩短数据让异常消失。
-5. **验证并调整**：先检查局部边界，再构建应用、重放目标操作并检查业务结果。如果不崩溃了但校验结果错误，反馈给下一轮修复。
+5. **验证并调整**：由宿主运行器加载原版与候选中的相关真实逻辑，回放输入并检查正常、边界和业务结果。如果不崩溃了但校验结果错误，反馈给下一轮修复；平台接口用 mock 时说明它覆盖及未覆盖什么。
 
 我们想让系统学会的工作方式就是：**从“哪里报错”追到“哪个必要条件被破坏”，再修复原因并验证原有功能。**
 
@@ -37,7 +39,7 @@ flowchart LR
     B --> C[模型找原因]
     K[四类诊断规则] --> C
     C --> D[模型生成补丁]
-    D --> E[本机受管构建 + 设备应用验证]
+    D --> E[本机受管真实源码回放 + 行为检查]
     E --> F{必要检查通过?}
     F -->|是| G[根因位置 + 补丁 + 验证报告]
     F -->|否| H[控制器分类失败并决定下一步]
@@ -45,9 +47,9 @@ flowchart LR
     H -->|缺环境或预算耗尽| I[已有产物 + 未解决原因]
 ```
 
-**大模型负责理解与修改，程序负责执行与判断流程是否完成。** 模型可以提出“应该修好了”，但只有实际验证记录满足协议，控制器才接受补丁。Agent、构建、设备回放与评测都规划在用户本机受管运行；基础模型拟由本机 Agent 调用云端大模型 API，不规划本机模型权重部署。
+**大模型负责理解与修改，程序负责执行与判断流程是否完成。** 模型可以提出“应该修好了”，但只有实际验证记录满足选定层级的协议，控制器才给出该范围内的通过结果。Agent、源码回放与评测都在本机受管运行，基础模型调用云端 API，不部署本机模型权重。完整应用构建/设备回放是可选后端，不是使用 Agent 的前置。
 
-共同验收协议在看候选结果之前按故障变体和源码版本固定：原版必须在目标操作触发指定故障，候选须完成构建、目标、业务和回归检查。competition 的本机执行器由主机固定完整工程、分析源码的 source_mapping 及这四项命令，绑定原版复现和候选检查；缺检查或只有合成结果时只报告未验证。具体字段和拒绝条件在 [模块规格](docs/design-contracts.md#13-补丁验证和尝试)；软件通道的实际验收见 STATUS，当前没有应用结果。
+共同验收协议在看候选结果之前按故障变体和源码版本固定。宿主源码级验证要求实际加载原版/候选相关源码，原版在回放输入下触发指定故障，候选通过同一目标、业务和回归检查；抽取/转译步骤、平台 mock 及语义限制必须披露。不能用另一份手写的“正确算法”替代被修代码，也不能只重读历史日志。完整 application 后端仍要求完整工程和平台执行事实。缺检查、仅静态分析或 synthetic 通过不得写成源码/应用修复成功，宿主通过也不自动成为完整应用成功。具体字段和拒绝条件见 [模块规格](docs/design-contracts.md#13-补丁验证和尝试)，接受与评测口径见 [评测规格](docs/preparation/metrics-and-gates.md)。
 
 ## 4. 工作重点与自己的贡献在哪里
 
@@ -80,7 +82,7 @@ flowchart LR
 
 ## 5. 开发框架和资源
 
-**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。云端通信复用锁定的官方 OpenAI Python SDK；同类 Chat Completions 服务默认在 Git 忽略的 `configs/model.local.json` 统一填写地址、模型、Key、单任务预算及网络重试/超时，环境变量保留为兼容选项，不自研供应商通信库。连接未建立的故障及明确 429 由 SDK 有限退避，结果不明的请求不重发；重试等待受本次请求与任务剩余时间共同限制，不重跑 Agent 工具。初始化、预检、生成不含 Key 的运行配置和参数说明见 [使用说明](src/dfx_agent/README.md#一次配置模型和应用)。软件验收以 SDK MockTransport 和短时合成程序走同一调用路径，当前结果见 STATUS。真实服务及型号仍须小额兼容性核验，应用检查仍须接纳匹配的 **HarmonyOS 工具链与设备/模拟器**。详细选择与边界见 [开发设计](docs/development/system-design-draft.md)。
+**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。云端通信复用锁定的官方 OpenAI Python SDK；同类 Chat Completions 服务默认在 Git 忽略的 `configs/model.local.json` 统一填写地址、模型、Key、单任务预算及网络重试/超时，环境变量保留为兼容选项，不自研供应商通信库。连接未建立的故障及明确 429 由 SDK 有限退避，结果不明的请求不重发；重试等待受本次请求与任务剩余时间共同限制，不重跑 Agent 工具。初始化、预检和参数说明见 [使用说明](src/dfx_agent/README.md)。真实服务及型号须小额核验，宿主验证器须接纳实际运行时、源码加载方式、输入和独立预期；不预设所有 `.ets` 都能在普通 JavaScript 运行时等价执行。具体选择与实现边界见 [开发设计](docs/development/system-design-draft.md)。
 
 | 部分 | 用什么 | 为什么 |
 |---|---|---|
@@ -90,8 +92,8 @@ flowchart LR
 | 状态与轨迹 | SQLite 检查点、有限活动侧录、文件产物；按需接原生 stream/callback | 不新增通用会话数据库、事件总线或自研追踪平台；外部 tracing 是可选观测 |
 | 环境管理 | uv + pyproject.toml + uv.lock | 项目内隔离依赖并锁定版本；固定响应 SDK 切片已做合成验证 |
 | 代码工具 | 受控读取/检索、SDK FilesystemBackend.edit、Git CLI | 原版、草稿和冻结候选明确区分；替换执行复用 SDK，领域适配负责临时草稿切换和候选登记；验收见 STATUS |
-| 应用执行 | Python 标准库调用 Windows Job + 项目依赖准备 + 四项固定检查 | 先准备 SDK/设备/签名及独立判据，再由 Agent 为独立工程副本安装项目依赖、构建、回放、检查并根据失败修订；软件通道已实现，真实适配待接纳 |
-| 应用验证 | 本机项目匹配的 DevEco/SDK、Hvigor、ohpm、hdc，按需 Hypium | 先核对本机容量和设备/模拟器可用性，再受管构建、回放及业务验收 |
+| 宿主源码验证 | Python 原生受管子进程 + 固定运行器/检查命令；相关语言运行时按案例接纳 | 实际装载原版与候选相关源码，回放故障输入并检查业务/边界；复用既有执行、预算和反馈，不另建调度底座 |
+| 可选完整应用验证 | 既有 ApplicationProfile / LocalApplicationExecutor；匹配的 DevEco/SDK、Hvigor、ohpm、hdc，按需 Hypium | 仅有这些条件且需要扩展覆盖时接入，不是默认安装、配置或竞赛主线前置 |
 | 开发检查 | pytest、Ruff、Pyright | 合成测试、接口检查、格式和类型检查 |
 
 Deep Agents 提供通用 Agent 能力，LangGraph 承担底层运行。当前关闭了 SDK 默认文件动作、摘要、卸载和委派，使用已有受控工具、工作上下文及可选主机压缩；这增加了自研维护面，不能再扩展成完整通用 harness。保留现有已验边界，新增通用能力先检查锁定框架能否直接复用，不进行整栈迁移。
@@ -102,7 +104,7 @@ CLI 只承担传参、显示活动、停止/恢复与读取结果。后续需要
 
 ### 本机资源怎样集中管理
 
-本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；离线证据可通过受管 Export 保留到 runs/exports。日常只启动一个受管任务。真实应用阶段先盘点设备、SDK/构建缓存的占用，再为其建立同样受管的安装、运行和清理入口；当前方案没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
+本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；离线证据可通过受管 Export 保留到 runs/exports。日常只启动一个受管任务。宿主验证运行时及临时产物也纳入同一管理范围；新增运行时先检查容量、来源和停止/清理，不改全局环境。可选完整应用扩展再单独接纳 SDK/设备缓存，当前没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
 面向用户的 `dfx` 前端负责启动、配置、进度和会话操作，`env` 管理安装、占用和按计划清理。交付范围是 Windows x64 下的完整项目目录、项目专属环境和标准 console entry。一次 `setup.cmd` 使用普通 Python 3.11+ 引导并创建锁定环境；日常用 `dfx.cmd` 或环境内的 `dfx`，生产运行不依赖 PowerShell、Codex 安装或全局 PATH 修改。Python 管理入口直接调用 Windows Job，保留停止、归属核对和资源限额；历史研究/导出 PS 入口只作开发兼容，不是产品运行前置。项目资源集中在 .dfx-local；删除 env/all 时先退出 Agent，再用外部普通 Python 的 `setup.cmd --clean` 应用预览计划，避免删除正在使用的解释器。独立 wheel 和跨平台不在本轮范围。真实实验开关仍为 false；实际验收与命令见 [Agent 说明](src/dfx_agent/README.md) 和 STATUS，限制边界见 [设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
@@ -110,17 +112,17 @@ CLI 只承担传参、显示活动、停止/恢复与读取结果。后续需要
 
 2026-10-11 查阅用户提供的 [Agent 项目索引](https://github.com/Yeti-791/Awesome-Offensive-AI-Agentic-Landscape)，再核对项目本体：[Strix](https://github.com/usestrix/strix/blob/main/docs/quickstart.mdx) 的直接任务 CLI、[BreachWeave](https://github.com/m-sec-org/BreachWeave) 的 SDK 复用和事实/方向记忆分工、[tinyctfer](https://github.com/chainreactors/tinyctfer) 的显式模型及执行环境。它们的任务与本项目不同，仓库自述成绩不作为我们的效果证据。由这些产品形态得出的本项目验收标准是：明确前置环境，一次安装，轻量模型/应用配置，一个命令启动任务，自动执行与反馈修订，能看进度/停止/恢复，最后交出补丁和可信检查记录。无需先搭建 Web、调度平台或图数据库；方法收益仍须同预算真实比较。
 
-每次新运行保存执行源码指纹、依赖锁和实际 Python/依赖版本。恢复先核对兼容性，报告和聚合只读取当时保存的事实；旧记录的缺失版本保持未知。competition 还须保留原完整工程、原配置、run 原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原主机批准，不以新资源或新批准替换旧记录；已完成记录回放，未知发送不重做。Git 的初始观察与续跑身份分开，日常改文档不会改变执行源码的兼容身份。完整约束见 [模块规格](docs/design-contracts.md)。
+每次新运行保存执行源码指纹、依赖锁和实际 Python/依赖版本。恢复先核对兼容性，报告和聚合只读取当时保存的事实；旧记录的缺失版本保持未知。competition 保留选定模式的原输入/运行器、原配置、run 原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原主机批准；完整 application 模式另保留原完整工程。不以新资源或新批准替换旧记录，已完成记录回放，未知发送不重做。Git 的初始观察与续跑身份分开，日常改文档不会改变执行源码的兼容身份。完整约束见 [模块规格](docs/design-contracts.md)。
 
-Export 从显式离线评测清单保留任务源码、全部候选、账本和失败记录：先预览内容与计划，再按 PlanId 应用，最后只读 Verify 从包内重建同一摘要。competition 的 `delivery.zip` 是另一份私有交付原件包，包含字节清单；其清单核验不等于上述评测重聚合或修复有效性认证。两类包都包含原始消息和私密源码，不能直接公开；导出不删除源，也不自动放行清理。终态 work、任务快照及未发布暂存仍须在具体清理请求中明确丢弃。实际验收看 STATUS；真实应用效果、工具链/设备来源验证和公开脱敏另待后续接入，使用命令见 [原型说明](src/dfx_agent/README.md)。
+Export 从显式离线评测清单保留任务源码、全部候选、账本和失败记录：先预览内容与计划，再按 PlanId 应用，最后只读 Verify 从包内重建同一摘要。competition 的 `delivery.zip` 是另一份私有交付原件包，包含字节清单；其清单核验不等于上述评测重聚合或修复有效性认证。两类包都包含原始消息和私密源码，不能直接公开；导出不删除源，也不自动放行清理。终态 work、任务快照及未发布暂存仍须在具体清理请求中明确丢弃。真实效果、宿主运行器来源与语义范围、可选应用扩展及公开脱敏须分别接纳，使用命令见 [原型说明](src/dfx_agent/README.md)。
 
 ## 6. 怎样一步步把它做出来
 
-竞赛版的交付路线围绕两个有限软件包：实现已有关系上的有限工作集并收口根因输出；验收已有 CLI 与实际发送/反馈/恢复整链，同时准备代表案例检查和候选提供方协议。随后接入本机工程/设备与云端模型，先跑强基础版，再成对筛选增强、冻结确认并整理竞赛材料。到正式截止及提前内部完成的日期、依赖和退出扩展规则统一见 [实施计划](docs/project-work-plan.md)，不在本导览复制日程或评测数量；实际进度只见 [STATUS](docs/STATUS.md)。
+竞赛版的交付路线先收口轻量入口：解除完整应用/设备必填，保留已有有限工作集、SDK 发送/反馈/恢复和根因输出，接上选定真实源码的宿主验证。随后接纳云端模型和代表案例宿主协议，先跑强基础版，再成对筛选增强、冻结确认并整理竞赛材料。到正式截止及提前内部完成的日期、依赖和退出扩展规则统一见 [实施计划](docs/project-work-plan.md)，不在本导览复制日程或评测数量；实际进度只见 [STATUS](docs/STATUS.md)。
 
 竞赛版保留修复义务、工作上下文、有条件经验使用和任务内反馈修订。跨任务模型提炼与自动晋升、完整生命周期科研成本和自动运行采值作为扩展保留，不再阻塞该节点。交付软件后先接通并验证真实基础闭环，再按相同模型、材料、工具和预算比较增强；依据实测决定比赛配置与论文主张。
 
-本机设备/模拟器尚未就绪时可把算法步骤、模型/工具交互、失败处理和离线控制逻辑设计具体。设备用于证明原故障能复现、补丁确实有效，以及测量运行开销。我们不会把所有设计决定拖到设备到位之后，也不会在没有实际结果时声称方案已经有效。
+本项目不等待设备到位。优先把可在宿主运行时中保持语义的相关逻辑接成回放，用真实候选源码与独立预期验证；平台依赖无法覆盖时明确报告限制或只产出未验证补丁。完整 HarmonyOS 行为属于可选更高层验证，不把宿主结果冒充设备实测，也不预先承诺组委会会把二者视为等价成绩。
 
 后续实施围绕完整任务路径逐步打通。换模型接手时，先读 STATUS 指定的下一包，再按 [实施计划的工作包](docs/project-work-plan.md#可直接接手的实现工作包) 查看修改范围、前置依赖和失败用例；每包通过检查再提交。资源保护和停止/清理优先于依赖安装，基础 Agent 优先于效果增强。
 
@@ -206,6 +208,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_cloud_provider.py`、`tests/test_local_execution.py`、`tests/test_competition.py`、`tests/test_competition_process.py` | MockTransport 云端调用、短时本机程序、统一竞赛入口与不同进程原配置恢复的边界和输出软件验收；不调用真实 API 或 HarmonyOS，实际结果见 STATUS |
 | `tests/test_model_profile.py` | 私有配置字段/预算校验、无 Key 的序列化、文件容量和错误回显反例；CLI、SDK 与交付包接线分别由产品、云端和竞赛用例验收 |
 | `tests/test_cloud_retries.py`、`tests/test_retrying_competition.py` | 官方异步 SDK 的安全网络重试、总超时、次数与隐私反例，以及现有完整合成修复/交付/恢复在新通道的验收 |
+| `tests/test_light_cli.py`、`tests/test_source_replay_example.py`、`tests/test_light_competition.py` | analysis 默认配置、--validation 只读预检与参数互斥；纯 JavaScript 示例实际装载原版/候选、四项检查及错误修复拒绝，以及模拟模型＋宿主源码检查/恢复整链的软件验收，实际结果只见 STATUS，不是 data_B 成绩 |
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
 | `tests/test_product_cli.py`、`tests/test_progress.py` | 用户参数、输出/分页、停止归属、中断及有界侧录的软件用例；组件与实际产品验收结果见 STATUS |
 | `tests/test_managed_runtime.py`、`tests/test_managed_bootstrap.py`、`tests/test_application_profile.py` | 原生 Job 身份/停止/清理、锁定安装隔离与只读应用前置检查的软件验收 |
@@ -217,12 +220,13 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `resources/preparation/data-b-inventory.json` | 数据盘点结果；不是根因标签或修复成绩 |
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `resources/preparation/case-oracles.json` | 两个候选案例的有限接口输入与独立预期；仅供 evaluator，应用准入待核定，不进入求解上下文 |
+| `resources/source-validation/example/` | 普通 Node 的局部真实 JavaScript 源码回放示例、独立 oracle 与说明；无平台 mock，不是 data_B 或 ArkTS 已适配证明 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 唯一 Skill 源库与提交入口；四类标准 SKILL.md 及后续外部 Skill 的 references/scripts/assets 均放在所属包内。它们是产品指导资源，不采用设计文档的状态头；格式由锁定 SDK 解析及软件测试核验 |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
 | `configs/local-runtime.json` | 本机资源/清理策略；合成 Run、Init、测试、质量、离线 Agent、competition、聚合和 Export 的受管限制与共同磁盘预算，真实实验开关保持 false，字段语义见设计与契约 |
-| `configs/competition-demo.json`、`configs/competition-cloud.template.json` | mock_demo 软件演示配置与云端/完整工程接纳模板；模板不是当前获准的真实实验入口 |
-| `configs/harmonyos-app.template.json` | 一次配置完整工程、工具路径、设备/签名、项目依赖准备和独立检查；占位值须在真实接纳时填写 |
+| `configs/competition-demo.json`、`configs/competition-cloud.template.json` | mock_demo 软件演示配置与云端轻量入口模板；模板不是当前获准的真实实验入口 |
+| `configs/harmonyos-app.template.json` | 可选完整应用配置：工程、工具路径、设备/签名、项目依赖准备和独立检查；不属于默认轻量安装前置 |
 | `configs/model.example.json`、`configs/model.local.json` | 无 Key 的模型模板与被 Git 忽略的本机私有配置；统一模型、Key、模式及单任务预算，使用方法见 src/dfx_agent/README.md |
 | `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
 | `.dfx-local/` | 本机环境、缓存、任务/工作副本、导出暂存与运行状态根；Git 忽略，所有当前运行入口受管 |
@@ -240,6 +244,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 |---|---|
 | `product_cli.py` | 标准 dfx console entry、配置/只读前置检查、会话操作和活动反馈；委托 Python 受管后端，不直接放行真实实验 |
 | `managed_runtime.py`、`windows_job.py`、`managed_bootstrap.py` | 标准库管理入口、Windows 原生 Job 与锁定安装，保留限额/精确停止/预览清理；不引入另一套会话或调度服务 |
+| `source_profile.py` | 读取 --validation 的宿主源码检查配置，只读预检运行器、相关源码、四项判据和覆盖说明；不联网或执行候选，不认证 ArkTS 与宿主语义等价 |
 | `application_profile.py` | 读取主机应用配置并报告缺失工具、工程、设备声明和独立判据；不联网、不安装、不探测实际设备 |
 | `progress.py` | 主机操作边界的容量有限事件侧录和只读分页；不包含私有正文、不重构历史时间，不充作接受/科研账本 |
 | `task.py` | 显式案例目录契约、日志/ZIP 成员与场景脚本哈希核对、分析快照和身份摘要；不生成完整运行工程 |
@@ -276,7 +281,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `context_compaction.py` | 主机选择闭合历史前缀、冻结原始来源和摘要、保存实际发送视图并回读核验；摘要始终是模型推断，不修改 Graph 历史或原版 |
 | `working_context.py` | 独立从显式主机焦点和已登记记录构建只读上下文包，复核来源/版本和引用闭包；实际发送与历史材料由 working_context_plan/materials/projection 接入 |
 | `model_provider.py` | 官方 OpenAI SDK 的薄接入、模型配置预设及领域消息/预算边界；单次有界调用，旧 profile 只读回放；不自写 HTTP 请求协议或声明所有服务均已实测 |
-| `local_execution.py` | 固定完整工程、source_mapping、可选依赖准备及四项检查；独立原版/候选副本保存受管回执，未知执行不重做；真实环境尚未验证 |
+| `local_execution.py` | 宿主源码与可选完整应用共用的受管执行器；绑定原版/候选、source_mapping、固定检查、判据与覆盖说明，保存阶段回执，未知执行不重做；两类结果分层报告 |
 | `domain_skills.py`、`skill_packages.py` | 动态发现根目录标准 Skill 包，复用 SDK 元数据解析并桥接已有批准知识和冻结选择；保留原文及配套文本，不解析领域标题为另一套作者 schema，不学习或晋升 |
 | `competition.py` | 统一任务、配置、模型、本机检查和领域资源；保留失败修订及恢复原件，生成 competition-report.json、result.md 和私有 delivery.zip；mock_demo 只用模拟模型和合成判据 |
 | `offline_script.py` | 校验固定响应及模拟协议 JSON 脚本、策略与限额，建立隔离响应流；期望答案只供合成执行器 |
@@ -293,7 +298,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `source_search.py` | 有限字面检索，返回原版/冻结候选的版本、文件和行号；分页、片段和编码缺项明确，不分析真实数据流 |
 | `policies.py` | 四类可迁移规则提示、义务/合成反例引用及按修法区分力选择查证的建议；不执行探针或证明应用效果 |
 | `acceptance.py` | 候选无关的共同协议、原版/候选执行记录及保守接受门；仅合成契约，不产生应用证据 |
-| `verification.py` | 冻结候选专属检查意图和幂等键，保存执行器结果与复用记录；合成结果保持未验证，应用接纳须满足完整协议 |
+| `verification.py` | 冻结候选专属检查意图和幂等键，保存执行器结果、实际层级与复用记录；analysis/合成结果不取得源码执行资格，宿主与完整应用各按声明协议接纳 |
 | `backends.py` | 版本绑定的 HTTP 模拟请求/作业对象、客户端意图与查询/取消/产物校验；当前本机执行由 local_execution.py 承担 |
 | `remote_service.py` | SQLite 持久化的 FastAPI 模拟作业服务和显式测试工作者状态；保留作协议反例测试，不是计划中的运行服务 |
 | `runtime.py` | 当前仅观察 PATH/模块/环境变量存在性；不启动 SDK/设备 |
@@ -316,7 +321,7 @@ dfx.cmd env status
 .dfx-local\env\Scripts\python.exe -B -m dfx_agent.managed_runtime --workspace . Run -Task docs
 ```
 
-受管 pytest 每次指定一个 tests 下的用例文件。competition 的 mock_demo 自建合成任务；运行后读取竞赛输出，不能把演示视为真实修复效果。状态、停止和默认清理预览共用原生管理入口。旧离线研究及 Export 命令保留 PS 兼容入口，详见 [使用说明](src/dfx_agent/README.md)。真实任务仍须经核验的快照、完整工程、独立检查和环境接纳。
+受管 pytest 每次指定一个 tests 下的用例文件。competition 的 mock_demo 自建合成任务；运行后读取竞赛输出，不能把演示视为真实修复效果。状态、停止和默认清理预览共用原生管理入口。旧离线研究及 Export 命令保留 PS 兼容入口，详见 [使用说明](src/dfx_agent/README.md)。真实任务先接纳源码/日志和云端数据边界；需要验证通过结论时再接纳宿主真实源码、独立检查及运行时，不要求先准备完整 HarmonyOS 工程。
 
 ## Git 与归档
 
