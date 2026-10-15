@@ -153,6 +153,21 @@ def test_dangling_tool_groups_rejected_before_plan(tmp_path: Path, mutation: str
     assert not (tmp_path / "compactions").exists()
 
 
+def test_reused_ids_in_later_complete_groups_preserve_compaction_source(tmp_path: Path) -> None:
+    store, ledger = setup(tmp_path)
+    messages = history()
+    messages.extend([messages[3].model_copy(deep=True), messages[4].model_copy(deep=True),
+                     messages[5].model_copy(deep=True), AIMessage(content="latest group")])
+    frozen = canonical([item.model_dump(mode="json") for item in messages])
+    plan = store.select(messages, "model-3")
+    assert plan is not None and plan.pinned_count == 2 and plan.summarized_end == 10
+    assert plan.source_messages_json == frozen
+    view = store.complete(plan, save_summary(ledger, plan), ledger)
+    assert view[:2] == messages[:2] and view[-1] == messages[-1]
+    assert canonical([item.model_dump(mode="json") for item in messages]) == frozen
+    assert store.audit(ledger)[0]["outcome"] == "valid"
+
+
 @pytest.mark.parametrize("field", ["source", "policy", "profile"])
 def test_existing_site_cannot_be_skipped_or_rebound(tmp_path: Path, field: str) -> None:
     store, ledger = setup(tmp_path)

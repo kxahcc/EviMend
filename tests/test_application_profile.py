@@ -92,6 +92,28 @@ def test_oracle_change_is_not_silently_reapproved(tmp_path: Path) -> None:
     assert {row["code"] for row in result["issues"]} == {"oracle_unavailable"}
 
 
+def test_bound_execution_retains_the_reviewed_oracle_files(tmp_path: Path) -> None:
+    original = profile(tmp_path)
+    assert original.execution.independent_oracles is None
+    execution = original.bound_execution()
+    assert execution.independent_oracles == original.independent_oracles
+    assert execution.model_dump()["independent_oracles"] == original.model_dump()["independent_oracles"]
+    # Changing an external file does not silently update the frozen digest.
+    oracle = original.independent_oracles["target"]
+    Path(oracle.path).write_bytes(b"replacement acceptance check")
+    assert execution.independent_oracles is not None
+    assert execution.independent_oracles["target"].sha256 == oracle.sha256
+    assert digest(Path(oracle.path).read_bytes()) != oracle.sha256
+
+
+def test_profile_cannot_supply_conflicting_execution_oracle_bindings(tmp_path: Path) -> None:
+    original = profile(tmp_path)
+    execution = original.bound_execution().model_dump()
+    execution["independent_oracles"]["target"]["path"] = str(tmp_path / "other-check.py")
+    with pytest.raises(ValidationError, match="bindings differ"):
+        changed(original, execution=execution)
+
+
 def test_oracle_in_writable_project_is_rejected(tmp_path: Path) -> None:
     original = profile(tmp_path)
     oracle = Path(original.execution.project_root) / "self-assertion.json"

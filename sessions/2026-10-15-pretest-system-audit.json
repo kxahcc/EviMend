@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-15",
+  "scope": "competition implementation audit and bounded offline closure",
+  "base_commit": "59d29d6",
+  "branch": "codex/product-cli",
+  "initial_worktree": "clean",
+  "review": {
+    "paths": [
+      "installation and native CLI/configure/doctor/resume",
+      "task snapshot, source/log retrieval and input boundaries",
+      "official SDK transport, network retry, model budget and unknown-result handling",
+      "Deep Agents tools, context selection, static Skills and diagnosis/repair decisions",
+      "candidate freeze, full-project checks, independent oracle and failure feedback",
+      "completion, competition report and recovery"
+    ],
+    "method": "Three parallel read-only audits, root cross-checks, bounded fixes and a second independent review; tests ran sequentially in the existing managed Windows Job.",
+    "excluded": "Frozen research extensions were not treated as competition blockers. No assertion of exhaustive whole-repository correctness or real model effectiveness.",
+    "conclusion": "No remaining confirmed competition-path blocker from this review. P2 real provider and HarmonyOS admission remains necessary."
+  },
+  "fixed": [
+    {
+      "problem": "Tool IDs legally reused across completed model turns were rejected by context grouping and provider history validation.",
+      "behavior": "IDs are unique within the current assistant batch; completed later batches may reuse them. Outstanding/result pairing and model-parent-bound action IDs remain strict. Frozen historical bytes are not rewritten."
+    },
+    {
+      "problem": "A candidate could freeze without a diagnosis, then fail final localization acceptance with no way to attach the same patch later.",
+      "behavior": "Competition requires a registered selected diagnosis with original root-cause lines before freezing. Rejection preserves the draft. Tool and prompt explain the repair path; the requirement is frozen in the session. Legacy offline defaults remain unchanged."
+    },
+    {
+      "problem": "A completed passing candidate was discarded when a final model message or extra tool exhausted the budget.",
+      "behavior": "Pure model_budget/action_budget/wall_time stops do not invalidate a complete trustworthy latest check. Missing localization, latest failed or unknown checks, other stop errors and unknown model/tool results still prevent acceptance. Stop and cost facts remain recorded."
+    },
+    {
+      "problem": "Independent oracle files were checked only during configuration; later edits could silently change the acceptance test.",
+      "behavior": "ApplicationProfile projects its single oracle declaration into frozen execution configuration. Each preparation/check stage verifies the approved external paths and bounded bytes before and after execution. New execution schema 3 records the binding. Missing bindings reject new application execution; old application receipts remain immutable and are read as inconclusive."
+    },
+    {
+      "problem": "Interrupted initialization could leave an empty receipt directory that returned inconclusive on check but failed on subsequent evidence/ledger read.",
+      "behavior": "An entirely empty receipt directory exposes a read-only inconclusive view, without creating a main receipt or relaunching. A nonempty directory missing the main receipt is rejected. Extra completed-result checks apply only to application mode; synthetic report evidence still receives its ordinary validation."
+    }
+  ],
+  "validation": {
+    "final_scope_passed": 319,
+    "final_scope_skipped": 1,
+    "final_scope_groups": 9,
+    "skip_reason": "Windows account cannot create the symlink required by one test_local_execution counterexample; no ACL changes were attempted.",
+    "tests": [
+      {"file": "tests/test_reused_tool_ids.py", "passed": 2, "skipped": 0, "receipt": "abb80672-ea8b-4f78-adcd-a10380e4087a"},
+      {"file": "tests/test_competition_diagnosis.py", "passed": 5, "skipped": 0, "receipt": "cc4ebcdc-5ca9-43a6-9116-7ec5512cd492"},
+      {"file": "tests/test_local_execution.py", "passed": 60, "skipped": 1, "receipt": "1e940cfb-ca9d-4d84-b613-a433a58a7156"},
+      {"file": "tests/test_application_profile.py", "passed": 12, "skipped": 0, "receipt": "6d639b37-2e2a-4149-aa01-2262e012d745"},
+      {"file": "tests/test_model_provider.py", "passed": 128, "skipped": 0, "receipt": "b5d2c306-4a13-43fb-bdc3-107881e8e89a"},
+      {"file": "tests/test_context_compaction.py", "passed": 55, "skipped": 0, "receipt": "1867c14d-6dde-453e-9664-6af28d61fa04"},
+      {"file": "tests/test_product_cli.py", "passed": 48, "skipped": 0, "receipt": "9cd545dc-0837-40fa-b48a-514494a6fc61"},
+      {"file": "tests/test_competition_terminal.py", "passed": 8, "skipped": 0, "receipt": "3bde2995-551c-492f-bdbd-29773cf22308"},
+      {"file": "tests/test_retrying_competition.py", "passed": 1, "skipped": 0, "receipt": "d82a40e3-da7a-47ee-a8f2-dde1ff0b883d"}
+    ],
+    "earlier_observations": [
+      {"file": "tests/test_provider_loop.py", "passed": 17, "receipt": "a34d9a60-6505-4b1e-a869-a6cea1fe4af0", "purpose": "Pre-fix baseline, not included in final-scope total."},
+      {"file": "tests/test_competition_terminal.py", "passed": 7, "receipt": "96e8d423-2300-41a0-9c30-a97167563179", "purpose": "Initial model/time budget fix; superseded by the eight-case final run including action_budget."}
+    ],
+    "initial_failure": {
+      "file": "tests/test_product_cli.py",
+      "receipt": "52fdddcd-edf5-4804-a369-d86a3c373a78",
+      "passed": 47,
+      "failed": 1,
+      "cause": "New oracle projection assertion compared raw template JSON against the normalized model, omitting default max_bytes.",
+      "resolution": "Compare against the validated oracle objects including their default read bound. No product or acceptance behavior was relaxed."
+    },
+    "ruff": {"status": "passed", "receipt": "27bf5609-f234-43c1-9d64-32235ae637a1"},
+    "pyright": {"status": "passed", "errors": 0, "warnings": 0, "receipt": "3c3cae70-b2fc-4d95-86ab-737dad492a77"},
+    "docs": {"status": "passed", "receipt": "228a6598-59c3-4888-a992-1bbf0ccf31de", "previous_receipt": "472d2e29-0515-49d6-92a6-4999d1f76d9f"},
+    "evidence_location": "Each managed receipt and matching log is under .dfx-local/artifacts/<receipt>.json and .log. Reproduction code and fixtures are tracked in tests; this record does not depend on archive."
+  },
+  "integration": {
+    "normal": "Actual AsyncOpenAI/MockTransport + Deep Agents loop, 15 simulated model calls, first behavior check fails, second candidate passes all four synthetic stages, complete report/private delivery and zero-call resume.",
+    "budget_boundary": "Same chain with only 14 model calls; final check completes, model_budget is retained, synthetic_checked survives and resumed report bytes/model usage remain unchanged.",
+    "application_acceptance": "Tested with explicit host-receipt fixtures only; no actual HarmonyOS acceptance was produced."
+  },
+  "environment": {
+    "new_dependencies_or_installations": false,
+    "global_environment_changes": false,
+    "runtime_policy_or_experiment_flag_changes": false,
+    "dataset_or_submission_template_changes": false,
+    "real_model_calls": 0,
+    "harmonyos_build_or_device_runs": 0,
+    "after_software_checks": {
+      "owner_valid": true,
+      "resource_accounting": "complete",
+      "inaccessible_paths": [],
+      "active_state": "none",
+      "cleanup_available": true,
+      "managed_bytes_by_category": {"tools": 41432064, "python": 60882592, "env": 129461518, "cache": 114843370, "tmp": 136453778, "work": 53397738, "artifacts": 5016298, "state": 89058},
+      "export_bytes": 1731345
+    }
+  },
+  "next": [
+    "P2: configure an actual cloud provider/model/key and bounded pilot budget; accept its tool continuation, usage, response shape and unknown-result handling.",
+    "P2: admit local HarmonyOS SDK/device/signing, reviewed source_mapping and independent build/target/business/regression checks; reproduce the original fault and confirm stopping/reset.",
+    "After admission: run a small baseline and paired enhancement pilot, then freeze broader evaluation. No accuracy, repair success, context savings or paper contribution effectiveness is currently established."
+  ]
+}

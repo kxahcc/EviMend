@@ -121,6 +121,15 @@ class CheckLedger:
         if (result.candidate_id != candidate_id or result.check_id != check_id or
                 result.idempotency_key != key or result.protocol_sha256 != self.executor.protocol_sha256):
             raise ValueError("check result identity changed")
+        from .local_execution import LocalApplicationExecutor
+
+        if isinstance(self.executor, LocalApplicationExecutor) and self.executor.config.mode == "application":
+            # Revalidate persisted process facts. Legacy application checks lack
+            # execution-time oracle bindings and are exposed as inconclusive,
+            # without changing either original ledger or execution receipts.
+            evidence = self.executor.evidence(key)
+            result = result.model_copy(update={"status": evidence["status"], "detail": evidence["detail"],
+                                               "level": evidence["verification_level"]})
         return result
 
     def run(self, candidate_id: str, check_id: str = "offline") -> CheckResult:

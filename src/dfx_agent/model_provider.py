@@ -335,7 +335,6 @@ def _message_payload(messages: list[BaseMessage]) -> list[dict[str, Any]]:
         raise AdapterRequestError("missing_messages")
     payload: list[dict[str, Any]] = []
     outstanding: set[str] = set()
-    all_ids: set[str] = set()
     for message in messages:
         if not isinstance(message, BaseMessage):
             raise AdapterRequestError("unsupported_message_role")
@@ -377,11 +376,10 @@ def _message_payload(messages: list[BaseMessage]) -> list[dict[str, Any]]:
             calls: list[dict[str, Any]] = []
             for call in message.tool_calls:
                 call_id, name, arguments = call.get("id"), call.get("name"), call.get("args")
-                if not isinstance(call_id, str) or not call_id or call_id in all_ids or (
+                if not isinstance(call_id, str) or not call_id or call_id in outstanding or (
                     not isinstance(name, str) or not IDENTIFIER.fullmatch(name) or not isinstance(arguments, dict)
                 ):
                     raise AdapterRequestError("invalid_history_tool_call")
-                all_ids.add(call_id)
                 outstanding.add(call_id)
                 calls.append({"id": call_id, "type": "function", "function": {
                     "name": name, "arguments": _canonical(_plain_json(arguments))}})
@@ -433,7 +431,6 @@ def _wire_messages_valid(messages: Any) -> bool:
     if not isinstance(messages, list) or not messages:
         return False
     outstanding: set[str] = set()
-    seen_ids: set[str] = set()
     for item in messages:
         if not isinstance(item, dict) or not isinstance(item.get("content"), str):
             return False
@@ -463,7 +460,7 @@ def _wire_messages_valid(messages: Any) -> bool:
                     return False
                 function = call["function"]
                 if call["type"] != "function" or not isinstance(call["id"], str) or not call["id"] or (
-                    call["id"] in seen_ids or not isinstance(function, dict) or
+                    call["id"] in outstanding or not isinstance(function, dict) or
                     set(function) != {"name", "arguments"} or not isinstance(function["name"], str) or
                     not IDENTIFIER.fullmatch(function["name"]) or not isinstance(function["arguments"], str)
                 ):
@@ -474,7 +471,6 @@ def _wire_messages_valid(messages: Any) -> bool:
                 except (TypeError, ValueError, UnicodeError, RecursionError):
                     return False
                 outstanding.add(call["id"])
-                seen_ids.add(call["id"])
         if set(item) - allowed:
             return False
     return not outstanding

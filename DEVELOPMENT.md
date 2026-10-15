@@ -1,6 +1,6 @@
 # 项目蓝图与开发导览
 
-状态：当前开发入口。最后维护：2026-10-14。
+状态：当前开发入口。最后维护：2026-10-15。
 职责：先用通俗语言说明要做什么、如何做和重点在哪，再提供文件导航。这里是设计的概览；具体技术决策以开发设计为准，实际进度以 STATUS 为准。
 
 ## 1. 我们最终要做出什么
@@ -188,6 +188,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `src/dfx_agent/working_context_projection.py`、`tests/test_working_context_projection.py` | 从完整审计 packet 生成有界模型视图；仅替换来源清单，保留全部领域内容及未知/权限范围 |
 | `tests/test_working_context_reporting.py`、`tests/test_working_context_metrics.py` | 新代发送计划回读、旧代不回填、显式上下文因素、公平门及私有导出合成验收 |
 | `tests/test_agent_loop.py`、`tests/test_remote_contract.py`、`tests/test_policies.py`、`tests/test_action_acceptance.py`、`tests/test_model_calls.py`、`tests/test_tool_authorization.py`、`tests/test_causal_diagnosis.py`、`tests/test_decisions.py` | 固定响应闭环、模拟 HTTP、领域策略、动作/应用接受、模型与工具恢复、因果诊断及修复决策交接的合成验收 |
+| `tests/test_competition_diagnosis.py`、`tests/test_reused_tool_ids.py`、`tests/test_competition_terminal.py` | 竞赛候选完整定位关联、跨轮工具 ID 复用、预算边界完成验证及 SDK/模拟修复恢复；应用接受使用回执 fixture，不证明真实应用效果 |
 | `tests/test_feedback.py`、`tests/test_feedback_integration.py` | 开发反馈来源、权限、移植回读、候选与成本的合成反例；不证明自动学习质量或真实修复 |
 | `tests/test_skill_validation.py`、`tests/test_skill_validation_integration.py` | 不可改写版本、外部来源批准、前置计划、同池目标过程完整读取/后续可见性、来源移走后回读及递归读取预算的合成反例；不证明学习收益 |
 | `tests/test_skill_evolution.py`、`tests/test_skill_evolution_retry.py`、`tests/test_skill_evolution_audit.py`、`tests/test_skill_publication.py` | 分别检查基础合成判定、历史重试、配置/来源关闭审计、沙盒发布/退回/冻结旧选择；共用非测试模块 `tests/skill_evolution_support.py` 的真实 SDK 合成原件。新激活必须使用候选当前判定，旧发表仍可回读；不证明自主学习或 SDK 已消费别名 |

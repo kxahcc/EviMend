@@ -108,7 +108,8 @@ Use actual failed-check feedback to revise the affected direction rather than re
 """
 
 
-def build_system_prompt(features: PolicyFeatures, *, application_checks: bool = False) -> str:
+def build_system_prompt(features: PolicyFeatures, *, application_checks: bool = False,
+                        require_candidate_diagnosis: bool = False) -> str:
     """Return a strong shared task policy plus only the enabled method guidance."""
     sections = [_BASE_STRATEGY]
     if features.rule_guidance:
@@ -117,6 +118,13 @@ def build_system_prompt(features: PolicyFeatures, *, application_checks: bool = 
         sections.append(_OBLIGATION_GUIDANCE)
     if features.decision_checks:
         sections.append(_DECISION_GUIDANCE)
+    if require_candidate_diagnosis:
+        sections.append("This competition run requires complete localization before candidate freezing. "
+            "Pass the actual diagnosis_id returned by record_diagnosis to register_candidate. "
+            "The diagnosis must select a hypothesis with at least one original-code root-cause location; "
+            "a simple path/line/reason diagnosis supplies this. If registration rejects missing localization, "
+            "the draft remains unchanged: record a complete diagnosis and register the same draft with that ID, "
+            "without reapplying the edit. Checks alone cannot replace the candidate's localization link.")
     prompt = "\n".join(sections)
     if application_checks:
         prompt = prompt.replace(
@@ -129,7 +137,8 @@ def build_system_prompt(features: PolicyFeatures, *, application_checks: bool = 
 
 
 def build_task_message(*, task_id: str, run_id: str, source_snapshot_sha256: str,
-                       capabilities: frozenset[str], resume: bool, application_checks: bool = False) -> str:
+                       capabilities: frozenset[str], resume: bool, application_checks: bool = False,
+                       require_candidate_diagnosis: bool = False) -> str:
     """Serialize checked host identity without introducing task-data instructions."""
     require_identifiers([task_id, run_id, *capabilities])
     require_hash(source_snapshot_sha256)
@@ -150,4 +159,6 @@ def build_task_message(*, task_id: str, run_id: str, source_snapshot_sha256: str
             "and request the available host-fixed check."
         ),
     }
+    if require_candidate_diagnosis:
+        context["candidate_localization"] = "required: register_candidate must link a registered diagnosis with selected original root-cause lines"
     return json.dumps(context, ensure_ascii=False, sort_keys=True)

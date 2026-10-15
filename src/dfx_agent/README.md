@@ -1,6 +1,6 @@
 # 竞赛与离线修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-14。
+状态：当前使用说明。最后维护：2026-10-15。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
 当前命令行支持输入快照、日志解码、栈位置到源码映射及离线报告。`repair/resume` 保留固定响应和模拟模型协议，把 Deep Agents SDK、因果诊断与修复义务、有限条件结果、候选工作区、模型/工具账本、合成检查和可关闭策略工具接成受管闭环；受管 aggregate 和 Export/Verify 可汇总并保存既有记录。新增 `competition` 统一主机配置、云端请求适配器、完整工程的本机检查、正式通用领域 Skill 和竞赛交付。统一入口的软件验收证据和未通过项见 [STATUS](../../docs/STATUS.md)。本批只用 MockTransport 与短时合成程序，不运行真实云端或 HarmonyOS 实验；合成 `offline_checked` 或 `synthetic_checked` 不能解释为应用修复成功。公开脱敏、真实环境接纳及修复效果仍待验证。
@@ -43,7 +43,7 @@ dfx.cmd --target reviewed/task01 --config configs/my-run.json --name task01
 
 `configure --init-model` 从受跟踪的 `configs/model.example.json` 创建私有文件，已有文件不覆盖。`configure --application ... --save ...` 默认读取该文件，也可通过 `--model-config configs/NAME.local.json` 指定另一份；模型与预算不再混用命令行覆盖。生成的运行配置保存不含 Key 的参数及私有文件位置，Key 在发送时直接读取，不注入环境变量、不写进日志、报告或交付包。修改模型/预算后生成新的运行配置用于新任务；`--resume` 沿用原运行参数和剩余额度，但允许原私有文件中的 Key 轮换。私有文件切换服务地址时，旧运行拒绝发送，避免将新服务的 Key 发往旧地址；不同服务可使用不同 NAME.local.json。私有配置包含明文 Key，应只保留在本机；Git 忽略不等于加密。项目资源清理不删除 configs 中的私有文件，撤销凭据时自行删除。
 
-示例 budget 的含义：`max_calls` 模型调用次数、`max_known_tokens` Token 预算、`max_output_tokens` 单次输出上限、`max_seconds` Agent 时间上限、`max_candidates` 补丁候选数、`max_tool_calls` 工具调用次数，均按单个任务限制。发送前保守预留输入和完整输出额度；缺 usage 或未知结果不伪造费用。它不是全数据集累计预算或金额上限，批测须另按确认的总预算分批停止。默认数值只是软件准备值，首次真实测试前按账户额度调整。
+示例 budget 的含义：`max_calls` 模型调用次数、`max_known_tokens` Token 预算、`max_output_tokens` 单次输出上限、`max_seconds` Agent 时间上限、`max_candidates` 补丁候选数、`max_tool_calls` 工具调用次数，均按单个任务限制。发送前保守预留输入和完整输出额度；缺 usage 或未知结果不伪造费用。最后候选已完成全部可信应用检查、定位完整且无未知调用/其他错误时，后续仅以 model_budget、wall_time 或 action_budget 终止不撤销接受；停止原因和完整成本仍保存，不追加调用或放宽预算。未知调用、其他错误、未完成检查或最新候选失败仍不能接受。它不是全数据集累计预算或金额上限，批测须另按确认的总预算分批停止。默认数值只是软件准备值，首次真实测试前按账户额度调整。
 
 同一私有文件的 `network` 管理网络容错：`max_retries` 是首次请求之后的重试上限，允许 0–5；`request_timeout_seconds` 是一次逻辑模型调用的总时限，包含所有尝试和退避等待；`connect_timeout_seconds` 是每次连接的上限。准备值见 `configs/model.example.json`，设 5 次重试意味着最多 6 次网络尝试。生成运行配置时同时固定这些参数；调整后为新任务重新 configure，恢复不增加原额度。
 
@@ -63,7 +63,7 @@ DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文�
 
 `--workspace` 可显式指定完整部署目录；没有时从当前目录向上寻找，或读取 DFX_PROJECT_ROOT。`--config` 是生成的不含 Key 的 provider/model、应用检查和预算运行配置；凭据按其中的私有文件位置读取，旧环境配置按指定环境名读取。普通命令不会自动修改真实实验开关。
 
-`working_context.history_selection` 可选 `legacy_refill`（缺省，保留旧计划语义）、`repair_relevance`（按已登记修复引用选择）或 `repair_frontier`（额外保护未吸收探索与换根因后的最近实际失败）。演示配置使用 frontier；其 `exploration_read_groups` 控制可选探索组上限，仍受共同视图预算约束。最新故障日志、必要义务、最近实际失败的原候选登记/检查、尚未冻结的编辑、完整知识读取及近期工具组优先保留，无关旧思考和重复读取可移出。旧候选失败不成为当前候选事实；必要内容超过预算停止，Graph 原历史不删除。新增分支的运行验收状态见 STATUS。`competition-report.json` schema 3 的 `localization_result.final.selected` 是最新候选实际关联的所选根因，alternatives 单列；位置缺项会使最终接受保持 false，实际应用检查结果仍独立保存。非空根因行不表示定位正确。
+`working_context.history_selection` 可选 `legacy_refill`（缺省，保留旧计划语义）、`repair_relevance`（按已登记修复引用选择）或 `repair_frontier`（额外保护未吸收探索与换根因后的最近实际失败）。演示配置使用 frontier；其 `exploration_read_groups` 控制可选探索组上限，仍受共同视图预算约束。最新故障日志、必要义务、最近实际失败的原候选登记/检查、尚未冻结的编辑、完整知识读取及近期工具组优先保留，无关旧思考和重复读取可移出。旧候选失败不成为当前候选事实；必要内容超过预算停止，Graph 原历史不删除。新增分支的运行验收状态见 STATUS。`competition-report.json` schema 3 的 `localization_result.final.selected` 是最新候选实际关联的所选根因，alternatives 单列；竞赛运行在 register_candidate 冻结前要求传入已登记的 diagnosis_id，该诊断须选中假设并给出有效原版根因行。缺项拒绝且保留草稿：补充完整诊断后可用同一草稿重新登记，无需重做编辑。旧记录最终位置缺项仍使接受保持 false，实际应用检查结果独立保存；新会话冻结这一要求，恢复不能改写旧语义。非空根因行不表示定位正确。
 
 frontier 可显式设置 `context_layout: "decision_layers"`，以阶段问题、假设/未知、事实/推断、运行条件/业务义务、候选检查和失败修订组织原语义记录，替换默认 `record_panel`。竞赛演示与云端模板选择 `decision_frontier`，进一步读取当前范围匹配的已保存决策，并展示原待证问题、区分问题和反证引用；检查和草稿状态优先，提示不要求每个未知都追加调查。各布局冻结到 profile，旧布局/历史不变。编译回组须完整还原原投影，不能只发送摘要却认证原文可见；建议不代替执行权限或最终接受。新发送计划另外给被移出原版/冻结候选读取提供有界回读导航，跨诊断找回旧探索；导航可因窗口不足省略，不挤掉已选原文，历史草稿不冒充可复原版本。必要未表达工具正文只发送一份，实际完整组保持；SDK 自动摘要仍关闭，竞赛入口尚无通用语义摘要开关。软件验收状态见 STATUS。
 
@@ -102,7 +102,7 @@ events.jsonl 是容量有限的操作侧录：不输出模型正文、源码、�
 
 `configs/competition-demo.json` 是受管软件演示配置；`configs/competition-cloud.template.json` 说明后续真实提供方与工程接纳字段，包含待填写值，不能直接作为当前实验配置。本机策略 `configs/local-runtime.json` 的 `allow_model_experiments` 和 `allow_application_experiments` 均保持 false，本批不得通过环境变量或配置修改解锁真实云端、HarmonyOS 构建或设备运行。
 
-真实模式须由主机先审阅任务快照、完整工程及业务判据，再固定配置 `execution` 中的 `project_root`、`source_mapping` 和 `commands`。分析快照排除了运行资源，不能拿它充当完整工程。映射为空时按相同相对路径绑定；非空映射须覆盖分析基线的全部源码，原字节必须匹配。四个固定命令键为 `build`、`target`、`behavior`、`regression`；原版先完成构建和指定故障复现，候选再完成这四项检查。实际应用协议须固定故障标记及各命令 oracle 哈希；模型不能改写 oracle、工程路径、命令或接受条件。环境和业务协议的接纳不等于已通过应用验证。
+真实模式须由主机先审阅任务快照、完整工程及业务判据，再固定配置 `execution` 中的 `project_root`、`source_mapping` 和 `commands`。分析快照排除了运行资源，不能拿它充当完整工程。映射为空时按相同相对路径绑定；非空映射须覆盖分析基线的全部源码，原字节必须匹配。四个固定命令键为 `build`、`target`、`behavior`、`regression`；原版先完成构建和指定故障复现，候选再完成这四项检查。实际应用协议须固定故障标记，以及各命令 oracle_sha256。ApplicationProfile 中四阶段 independent_oracles 的绝对 path、sha256、max_bytes 会由 configure 自动绑定进 execution；文件须留在可写完整工程、分析任务和运行工作区之外。执行器在新运行及每项准备/检查前后重新核对原字节；漂移返回 inconclusive 并保留实际执行回执，不把零退出码认作通过。模型不能改写 oracle、工程路径、命令或接受条件，哈希一致也不认证判据的业务语义。环境和业务协议的接纳不等于已通过应用验证。
 
 CloudProviderConfig 只保存 HTTPS endpoint、可选私有文件位置、兼容凭据环境名及可选 network 策略；endpoint 不允许 userinfo、query 或 fragment。凭据在准入和每次网络尝试前核对，私有文件的 endpoint 须与原运行相同，当前调用中 Key 改变则停止，不保存 Key 到 profile、请求体、异常或日志。文件 Key 不注入环境，应用子进程仍排除环境模式的模型 Key。显式 network 配置复用公开 AsyncOpenAI/HTTPX AsyncClient，由 SDK 负责安全失败的退避重试，外层总截止时间覆盖发送和等待；底层连接重试关闭，避免叠加另一层。缺 network 的旧配置继续用原同步零重试通道。冻结 canonical 请求用于账本身份，每次 SDK 序列化后均须核对相同语义，不要求 JSON 字段顺序相同。标准 nullable 响应支持，拒答或非文本结果不能变成修复成功。旧 cloud-httpx profile 仅保留只读历史语义，不能静默恢复成新传输。发送前预留输入估计与最坏输出 Token；未知 usage 后停止新发送，这不是供应商 Tokenizer 的精确硬上限，真实型号仍待核验。
 
@@ -112,7 +112,7 @@ CloudProviderConfig 只保存 HTTPS endpoint、可选私有文件位置、兼容
 
 P2 的固定受管检查命令可向 scripts/preparation/check_case_observations.py 传入 `--observations OBSERVATIONS.json --case TC_JSError_021`；默认 oracle 是 resources/preparation/case-oracles.json，也可显式 --oracles。该选择要求021的全部4向量，缺项或混入022拒绝；不传 --case 则沿用联合7向量。通过只表示该 JSON 与有限预期一致，仍为 accepted=false/application_verification=not_run，必须适配实际候选 ArkTS/设备输入、固定检查包及页面/回归。
 
-`-Resume` 必须沿用相同工作 ID、任务和配置，保留原完整工程、work 内全部原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原批准。恢复消费 run 内原知识和静态资源，不能重建缺失工程、重新生成批准或把新资源加入旧运行。执行源码/依赖身份、配置、工程、映射、协议和批准有漂移时拒绝；恢复准入拒绝返回 3 并保留原终态。已完成模型/检查调用只回放结果，已发出但结果未知的调用停止并不重发。无待执行工作的完成恢复即使用满额度也保留原结果和终态观察计时；仍有待执行工作时不能重置原预算/截止时间。旧报告没有可信完成时间且无新进展时耗时保持未知，不能把空闲和恢复时间算成旧修复耗时；首次报告观察区间也不等于定位/修复阶段耗时。字段与旧代回读边界见[规格第 1.3.1 节](../../docs/design-contracts.md#131-案例接纳与协议冻结)，实际通过范围见 STATUS。
+`-Resume` 必须沿用相同工作 ID、任务和配置，保留原完整工程、work 内全部原件及 `.dfx-local/state/competition-<ID>-approval.json` 的原批准。恢复消费 run 内原知识和静态资源，不能重建缺失工程、重新生成批准或把新资源加入旧运行。执行源码/依赖身份、配置、工程、映射、协议和批准有漂移时拒绝；恢复准入拒绝返回 3 并保留原终态。已完成模型/检查调用只回放结果，已发出但结果未知的调用停止并不重发。无待执行工作的完成恢复即使用满额度也保留原结果和终态观察计时；仍有待执行工作时不能重置原预算/截止时间。绑定 oracle 的新执行保存 execution schema 3。旧 schema 1/2 应用执行只读核验原件，派生结果为 inconclusive（明确未启动则 not_run），accepted=false，不补写执行时核验；缺绑定的旧应用配置不得新执行，须新建配置和运行。旧报告没有可信完成时间且无新进展时耗时保持未知，不能把空闲和恢复时间算成旧修复耗时；首次报告观察区间也不等于定位/修复阶段耗时。字段与旧代回读边界见[规格第 1.3.1 节](../../docs/design-contracts.md#131-案例接纳与协议冻结)，实际通过范围见 STATUS。
 
 Stop 终止当前受管 Job，Status 查看状态。Clean 默认只预览，示例仅预览缓存；预览 work 可用 `Clean -Scope work`，保留条件、PlanId 和显式丢弃要求沿用 [本机管理协议](../../docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。需要恢复时须保留原工程、任务、work 与 state 原批准；mock_demo 的原工程和任务位于 `.dfx-local/tmp/`，不能先清掉再续跑。交付包不会自动授权清理，也不能代替恢复原件。
 
@@ -201,15 +201,15 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 
 受管 worker 自动传仓库根，启动先只读核知识原件、索引、权限及任务批准，缺库不会创建空库或重建索引。恢复读取 run 内冻结原件，并要求脚本提供原批准和原策略；库可以已经迁移或不存在，`library_path` 仅是启动定位符，不参与恢复身份，但仍须满足词法范围约束。批准、知识、策略、选择、模型和预算的漂移在可写运行前拒绝，CLI 返回 3，worker 保留原终态。库制作与人工批准继续使用 knowledge.py/knowledge_retrieval.py 的主机接口，本入口只消费已有库。完整受管验收 fixture 见 tests/test_managed_knowledge_workflow.py。
 
-每次 SDK 工具调用先经 `actions.py` 的主机授权：检查工具对应动作、参数、任务/版本、引用、候选及能力；全部动作串行，并受独立工具预算约束。工具参数可带 `proposal_json`（序列化的 `ActionProposal`），用于显式提交理由和引用；它不能改变工具所需能力或候选，也不能隐藏工具实际引用。模型返回的工具调用并不自动获准；最后一个已记账模型响应仍可完成合法动作，但不能绕过工具、候选和时间预算。
+每次 SDK 工具调用先经 `actions.py` 的主机授权：检查工具对应动作、参数、任务/版本、引用、候选及能力；全部动作串行，并受独立工具预算约束。同一 assistant 工具批次内调用 ID 必须唯一，已闭合的不同模型轮次可以复用 ID；动作以父模型调用 ID 与工具 ID 联合绑定，结果只匹配当前批次，重复结果和未完成组仍拒绝。工具参数可带 `proposal_json`（序列化的 `ActionProposal`），用于显式提交理由和引用；它不能改变工具所需能力或候选，也不能隐藏工具实际引用。模型返回的工具调用并不自动获准；最后一个已记账模型响应仍可完成合法动作，但不能绕过工具、候选和时间预算。
 
 `task_strategy.py` 已向 SDK 注入明确的任务指引：读日志、追查跨文件的上游值与消费者、提出原始行假设、生成保行为补丁、冻结候选、按实际检查反馈修订或诚实停止。基础/增强共享该流程，增强只按开关追加规则、义务和决策检查。启动消息绑定主机任务、版本、能力与合成验证级别；脚本响应自检能证明交接，不能证明模型自主定位或修复效果。
 
 `search_source(query=..., path_prefix=..., candidate_id=..., offset=..., limit=...)` 可快速找符号定义、赋值与调用文本，默认搜索原版；指定已登记 candidate_id 可查冻结候选，不能查草稿。查询是单行字面文本，前缀是相对文件或目录、不展开 glob。结果有实际源码版本、路径、行列、原字节哈希与有限片段，分页由 has_more/next_offset 指示；complete/skipped 明确编码覆盖。片段截断不能代替完整上下文，缺编码文件时不能声称不存在匹配。整树/单文件/查询/页面限额来自 source_search.py，超过即拒绝；工具共用 read_source 能力和总预算。它只查文本，不确认数据流或使用点运行值。
 
-`read_source(path=..., start_line=..., end_line=...)` 默认按行读原版，`draft=True` 读未冻结草稿，`candidate_id=...` 读已登记冻结候选；草稿与候选不能同传，每次最多 200 行。失败修订可以先在原候选检索，再回读完整行段，对照实际检查反馈；候选回执标明候选及源码快照，不能当作原版根因行。文本编辑仍用 `edit_source(path, old, new)`，其替换执行委托 SDK，全部成功后切换临时草稿。编辑文件规范为 LF，末尾换行有无保留，原版/已登记候选不受改写。新读取/委托源码和反例均待受管验收，见 STATUS。
+`read_source(path=..., start_line=..., end_line=...)` 默认按行读原版，`draft=True` 读未冻结草稿，`candidate_id=...` 读已登记冻结候选；草稿与候选不能同传，每次最多 200 行。失败修订可以先在原候选检索，再回读完整行段，对照实际检查反馈；候选回执标明候选及源码快照，不能当作原版根因行。文本编辑仍用 `edit_source(path, old, new)`，其替换执行委托 SDK，全部成功后切换临时草稿。编辑文件规范为 LF，末尾换行有无保留，原版/已登记候选不受改写。冻结候选回读与 SDK 编辑已有受管合成验收，具体日期和范围见 STATUS；应用语义仍待真实验证。
 
-结构化诊断使用 `inspect_analysis(include_schema=True)` 读取主机身份、提交 schema 和接纳规则，再把序列化的 DiagnosisSubmission 传给 `record_diagnosis(diagnosis_json=...)`。它包含异常/根因位置、条件与绑定、因果步骤、支持/反驳引用、未知项及可选义务；源码和日志事实由主机读取，模型只能提交推断。义务需要开启 `obligation_tracking`，并和假设双向关联。简单 path/line/reason 路径仍可用，不能与 diagnosis_json 同传。
+结构化诊断使用 `inspect_analysis(include_schema=True)` 读取主机身份、提交 schema 和接纳规则，再把序列化的 DiagnosisSubmission 传给 `record_diagnosis(diagnosis_json=...)`。它包含异常/根因位置、条件与绑定、因果步骤、支持/反驳引用、未知项及可选义务；源码和日志事实由主机读取，模型只能提交推断。义务需要开启 `obligation_tracking`，并和假设双向关联。简单 path/line/reason 路径仍可用，不能与 diagnosis_json 同传。竞赛冻结候选时必须传 record_diagnosis 返回的 diagnosis_id，不能省略；仅登记空根因或没有选中假设的中间诊断仍不足以冻结候选。
 
 `diagnoses/<ID>.json` 原子保存诊断、证据和关联义务，不能改写；修订用新 ID。已有证据可按 ID 复用，依据闭包保留原来源。`inspect_analysis(diagnosis_id=...)` 回读同一记录，默认不重复返回 schema。独立 `record_obligation` 也使用规范 RepairObligation；候选的 restores/preserves 引用上述义务。模型假设、关系和义务保持 unknown/model_inference；失败执行依据须匹配已保存检查的候选、实际源码哈希和 execution_id，不能把旧候选反馈移到新候选。完整字段与未实现检查见 [模块规格第 1 节](../../docs/design-contracts.md#1-数据契约与不可破坏的条件)。
 

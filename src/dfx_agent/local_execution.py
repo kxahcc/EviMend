@@ -68,6 +68,20 @@ class LocalCommand(BaseModel):
         return self
 
 
+class IndependentOracle(BaseModel):
+    """Host-owned acceptance file, frozen into the execution protocol."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    path: str = Field(min_length=1, max_length=32768)
+    sha256: str
+    max_bytes: int = Field(default=1048576, ge=1, le=16777216)
+
+    @model_validator(mode="after")
+    def valid_hash(self) -> IndependentOracle:
+        require_hash(self.sha256)
+        return self
+
+
 class LocalCheckConfig(BaseModel):
     """Trusted configuration fixed before any candidate is inspected.
 
@@ -85,6 +99,8 @@ class LocalCheckConfig(BaseModel):
     # A host-approved dependency command runs in each independent project copy.
     # Omitting it preserves serialized identities of existing check protocols.
     preparation: LocalCommand | None = Field(default=None, exclude_if=lambda value: value is None)
+    independent_oracles: dict[str, IndependentOracle] | None = Field(
+        default=None, exclude_if=lambda value: value is None)
     baseline_target_exit_codes: list[int] = Field(min_length=1)
     baseline_fault_pattern: str | None = None
     max_project_bytes: int = Field(default=268435456, ge=1)
@@ -115,6 +131,12 @@ class LocalCheckConfig(BaseModel):
         if self.mode == "application" and (not self.baseline_fault_pattern or
                 any(command.oracle_sha256 is None for command in self.commands.values())):
             raise ValueError("application checks require a fixed fault marker and independent oracle hashes")
+        if self.independent_oracles is not None:
+            if set(self.independent_oracles) != set(STAGES):
+                raise ValueError("independent oracle bindings are required for all four stages")
+            if any(self.commands[stage].oracle_sha256 != oracle.sha256
+                   for stage, oracle in self.independent_oracles.items()):
+                raise ValueError("independent oracle bindings and command hashes disagree")
         return self
 
 
@@ -501,6 +523,33 @@ class LocalApplicationExecutor:
             raise ValueError("invalid local check deadline")
         self.deadline = min(self.deadline, deadline) if self.deadline is not None else deadline
 
+    def verify_oracles(self) -> None:
+        """Check fixed acceptance bytes without executing them or approving semantics.
+
+        Legacy protocols remain readable but cannot authorize new application
+        processes. The hash is part of the frozen command protocol; neither a
+        later configure nor a successful process exit reapproves changed bytes.
+        """
+        references = self.config.independent_oracles
+        if references is None:
+            if self.config.mode == "application":
+                raise ValueError("application execution requires bound independent oracle files; reconfigure for a new run")
+            return
+        for oracle in references.values():
+            path = Path(oracle.path)
+            if not path.is_absolute():
+                raise ValueError("independent oracle path must be absolute")
+            actual = _checked(path)
+            if actual.is_relative_to(self.project_root) or (self.workspace is not None and
+                    actual.is_relative_to(self.workspace.root)):
+                raise ValueError("independent oracle is inside a writable project or run")
+            if not actual.is_file() or actual.stat().st_size > oracle.max_bytes:
+                raise ValueError("independent oracle is unavailable or exceeds its read limit")
+            with actual.open("rb") as stream:
+                content = stream.read(oracle.max_bytes + 1)
+            if len(content) > oracle.max_bytes or digest(content) != oracle.sha256:
+                raise ValueError("independent oracle bytes differ from the frozen execution protocol")
+
     def _environment(self, project: Path) -> dict[str, str]:
         # Credentials for the cloud provider never reach build/test processes.
         environment = {name: value for name, value in os.environ.items()
@@ -540,6 +589,8 @@ class LocalApplicationExecutor:
             json.dumps(command.argv, separators=(",", ":")).encode()), "started_at": _now(),
             "finished_at": None, "status": "inconclusive", "reason": "before_launch", "exit_code": None,
             "subtree_stopped": False, "process_started": False, "stdout": None, "stderr": None}
+        if self.config.independent_oracles is not None:
+            receipt["oracle_binding_verified"] = False
         record_path = receipt_root / f"{role}-{stage}.json"
         _atomic_json(record_path, receipt)
         emit_progress("check_stage_prepared", stage=stage, role=role, process_started=False)
@@ -577,6 +628,7 @@ class LocalApplicationExecutor:
         threads: list[threading.Thread] = []
         try:
             self._guard()  # Recheck the persistent lease immediately before launch.
+            self.verify_oracles()
             flags = 0x4 | 0x08000000  # CREATE_SUSPENDED | CREATE_NO_WINDOW.
             process = subprocess.Popen(command.argv, cwd=project, env=self._environment(project), shell=False,
                                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -633,6 +685,15 @@ class LocalApplicationExecutor:
                     receipt["subtree_stopped"] = False
             for thread in threads:
                 thread.join(timeout=1)
+            if self.config.independent_oracles is not None:
+                try:
+                    self.verify_oracles()
+                except (OSError, ValueError) as exc:
+                    receipt.update(status="inconclusive", reason="oracle_binding_changed",
+                                   error_type=type(exc).__name__, error_detail=str(exc)[:1024])
+                else:
+                    # A not-started stage cannot supply an execution binding.
+                    receipt["oracle_binding_verified"] = receipt["process_started"]
             receipt["finished_at"] = _now()
             for label, path, size in zip(("stdout", "stderr"), paths, counts, strict=True):
                 if path.exists() and not any(thread.is_alive() for thread in threads):
@@ -712,7 +773,8 @@ class LocalApplicationExecutor:
         if receipt_root.exists():
             _checked(receipt_root)
             if not path.exists():
-                return "inconclusive", "local check initialization was interrupted; no relaunch"
+                evidence = self.evidence(key)
+                return evidence["status"], evidence["detail"]
             saved = json.loads(_checked(path).read_text(encoding="utf-8"))
             if any(saved.get(name) != value for name, value in identity.items()):
                 raise ValueError("local check key was reused with different source or protocol")
@@ -723,10 +785,12 @@ class LocalApplicationExecutor:
                 raise ValueError("invalid local check receipt state")
             return "inconclusive", "local check outcome is unknown after interruption; no relaunch"
         lease = self._guard()
+        self.verify_oracles()
         if _inventory(root / "project-base", self.config.max_project_bytes) != self.project_manifest:
             raise ValueError("frozen full project changed")
         receipt_root.mkdir()
-        record: dict[str, Any] = {**identity, "schema_version": 2, "state": "pending", "started_at": _now(),
+        record: dict[str, Any] = {**identity, "schema_version": 3 if self.config.independent_oracles is not None else 2,
+            "state": "pending", "started_at": _now(),
             "finished_at": None, "status": "inconclusive", "detail": "check pending", "baseline": None, "stages": [],
             "verification_level": "application_execution" if self.config.mode == "application" else "offline_synthetic",
             "application_verification": "not_run", "application_success": False, "accepted": False}
@@ -827,7 +891,19 @@ class LocalApplicationExecutor:
         require_hash(key)
         workspace, root = self._bound()
         folder = _checked(root / key)
-        record = json.loads(_checked(folder / "execution.json").read_text(encoding="utf-8"))
+        path = folder / "execution.json"
+        if not path.exists():
+            if any(folder.iterdir()):
+                raise ValueError("local execution receipt is missing from a nonempty evidence directory")
+            # mkdir precedes the first durable intent. An empty directory has
+            # no execution facts to authenticate; retain uncertainty without
+            # creating a receipt, approving a pass or relaunching a process.
+            return {"state": "initialization_interrupted", "idempotency_key": key,
+                    "status": "inconclusive", "detail": "local check initialization was interrupted; no relaunch",
+                    "verification_level": "application_execution" if self.config.mode == "application" else "offline_synthetic",
+                    "application_verification": "inconclusive" if self.config.mode == "application" else "not_run",
+                    "application_success": False, "accepted": False, "baseline": None, "stages": []}
+        record = json.loads(_checked(path).read_text(encoding="utf-8"))
         if (record.get("protocol_sha256") != self.protocol_sha256 or record.get("idempotency_key") != key or
                 record.get("project_sha256") != self.project_sha256 or record.get("command_sha256") != self.command_sha256 or
                 record.get("source_snapshot_sha256") != workspace.source_snapshot_sha256 or record.get("mode") != self.config.mode):
@@ -843,8 +919,10 @@ class LocalApplicationExecutor:
         if record.get("state") != "done" or record.get("status") not in ("pass", "fail", "inconclusive"):
             raise ValueError("invalid local execution evidence state")
         schema = record.get("schema_version")
-        if schema not in (1, 2):
+        if schema not in (1, 2, 3):
             raise ValueError("unsupported local execution evidence schema")
+        if schema == 3 and self.config.independent_oracles is None:
+            raise ValueError("bound local execution evidence has no independent oracle protocol")
         preparations = record.get("preparation", [])
         if self.config.preparation is None and preparations:
             raise ValueError("unexpected project preparation evidence")
@@ -861,11 +939,13 @@ class LocalApplicationExecutor:
             expected_status = ("pass" if result["exit_code"] == 0 else "fail") if result["reason"] == "exited" else "inconclusive"
             if result["status"] != expected_status or (result["reason"] == "exited" and not result["subtree_stopped"]):
                 raise ValueError("local stage status disagrees with process outcome")
-            if schema == 2 and (type(result.get("process_started")) is not bool or
+            if schema in (2, 3) and (type(result.get("process_started")) is not bool or
                     (result["reason"] == "exited" and result["process_started"] is not True)):
                 raise ValueError("local stage execution observation changed")
-            if schema == 2 and type(result.get("source_binding_verified")) is not bool:
+            if schema in (2, 3) and type(result.get("source_binding_verified")) is not bool:
                 raise ValueError("local stage source binding observation is missing")
+            if schema == 3 and type(result.get("oracle_binding_verified")) is not bool:
+                raise ValueError("local stage oracle binding observation is missing")
             stage_path = folder / f"{result['role']}-{result['stage']}.json"
             if json.loads(_checked(stage_path).read_text(encoding="utf-8")) != result:
                 raise ValueError("local stage receipt changed")
@@ -886,6 +966,7 @@ class LocalApplicationExecutor:
             reproduced = (len(base_results) == 2 and [result["stage"] for result in base_results] == ["build", "target"] and
                 all(result["role"] == "baseline" for result in base_results) and base_results[0]["status"] == "pass" and
                 (schema == 1 or all(result["source_binding_verified"] for result in base_results)) and
+                (schema != 3 or all(result["oracle_binding_verified"] for result in base_results)) and
                 base_results[1]["reason"] == "exited" and base_results[1]["subtree_stopped"] and
                 base_results[1]["exit_code"] in self.config.baseline_target_exit_codes and
                 (self.config.baseline_fault_pattern is None or self.config.baseline_fault_pattern in captured.get(("baseline", "target"), "")))
@@ -894,11 +975,13 @@ class LocalApplicationExecutor:
         preparation_passed = (self.config.preparation is None or
             (len(preparations) == 2 and all(result["stage"] == "prepare" and result["status"] == "pass" and
                                           result["subtree_stopped"] and result.get("source_binding_verified") is True
+                                          and (schema != 3 or result.get("oracle_binding_verified") is True)
                                           for result in preparations)))
         passed = (record["status"] == "pass" and preparation_passed and
                   (record.get("baseline") or {}).get("fault_reproduced") is True and
                   [result["stage"] for result in record["stages"]] == list(STAGES) and
                   (schema == 1 or all(result["source_binding_verified"] for result in record["stages"])) and
+                  (schema != 3 or all(result["oracle_binding_verified"] for result in record["stages"])) and
                   all(result["role"] == "candidate" and result["status"] == "pass" and result["subtree_stopped"] for result in record["stages"]))
         if record["status"] == "pass" and not passed:
             raise ValueError("local execution pass is missing required evidence")
@@ -908,8 +991,15 @@ class LocalApplicationExecutor:
         saved_state = ("pass" if application else "not_run") if schema == 1 else application_state
         if (record["application_success"] is not application or record["accepted"] is not application or
                 record["application_verification"] != saved_state or
-                (schema == 2 and record.get("verification_level") != level)):
+                (schema in (2, 3) and record.get("verification_level") != level)):
             raise ValueError("local execution evidence overstates application verification")
+        if self.config.mode == "application" and schema != 3:
+            # Preserve validation of legacy originals above, but never upgrade
+            # their unchecked oracle declaration into present-day acceptance.
+            return {**record, "status": "inconclusive", "verification_level": level,
+                    "application_verification": "inconclusive" if application_state != "not_run" else "not_run",
+                    "application_success": False, "accepted": False,
+                    "detail": "legacy application evidence has no execution-time independent oracle binding"}
         # Do not rewrite legacy originals; expose the outcome derived from
         # their authenticated stages separately from the saved schema-1 label.
         return {**record, "verification_level": level, "application_verification": application_state}

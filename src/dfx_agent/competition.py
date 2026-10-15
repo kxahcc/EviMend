@@ -355,8 +355,11 @@ def _report(work: Path, solver: dict[str, Any], executor: LocalApplicationExecut
     software_pass = bool(latest and latest["check"] and latest["check"]["status"] == "pass")
     outcome = ("application_verified" if accepted else "synthetic_checked"
                if software_pass and level == "offline_synthetic" else "unresolved")
-    # A later failed or unknown candidate must never inherit an older pass.
-    if solver["stopped_reason"] or solver["uncertain_model_calls"] or solver["uncertain_tool_calls"]:
+    # Budget exhaustion after a completed check does not invalidate that check
+    # or require one more paid model call just to say goodbye. Unknown sends,
+    # actions and other failures still prevent product acceptance.
+    blocking_stop = solver["stopped_reason"] not in (None, "model_budget", "action_budget", "wall_time")
+    if blocking_stop or solver["uncertain_model_calls"] or solver["uncertain_tool_calls"]:
         accepted = False
         outcome = "unresolved"
     session = completion["execution_provenance"]
@@ -520,6 +523,16 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
         task = _checked(task)
         assert config.execution is not None
         execution = config.execution
+    if execution.independent_oracles is not None:
+        for reference in execution.independent_oracles.values():
+            oracle_path = Path(os.path.abspath(reference.path))
+            if oracle_path.is_relative_to(task) or oracle_path.is_relative_to(work):
+                raise ValueError("independent oracle files must remain outside the analysis task and run")
+    executor = LocalApplicationExecutor(execution, managed_root=managed,
+        allow_application=policy["execution"]["allow_application_experiments"],
+        excluded_env_names=(config.provider.credential_env,))
+    if not resume and execution.mode == "application":
+        executor.verify_oracles()
     frozen = {"config": config.model_dump(mode="json"), "task": verify_task(task), "execution": execution.model_dump(mode="json")}
     approval = None
     knowledge = None
@@ -537,9 +550,6 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
             raise ValueError("competition approval already exists; choose a new work ID")
         knowledge, entry_ids = prepare_domain_knowledge(repo / "skill", library, task, run_id)
         _atomic_json(approval_path, knowledge.approval.model_dump(mode="json"))
-    executor = LocalApplicationExecutor(execution, managed_root=managed,
-        allow_application=policy["execution"]["allow_application_experiments"],
-        excluded_env_names=(config.provider.credential_env,))
     demo_model = _DemoModel(task, run_id) if mock else None
     if demo_model is not None and resume:
         demo_model.restore(work)
@@ -560,6 +570,7 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
 
     try:
         solver = run_provider_agent(task, work, run_id, adapter, executor, resume=resume,
+            require_candidate_diagnosis=True,
             max_calls=config.max_calls, max_known_tokens=config.max_known_tokens, max_seconds=config.max_seconds,
             max_candidates=config.max_candidates, max_tool_calls=config.max_tool_calls,
             policy_features=config.policy_features, working_context_policy=config.working_context,

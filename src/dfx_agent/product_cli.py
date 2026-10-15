@@ -487,7 +487,7 @@ def _configure_or_doctor(root: Path, args: argparse.Namespace, cli: argparse.Arg
             max_known_tokens=256000 if args.max_tokens is None else args.max_tokens,
             max_seconds=900 if args.max_seconds is None else args.max_seconds)
     profile = CompetitionConfig(provider=connection, model=model, model_mode="cloud",
-        execution=application.execution, max_calls=budget.max_calls, max_known_tokens=budget.max_known_tokens,
+        execution=application.bound_execution(), max_calls=budget.max_calls, max_known_tokens=budget.max_known_tokens,
         max_seconds=budget.max_seconds, max_candidates=budget.max_candidates, max_tool_calls=budget.max_tool_calls,
         working_context=WorkingContextPolicy(enabled=False) if mode == "enabled"
             else WorkingContextPolicy(enabled=True, history_selection="repair_frontier",

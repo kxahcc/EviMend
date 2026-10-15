@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from dfx_agent import product_cli as cli
+from dfx_agent.application_profile import ApplicationProfile
 
 
 def _event(sequence: int = 1) -> dict[str, Any]:
@@ -354,6 +355,9 @@ def test_cloud_configuration_saves_unready_application_without_network_or_readin
     assert profile["working_context"]["history_selection"] == "repair_frontier"
     assert profile["working_context"]["context_layout"] == "decision_frontier"
     assert profile["execution"]["project_root"] == "SET_ABSOLUTE_FULL_PROJECT_ROOT"
+    expected_oracles = ApplicationProfile.model_validate_json(original_application).independent_oracles
+    assert profile["execution"]["independent_oracles"] == {
+        stage: oracle.model_dump() for stage, oracle in expected_oracles.items()}
     assert application_template.read_bytes() == original_application
 
 

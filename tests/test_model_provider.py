@@ -12,6 +12,7 @@ import pytest
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
+    BaseMessage,
     ChatMessage,
     HumanMessage,
     SystemMessage,
@@ -218,8 +219,23 @@ def test_tool_history_must_resolve_unique_calls_before_next_turn() -> None:
     with pytest.raises(AdapterRequestError, match="orphan_or_duplicate_tool_result"):
         model.prepare([call, ToolMessage(content="ok", tool_call_id="tool1"),
                        ToolMessage(content="again", tool_call_id="tool1")], descriptors())
-    with pytest.raises(AdapterRequestError, match="invalid_history_tool_call"):
+    with pytest.raises(AdapterRequestError, match="unfinished_tool_results"):
         model.prepare([call, ToolMessage(content="ok", tool_call_id="tool1"), call], descriptors())
+    duplicate_batch = AIMessage(content="", tool_calls=[*call.tool_calls, *call.tool_calls])
+    with pytest.raises(AdapterRequestError, match="invalid_history_tool_call"):
+        model.prepare([duplicate_batch], descriptors())
+
+
+def test_completed_tool_groups_may_reuse_ids_without_rewriting_frozen_requests() -> None:
+    model = adapter()
+    call = AIMessage(content="", tool_calls=[{"name": "read_source", "args": {}, "id": "tool1"}])
+    messages: list[BaseMessage] = [HumanMessage(content="read"), call,
+        ToolMessage(content="first", tool_call_id="tool1"), call.model_copy(deep=True),
+        ToolMessage(content="second", tool_call_id="tool1")]
+    request = model.prepare(messages, descriptors())
+    frozen = request.model_dump_json()
+    assert model.validate(request).model_dump_json() == frozen
+    assert [item["tool_call_id"] for item in request.messages if item["role"] == "tool"] == ["tool1", "tool1"]
 
 
 @pytest.mark.parametrize("tool_choice", ["auto", "none", "required",

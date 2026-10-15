@@ -122,7 +122,6 @@ def _groups(messages: list[BaseMessage]) -> tuple[int, list[int]]:
     pinned += 1
     boundaries: list[int] = []
     outstanding: set[str] = set()
-    seen: set[str] = set()
     for index, message in enumerate(messages[pinned:], pinned):
         if type(message) is ToolMessage:
             if message.tool_call_id not in outstanding:
@@ -138,9 +137,10 @@ def _groups(messages: list[BaseMessage]) -> tuple[int, list[int]]:
                 raise ValueError("invalid historical tool call")
             for call in message.tool_calls:
                 identifier = call.get("id")
-                if not isinstance(identifier, str) or not identifier or identifier in seen:
+                # Providers may reuse an ID in a later assistant response. The
+                # current unresolved batch, rather than all history, owns it.
+                if not isinstance(identifier, str) or not identifier or identifier in outstanding:
                     raise ValueError("invalid or duplicate historical tool identity")
-                seen.add(identifier)
                 outstanding.add(identifier)
         if not outstanding:
             boundaries.append(index + 1)

@@ -149,7 +149,8 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
            solver_visibility: SolverVisibilityStore | None = None,
            model_calls: ModelCallStore | None = None,
            actions: ToolActionStore | None = None,
-           static_skill_service: StaticSkillService | None = None) -> list[Any]:
+           static_skill_service: StaticSkillService | None = None,
+           require_candidate_diagnosis: bool = False) -> list[Any]:
     analysis = AnalysisStore(workspace)
     decisions = DecisionStore(workspace)
     conditions = condition_store or (ConditionStore(workspace) if (workspace.root / "condition-inputs.json").exists()
@@ -358,12 +359,21 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             candidates = _current_candidates(workspace)
             if len(candidates) >= max_candidates:
                 return "rejected: candidate budget exhausted"
+            if require_candidate_diagnosis and not diagnosis_id:
+                raise ValueError("candidate needs diagnosis_id from record_diagnosis; register again with that ID; the draft is unchanged")
             if diagnosis_id:
                 if not IDENTIFIER.fullmatch(diagnosis_id):
                     raise ValueError("invalid diagnosis identifier")
                 path = workspace.root / "diagnoses" / f"{diagnosis_id}.json"
                 if not path.is_file() or path.is_symlink():
                     raise ValueError("diagnosis is not registered")
+                if require_candidate_diagnosis:
+                    diagnosis = analysis.bundles()[diagnosis_id]["diagnosis"]
+                    selected = next((hypothesis for hypothesis in diagnosis.hypotheses
+                                     if hypothesis.hypothesis_id == diagnosis.selected_hypothesis_id), None)
+                    if selected is None or not selected.root_cause_locations:
+                        raise ValueError("candidate diagnosis needs a selected hypothesis with original root-cause lines; "
+                                         "record a complete diagnosis, then register this unchanged draft with its diagnosis_id")
             restores, preserves = restores or [], preserves or []
             if (decision_id is None) != (direction_id is None):
                 raise ValueError("candidate decision and direction must be supplied together")
@@ -455,6 +465,9 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
         except (OSError, ValueError, ValidationError, KeyError) as exc:
             return f"rejected: {exc}"
 
+    if require_candidate_diagnosis:
+        register_candidate.description += (" This run requires diagnosis_id from record_diagnosis, with a selected "
+            "hypothesis and original root-cause lines. Missing localization rejects before freezing and preserves the draft.")
     tools = [read_log, list_source, read_source, search_source, inspect_analysis, record_diagnosis, edit_source,
             register_candidate, run_check, consult_rule, plan_repair_action,
             record_obligation, link_failed_check, evaluate_condition]
@@ -613,10 +626,13 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     version_skill_approval: Any = None,
                     version_skills_enabled: bool | None = None,
                     compaction_responses: list[AIMessage] | None = None,
+                    require_candidate_diagnosis: bool = False,
                     startup_hook: Callable[[CandidateWorkspace], None] | None = None) -> dict[str, Any]:
     """Run one bounded offline turn; a pass is never application verification."""
     if max_calls < 1 or max_known_tokens < 1 or max_seconds <= 0 or max_candidates < 1 or max_tool_calls < 1:
         raise ValueError("budgets must be positive")
+    if type(require_candidate_diagnosis) is not bool:
+        raise TypeError("require_candidate_diagnosis must be a boolean")
     capabilities = OFFLINE_CAPABILITIES if capabilities is None else capabilities
     if not capabilities <= OFFLINE_CAPABILITIES:
         raise ValueError("unsupported offline capability")
@@ -735,9 +751,11 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
         tools = _tools(workspace, ledger, max_candidates, task, task_info["crash_log"],
                        task_info["crash_sha256"], policy_features, capabilities, conditions,
                        knowledge_store=knowledge_store, applicability_policy=applicability_policy,
-                       solver_visibility=solver_visibility, static_skill_service=static_service)
+                       solver_visibility=solver_visibility, static_skill_service=static_service,
+                       require_candidate_diagnosis=require_candidate_diagnosis)
         application_checks = isinstance(executor, LocalApplicationExecutor) and executor.config.mode == "application"
-        system_prompt = build_system_prompt(policy_features, application_checks=application_checks)
+        system_prompt = build_system_prompt(policy_features, application_checks=application_checks,
+                                           require_candidate_diagnosis=require_candidate_diagnosis)
         session_identity = {"schema_version": (14 if version_profile is not None else 13 if static_profile is not None else
                             12 if applicability_profile is not None else (10 if knowledge_profile is None else 11)),
                             "run_id": run_id, "started_at": started_at.isoformat(),
@@ -754,11 +772,14 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                                 task_id=workspace.task_id, run_id=run_id,
                                 source_snapshot_sha256=workspace.source_snapshot_sha256,
                                 capabilities=capabilities, resume=False,
-                                application_checks=application_checks).encode("utf-8")),
+                                application_checks=application_checks,
+                                require_candidate_diagnosis=require_candidate_diagnosis).encode("utf-8")),
                             "tool_schema_sha256": digest(canonical([
                                 {"name": item.name, "description": item.description,
                                  "schema": item.args_schema.model_json_schema()} for item in tools
                             ]).encode("utf-8")), "search_limits": search_limits()}
+        if require_candidate_diagnosis:
+            session_identity["require_candidate_diagnosis"] = True
         if knowledge_profile is not None:
             session_identity["knowledge_profile"] = knowledge_profile
         if applicability_profile is not None:
@@ -787,7 +808,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
             task_info["crash_sha256"], policy_features, capabilities, conditions,
             knowledge_store=knowledge_store, applicability_policy=applicability_policy,
             solver_visibility=solver_visibility, model_calls=model_calls, actions=actions,
-            static_skill_service=static_service)
+            static_skill_service=static_service, require_candidate_diagnosis=require_candidate_diagnosis)
     model_type = AccountedProviderModel if provider_adapter is not None else FixedResponseModel
     provider_arguments: dict[str, Any] = {"adapter": provider_adapter} if provider_adapter is not None else {}
     model = model_type(responses=responses, max_calls=max_calls,
@@ -877,7 +898,8 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                 graph.invoke({"messages": [{"role": "user", "content": build_task_message(
                     task_id=workspace.task_id, run_id=run_id,
                     source_snapshot_sha256=workspace.source_snapshot_sha256,
-                    capabilities=capabilities, resume=resume, application_checks=application_checks)}]}, config)
+                    capabilities=capabilities, resume=resume, application_checks=application_checks,
+                    require_candidate_diagnosis=require_candidate_diagnosis)}]}, config)
         except ModelLimit as exc:
             error = str(exc)
             status = "budget_exhausted" if error in ("model_budget", "wall_time") else "unresolved"

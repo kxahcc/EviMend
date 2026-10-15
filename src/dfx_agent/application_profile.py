@@ -13,8 +13,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .contracts import require_hash
-from .local_execution import STAGES, LocalCheckConfig, _checked
+from .local_execution import STAGES, IndependentOracle, LocalCheckConfig, _checked
 from .task import digest
 
 
@@ -24,18 +23,6 @@ class ApplicationPrerequisite(BaseModel):
     path: str = Field(min_length=1, max_length=32768)
     kind: Literal["file", "directory"] = "file"
     purpose: str = Field(min_length=1, max_length=512)
-
-
-class IndependentOracle(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
-    path: str = Field(min_length=1, max_length=32768)
-    sha256: str
-    max_bytes: int = Field(default=1048576, ge=1, le=16777216)
-
-    @model_validator(mode="after")
-    def valid_hash(self) -> IndependentOracle:
-        require_hash(self.sha256)
-        return self
 
 
 class ApplicationProfile(BaseModel):
@@ -68,10 +55,19 @@ class ApplicationProfile(BaseModel):
         if any(self.execution.commands[stage].oracle_sha256 != oracle.sha256
                for stage, oracle in self.independent_oracles.items()):
             raise ValueError("oracle file and execution command hashes disagree")
+        if (self.execution.independent_oracles is not None and
+                self.execution.independent_oracles != self.independent_oracles):
+            raise ValueError("execution oracle bindings differ from the application profile")
         names = [item.name.casefold() for item in self.prerequisites]
         if len(names) != len(set(names)):
             raise ValueError("prerequisite names must be unique")
         return self
+
+    def bound_execution(self) -> LocalCheckConfig:
+        """Project the single author declaration into the frozen run protocol."""
+        return LocalCheckConfig.model_validate({**self.execution.model_dump(),
+            "independent_oracles": {stage: oracle.model_dump()
+                                    for stage, oracle in self.independent_oracles.items()}})
 
 
 def load_application_profile(path: Path) -> ApplicationProfile:

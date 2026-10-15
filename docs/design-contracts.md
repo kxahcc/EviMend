@@ -1,6 +1,6 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-14。
+状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-15。
 职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。因果诊断、修复义务、有限条件结果、修复决策与候选交接、模型账本、逐工具授权、动作恢复和主机终止摘要已接入共享 SDK 循环；云端请求、本机完整工程检查、正式通用领域 Skill 和 competition 输入输出已有代码通道。软件验收仅使用 MockTransport 和短时 toy 工程，结果只见 STATUS；真实模型及应用开关仍禁用，提供方兼容性、可信业务判据、工具链/设备验证和方法效果仍未知。可信采值、算子适用性及因果关系的实际检验继续是未完成扩展。文中案例推演属于分析人员材料，不输入未来的独立评测求解器。
 
 ## 1. 数据契约与不可破坏的条件
@@ -61,7 +61,7 @@ RepairObligation 用 record_id 作为 obligation_id，包含 kind（runtime_cond
 
 `ActionProposal` 是模型意图，不是执行结果。对象绑定 task/run/分析源码版本，保存 action、target_ids、evidence_ids、candidate_id、reason、required_capability、observation_routes、unknown_route 和 estimated_cost_basis。`record_analysis` 表示登记诊断、义务、建议、有限条件计算或反馈，不冒充执行观察或源码编辑。诊断探针至少区分两个修复方向，观测映射须能改变方向，并保留“未命中预测”的 `retain_unknown` 分支。`authorize_action` 只用主机持有的任务版本、已登记引用、候选、能力和剩余预算给出允许/拒绝；模型自报的能力与成本不构成授权。`finish` 还须引用已通过独立接受门的候选。
 
-SDK 的固定响应、模拟 wire 与云端请求入口共用 `ToolAuthorizationMiddleware`：主机把工具名与参数映射成动作，校验参数、版本、已登记引用、候选和实际能力；可选 `proposal_json` 只能补充模型的理由与引用，不能改变工具对应的动作/能力或候选，工具实际引用也不能被省略。主机根据已记账的模型响应生成稳定 action_id；模型响应内的 call ID 元数据由适配器覆盖，不接受模型自授身份。已登记且保存的当前响应可在没有下一次模型调用额度时完成合法工具动作，但仍受独立工具调用预算、候选预算和截止时间限制。本机检查已核对停止请求、受管租约与执行级别；自动诊断探针和设备动作认证仍未接入。
+SDK 的固定响应、模拟 wire 与云端请求入口共用 `ToolAuthorizationMiddleware`：主机把工具名与参数映射成动作，校验参数、版本、已登记引用、候选和实际能力；可选 `proposal_json` 只能补充模型的理由与引用，不能改变工具对应的动作/能力或候选，工具实际引用也不能被省略。主机根据已记账的父模型响应与工具调用 ID 生成稳定 action_id；同批 ID 唯一，跨轮复用仍是不同动作，上下文分组和请求校验沿用同一规则。模型响应内的 call ID 元数据由适配器覆盖，不接受模型自授身份。已登记且保存的当前响应可在没有下一次模型调用额度时完成合法工具动作，但仍受独立工具调用预算、候选预算和截止时间限制。本机检查已核对停止请求、受管租约与执行级别；自动诊断探针和设备动作认证仍未接入。
 
 `ToolActionStore` 在工具产生效果前记录授权与 `dispatched`，工具返回后保存完整 `ToolMessage` 及哈希再交给 Graph。`completed` 仅表示工具结果已保存，授权通过也不表示工具执行成功。相同模型调用与工具调用身份、相同参数的完成结果恢复时只回放；身份对应的参数改变则拒绝。已派发但无结果记录时保留未知，停止为 `action_result_unknown`，不盲目再次编辑。拒绝本身只有工具错误消息，不生成源码修改、候选或检查事实。原始工具回执只留受管 SQLite；报告保留动作及诊断/候选/反馈摘要，不复制完整原始工具回执，也不产生应用成功证据。
 
@@ -83,7 +83,7 @@ network 冻结 max_retries（首次请求之后的上限，0–5）、request_ti
 
 文件凭据读取核对私有配置的规范 endpoint 与运行冻结 endpoint 相同；地址变化在发送前拒绝，不把另一服务的新 Key 发送给旧服务。Key 轮换不改变 profile 身份，模型/预算继续消费冻结运行参数。私有配置的 budget 是单任务额度，不提供全数据集累计或金额上限。
 
-`PreparedRequest` 冻结 canonical body、body_sha256 和 profile_sha256；messages/tools/parameters 仅是由 body 解析的独立视图，不能通过修改嵌套副本改变发送内容。validate 纯校验规范字节、哈希、对应 profile 和有限请求结构；mock profile 另核 exact MockTransport，不发送请求。上层学习在 dispatch 前调用，invoke 在发送边界再次执行校验；云端由 SDK 序列化，再核规范 JSON 语义一致，不要求 SDK 排版后的 HTTP 原字节等于 canonical 字符串。支持 system/user/assistant/tool 文字消息、原生 function 工具、stop、tool_choice 和明确的 parallel_tool_calls；SDK SkillsMiddleware 的 system 纯文本块按原顺序合并，其他多模态结构仍拒绝。assistant reasoning_content 若存在，按原值保存并用于续轮。tool ID 必须唯一，结果须对应尚未完成的工具调用；附件、未知角色/生成选项、未闭合工具历史及不支持的格式发送前拒绝，不静默丢字段。请求/响应限额以适配器常量及 profile 为准；非有限数、重复 JSON 键和不合法 Unicode 拒绝。
+`PreparedRequest` 冻结 canonical body、body_sha256 和 profile_sha256；messages/tools/parameters 仅是由 body 解析的独立视图，不能通过修改嵌套副本改变发送内容。validate 纯校验规范字节、哈希、对应 profile 和有限请求结构；mock profile 另核 exact MockTransport，不发送请求。上层学习在 dispatch 前调用，invoke 在发送边界再次执行校验；云端由 SDK 序列化，再核规范 JSON 语义一致，不要求 SDK 排版后的 HTTP 原字节等于 canonical 字符串。支持 system/user/assistant/tool 文字消息、原生 function 工具、stop、tool_choice 和明确的 parallel_tool_calls；SDK SkillsMiddleware 的 system 纯文本块按原顺序合并，其他多模态结构仍拒绝。assistant reasoning_content 若存在，按原值保存并用于续轮。同一 assistant 工具批次内的 tool ID 必须唯一，已闭合的不同模型轮次可复用 ID；结果只能对应当前批次尚未完成的工具调用，动作身份联合父模型调用 ID 与工具 ID；附件、未知角色/生成选项、未闭合工具历史及不支持的格式发送前拒绝，不静默丢字段。请求/响应限额以适配器常量及 profile 为准；非有限数、重复 JSON 键和不合法 Unicode 拒绝。
 
 ProviderSettings 显式冻结可空 thinking_mode（enabled/disabled）与 reasoning_effort（none/minimal/low/medium/high/xhigh/max）；未声明字段不进入旧 profile 序列化。OpenAI 可独立设置 effort，其他提供方要求显式 enabled；enabled 拒绝 temperature 及强制 named/required tool_choice；发送体只使用顶层 thinking/type 和 reasoning_effort，不开放任意参数。思考且携带工具时，历史 assistant 必须有字符串 reasoning_content；发送视图从第一条 assistant 起须与原全部消息一致，主动裁剪或启用主机摘要在预留/发送前拒绝，不暗中切换模式。仅启动任务面板补充不改变这些历史轮次。合法 nullable reasoning/tool_calls 可保存，但 null 不替代思考历史的必需字段。length、aborted 等不完整文本保存 usage 并标 format_error；不完整工具响应也不执行工具。软件包 B 的多次工具续接、无工具回答后的下一轮、上下文拒绝、终态及保存响应恢复的软件验收结果见 STATUS；真实 smoke 另验，候选与协议证据见设计第 1.1 节。旧消息不因新终态标记规则被重新分类。
 
@@ -129,7 +129,7 @@ context_profile 定义有限上下文和可选主机压缩：默认 disabled 时
 
 ### 1.2.4 任务指引与通用源码检索
 
-`task_strategy.py` 的共享任务策略通过 Deep Agents 的 system_prompt 接入，启动消息只含主机核对的 task/run/source 身份、能力、续跑状态及实际执行配置声明的验证级别：application 检查为 application_execution，其余为 offline_synthetic，未运行的应用验证为 not_run。声明级别不是通过证据，不能授予最终接受。基础指引覆盖日志→跨文件追踪上游和消费者→原始行假设→保行为补丁→冻结候选→实际检查反馈→有依据的修订或诚实终止；增强开关只追加对应规则、义务与决策检查指引。缺少有限条件输入不禁止基础修复；文本检索与模型说明均不能确认因果或真实运行值。
+`task_strategy.py` 的共享任务策略通过 Deep Agents 的 system_prompt 接入，启动消息包含主机核对的 task/run/source 身份、能力、续跑状态、竞赛候选诊断关联要求及实际执行配置声明的验证级别：application 检查为 application_execution，其余为 offline_synthetic，未运行的应用验证为 not_run。声明级别不是通过证据，不能授予最终接受。基础指引覆盖日志→跨文件追踪上游和消费者→原始行假设→保行为补丁→冻结候选→实际检查反馈→有依据的修订或诚实终止；增强开关只追加对应规则、义务与决策检查指引。缺少有限条件输入不禁止基础修复；文本检索与模型说明均不能确认因果或真实运行值。
 
 `read_source(path, start_line=1, end_line=100, draft=False, proposal_json=None, candidate_id=None)` 默认读取原版，draft=True 读取当前草稿，candidate_id 读取已登记且完整复核的冻结候选；后两者互斥，每次最多 200 行。原版/草稿保留既有回执形状，候选另返回 scope=candidate、candidate_id 和 snapshot_sha256，并在读取后重新核对登记。候选行不能冒充原版根因坐标。参数进入原工具授权和总预算；上下文选择以候选身份/快照与草稿编辑代次区分重复读取。决策面板为当前与最近失败的原候选提供已有工具的回读提示，提示不等于已读取源码。
 
@@ -141,7 +141,7 @@ context_profile 定义有限上下文和可选主机压缩：默认 disabled 时
 
 ### 1.3 补丁、验证和尝试
 
-CandidatePatch 当前保存 candidate_id、ordinal、parent_snapshot_sha256、candidate_snapshot_sha256、diff_sha256、diagnosis_id、changed_paths、restores、preserves 及可选成对的 decision_id/direction_id。拟议 intended_constraint、preserved_behaviors、verification_obligations 的信息目前由关联诊断/义务表达，尚未独立实现这些字段。完整 diff 登记后才进入任何候选专属检查；格式错误、无法应用和局部检查失败同样记为已产生候选的失败。
+CandidatePatch 当前保存 candidate_id、ordinal、parent_snapshot_sha256、candidate_snapshot_sha256、diff_sha256、diagnosis_id、changed_paths、restores、preserves 及可选成对的 decision_id/direction_id。competition 启用 require_candidate_diagnosis：register_candidate 必须传入已登记的 diagnosis_id，该诊断须选定假设且包含有效原版根因行。缺项在冻结前拒绝，保留完整草稿；模型补充完整诊断后可用同一草稿重新登记，不必重做编辑或制造不同补丁。中间诊断仍可保留未知，旧离线入口默认不增加这一要求；新竞赛会话冻结要求、提示及工具描述，不能在恢复时改变旧会话语义。拟议 intended_constraint、preserved_behaviors、verification_obligations 的信息目前由关联诊断/义务表达，尚未独立实现这些字段。完整 diff 登记后才进入任何候选专属检查；格式错误、无法应用和局部检查失败同样记为已产生候选的失败。
 
 没有生成完整候选的模型失败记录为 generation_failure，计入总成本，但不伪造一个可验证候选。首次候选通过率同时报告“全部任务”为分母的端到端口径，避免把未生成补丁的任务排除后抬高成绩。
 
@@ -152,14 +152,14 @@ W05 的 `OfflineExecutor` 保留固定文本合成检查及原幂等回读解释
 | 本机检查对象 | 当前字段与约束 |
 |---|---|
 | LocalCommand | argv 列表、timeout_seconds、可空 oracle_sha256；拒绝未知字段、空参数及 NUL。命令由主机固定，shell=False；合成模式只接纳当前受管 Python，拒绝 shell 脚本入口 |
-| LocalCheckConfig | schema 1、mode=synthetic/application、完整 project_root、source_mapping、恰好 build/target/behavior/regression 四项 commands、可选 preparation LocalCommand、显式非零 baseline_target_exit_codes、可空 baseline_fault_pattern、工程/输出/整次时间上限及 credential_env_names。preparation 未配置时不写序列化字段，保留旧协议身份。application 必须给非空故障字面串和每项 oracle_sha256；该值固定主机事前声明，执行器不读取外部 oracle 文件认证测试语义 |
+| LocalCheckConfig | schema 1、mode=synthetic/application、完整 project_root、source_mapping、恰好 build/target/behavior/regression 四项 commands、可选 preparation LocalCommand、显式非零 baseline_target_exit_codes、可空 baseline_fault_pattern、工程/输出/整次时间上限及 credential_env_names。application 必须给非空故障字面串和每项 oracle_sha256；新应用执行另须 independent_oracles，恰好绑定四阶段各文件的绝对 path、sha256、max_bytes，且与命令摘要相同。preparation 或 independent_oracles 未配置时省略相应字段，保留旧协议身份；缺 oracle 文件绑定的旧应用协议仅可只读核历史，不得启动新进程。执行器核对实际文件字节，不认证判据的业务语义 |
 | ApplicationProfile | 主机固定 platform=harmonyos、profile_id、application 模式执行配置、prerequisites 路径/类型/用途、四类 independent_oracles 文件/摘要/有界大小、device_id/device_kind/physical_device_required 及 signing_paths；不允许模型自行建立或修改验收协议 |
 | 冻结协议 | command_sha256 摘要完整配置，project_sha256 摘要全部普通文件路径/字节摘要/大小与目录清单，protocol_sha256 绑定二者。bind_workspace 固定 task/run、分析快照、原配置和独立 project-base；源码映射须完整、唯一且基准字节一致 |
-| 执行与回执 | execution.json 保存 key、候选/分析/工程/命令/协议身份、mode、pending/done、起止时间、baseline、候选 stages、可选 preparation 回执、结果与接受字段。阶段保存 role=baseline/candidate、stage（准备为 prepare）、argv_sha256、状态、reason、exit_code、时间、subtree_stopped 及 stdout/stderr 文件的相对路径、大小和 SHA-256；阶段 JSON 在启动前先保存 reason=before_launch |
+| 执行与回执 | execution.json 保存 key、候选/分析/工程/命令/协议身份、mode、pending/done、起止时间、baseline、候选 stages、可选 preparation 回执、结果与接受字段。绑定独立 oracle 的执行使用 schema 3，阶段另存 oracle_binding_verified；阶段共有 role=baseline/candidate、stage（准备为 prepare）、argv_sha256、状态、reason、exit_code、时间、subtree_stopped 及 stdout/stderr 文件的相对路径、大小和 SHA-256，启动前先保存 reason=before_launch |
 
 完整工程与分析快照是两个输入，不能用 analysis_source_v1 代替可构建工程。空 source_mapping 使用相同相对路径，显式映射须恰好覆盖每个分析基准文件，目标按大小写折叠后不得重复。复制工程时拒绝不安全路径、链接/重解析点及共享文件，保留额外资源与空目录，基准和候选分别复制至本 run 受管目录。只覆盖已登记完整候选源码，按分析基准处理删除；显式映射拒绝未映射新增文件，同路径模式拒绝新增源码覆盖无关工程资源。检查后重新核对映射源码，不能以构建时改写源文件偷换候选。原工程和 data_B 不被修改。
 
-ApplicationProfile 的 `application_preflight` 是只读检查：核对绝对路径、构建标记文件、原生可执行入口、未解决命令占位符、四份独立 oracle 文件字节及真机限制。oracle 不能在可写完整工程内；预检只核当时文件，不保证执行时外部 oracle 未变化，也不认证业务语义。configured 只表示声明的本地条件可读取；device_connection、sdk_compatibility、signing_validity 保持 not_probed，application_verification 为 not_run。`dfx doctor --application PROFILE` 返回应用缺项；不带应用参数时 doctor 对私有模型文件做字段、占位 model 与 Key 格式检查，不请求服务。`dfx configure` 默认从该文件的提供方/model/base URL/模式/单任务预算和 profile.execution 生成不含 Key 的新竞赛配置；可选显式环境模式不读取 Key。两条路径不执行设备或解锁开关，不覆盖原文件。私有模型/预算变更须为新任务生成新配置，已开始会话恢复原冻结参数与额度，文件 Key 可轮换。模板占位值不代表 HarmonyOS 接入完成。
+ApplicationProfile 的 `application_preflight` 是只读检查：核对绝对路径、构建标记文件、原生可执行入口、未解决命令占位符、四份独立 oracle 文件字节及真机限制。oracle 不能在可写完整工程、任务或运行工作区内；预检不认证业务语义。configured 只表示声明的本地条件可读取；device_connection、sdk_compatibility、signing_validity 保持 not_probed，application_verification 为 not_run。`dfx doctor --application PROFILE` 返回应用缺项；不带应用参数时 doctor 对私有模型文件做字段、占位 model 与 Key 格式检查，不请求服务。`dfx configure` 默认从私有模型文件提取非密钥参数，并由 profile.bound_execution 将四份 oracle 的路径/字节摘要/读取上限纳入 execution，生成新的竞赛配置；可选显式环境模式不读取 Key。两条路径不执行设备或解锁开关，不覆盖原文件。执行器在新运行及每项准备/检查启动前和结束后重新核对这些冻结文件；漂移使阶段保持 inconclusive，不采信零退出码，已运行事实保留。它不是文件锁，也不能证明判据覆盖了正确业务。私有模型/预算变更须为新任务生成新配置，已开始会话恢复原冻结参数与额度，文件 Key 可轮换。模板占位值不代表 HarmonyOS 接入完成。
 
 平台 SDK、设备配对和签名由人先完成一次运行条件接纳；Agent 可在每次检查的原版/候选独立副本各执行一次批准的 preparation，用于项目依赖安装，然后运行固定检查。准备不安装平台、不变更外部环境和验收 oracle；完成阶段保存回执后核源码未变。准备失败或未知为环境不可用/inconclusive，不归因补丁错误；准备与检查未知结果都不重发。基准的验收阶段仍只有 build 和 target：build 须零退出，target 须以配置的非零退出码结束、子树已停止，并在设置了 baseline_fault_pattern 时从有界实际 stdout/stderr 匹配该字面串；它不是正则。application 模式该串必填，不能以任意异常退出假报原故障复现。未复现则 fail，超时或状态不明为 inconclusive，不继续候选；候选按 build→target→behavior→regression 顺序检查，四项零退出且子树停止才 pass。失败 detail 明确基准或候选及具体阶段/原因，候选反馈另提供退出码和有限实际输出片段。
 
@@ -167,7 +167,7 @@ ApplicationProfile 的 `application_preflight` 是只读检查：核对绝对路
 
 每个准备/检查子进程挂起创建并加入嵌套 Job 后恢复，正常退出、超时或停止都终止该子树并有界确认零活动进程，不按进程名批量结束。阶段 timeout 受阶段配置、max_check_seconds 及 set_deadline 指定的 Agent 剩余墙钟共同约束；耗尽不再启动。stdout/stderr 持续排空而只保存有界字节，超限、捕获异常或子树无法确认保持 inconclusive。主机提供的 API 凭据排除名和 credential_env_names 不进入子进程环境，TMP/TEMP 位于副本；npm_config_cache 指向副本 .dfx-tool-cache/npm，DFX_PROJECT_CACHE_ROOT 提供给批准 runner，不改 HOME/USERPROFILE。ohpm/hvigor 其他缓存仍须核定参数或已接纳路径，不猜测 SDK 环境变量，也不以此声明所有外部写入均被隔离；这不是文件系统安全沙箱，主机仍须审查命令。
 
-同 key 已完成结果由 evidence(key) 只读回核候选、阶段 JSON、输出摘要、基准复现及四项 pass；初始化残留、pending 或未知保持 inconclusive，不重新启动。恢复必须保留原完整 project_root 且清单未漂移，并核 run 内 project-base 与原配置；交付副本或摘要不能替代原工程存在。新 execution schema 2 单列 verification_level，阶段保存 process_started 和 source_binding_verified；完成阶段先持久保存，再核对运行副本源码与冻结映射。源绑定失败的阶段仍保留实际执行事实，但不认证基准复现或检查通过；application_verification 根据实际模式、阶段尝试及状态取 pass/fail/inconclusive/not_run，不由 accepted 倒推。已登记但中断的 pending 应用执行保持 inconclusive；明确未启动的已结束检查为 not_run。schema 1 原件不改写，回读仍按原字段规则核验，并从原阶段暴露派生层级/执行结果；旧启动缺项保留不确定性。synthetic 即使全通过也 application_verification=not_run、application_success=false、accepted=false。application 只有原故障字面匹配及候选四项完整通过才可能生成执行接受，任务最终接受还由 competition 报告核定位关联和未知调用。
+同 key 已完成结果由 evidence(key) 只读回核候选、阶段 JSON、输出摘要、基准复现及四项 pass；初始化残留、pending 或未知保持 inconclusive，不重新启动。恢复必须保留原完整 project_root 且清单未漂移，并核 run 内 project-base 与原配置；交付副本或摘要不能替代原工程存在。execution schema 2 已有 verification_level、process_started 和 source_binding_verified；绑定 oracle 的 schema 3 另核各阶段 oracle_binding_verified。完成阶段先保存实际执行事实，再核对运行副本源码及冻结 oracle，任一漂移都不能认证基准复现或通过。application_verification 按实际模式、阶段尝试及状态派生，不由 accepted 倒推；pending 应用执行为 inconclusive，明确未启动的已结束检查为 not_run。旧 schema 1/2 原件仍按原字段规则只读核验；因没有执行时 oracle 绑定，旧 application 的派生状态为 inconclusive（未启动则 not_run），application_success/accepted 均 false，不覆盖原件、不补写新认证。synthetic 即使全通过也 application_verification=not_run、application_success=false、accepted=false。application 只有原故障字面匹配、候选四项完整通过且源码/oracle 绑定有效才可能生成执行接受，任务最终接受另核定位关联和未知调用。
 
 CheckResult 新记录的 level 为 offline_synthetic 或 application_execution，execution_scope 分别为 synthetic/application，旧记录默认保持 offline_synthetic。CheckLedger 按实际 LocalApplicationExecutor mode 赋级别，诊断、决策和工作上下文据此生成失败 evidence_kind 与 scope；模型不能自行填入 application 观察。级别表明执行来源，不能认证根因、义务语义或代替最终接受。
 
@@ -189,7 +189,7 @@ oracle 的实际内容与 hash 由独立准备者管理：已核验需求/接口
 
 W06 的 `ExecutionRequest` 先绑定 task、candidate_id、完整运行源码哈希、补丁哈希、环境、共同协议、初始状态、执行层、重复序号和超时。`run_id + 请求规范摘要` 生成幂等键；重复序号改变表示一次新的逻辑回放。客户端提交前保存意图，响应丢失时只能以同一键对账；服务端 SQLite 对该键设唯一约束，查询不能新建作业。`cancel_requested` 不是 `canceled`，服务重启后无法确认仍在运行的模拟作业标记 `inconclusive`。产物引用绑定 job、内容哈希与大小，服务和客户端分别校验。模拟结果显式 `scope=synthetic`、`application_verification=not_run`，不能转为正式应用 pass。当前 W06 请求尚无 check_id 与场景绑定，接入正式协议时须在兼容性版本中补齐，逐项产生上述 Verdict；不能按执行层次猜测属于哪个检查。本机执行器另用主机固定 stage 和文件回执，不沿用该模拟请求，设备状态确认及正式 Verdict 接纳仍待完成。
 
-competition 提供 schema 3、scope=competition_task 的 `competition-report.json`、可读 `result.md` 和私有 `delivery.zip`。原 `localization` 保留 SDK 原件；`localization_result.initial/latest/final` 分别保存所选假设、备选假设、complete 及 incomplete_reasons，final 绑定最新候选。报告还保存全部候选 diff/检查/执行 evidence、义务、决策、停止与适配错误、完整调用成本及墙钟。verification_level 与 application_verification 记录最新候选的实际检查层级/结果；最终 accepted 另要求其应用执行 pass/accepted、关联诊断及所选原版根因位置完整，且无停止原因或未知模型/工具调用。应用检查通过但定位缺项仍 unresolved，保留 application_verification=pass；应用失败/未知不写为 not_run，失败或未知的新候选不得继承旧通过。只有实际 offline_synthetic 检查通过才可标 synthetic_checked，application_verification=not_run；根因仍为 model_inference，准确率、稳定性及未取得实际证据的效果保持 null。准确率评分应取 final.selected 的位置，不能把备选的合并列表当所选预测。
+competition 提供 schema 3、scope=competition_task 的 `competition-report.json`、可读 `result.md` 和私有 `delivery.zip`。原 `localization` 保留 SDK 原件；`localization_result.initial/latest/final` 分别保存所选假设、备选假设、complete 及 incomplete_reasons，final 绑定最新候选。报告还保存全部候选 diff/检查/执行 evidence、义务、决策、停止与适配错误、完整调用成本及墙钟。verification_level 与 application_verification 记录最新候选的实际检查层级/结果；最终 accepted 另要求其应用执行 pass/accepted、关联诊断及所选原版根因位置完整，且无未知模型/工具调用或其他阻断错误。若最后合法动作已完成全部应用检查且定位完整，后续仅以 model_budget、wall_time 或 action_budget 终止，仍保留应用接受；停止原因和完整成本照常保存，不延长预算、不新增调用。模型/工具结果未知、其他错误、缺检查或最新候选失败仍阻断。应用检查通过但定位缺项仍 unresolved，保留 application_verification=pass；应用失败/未知不写为 not_run，失败或未知的新候选不得继承旧通过。只有实际 offline_synthetic 检查通过才可标 synthetic_checked，application_verification=not_run；根因仍为 model_inference，准确率、稳定性及未取得实际证据的效果保持 null。准确率评分应取 final.selected 的位置，不能把备选的合并列表当所选预测。
 
 timing 保存首次报告观察的 finished_at、agent_wall_ms 及绑定实际报告事实的 terminal_facts_sha256；范围为原 session 开始到报告观察，包含初始化/核验开销，不代替定位/修复分阶段耗时。无新事实的完成恢复复用原计时及报告摘要，不计入之后的空闲/只读恢复；新增真实求解/候选/检查事实才重新记录观察。恢复先在可写执行前核原报告身份、摘要及计时自洽性；哈希不是签名或独立时间认证。旧 schema 2 只改变派生完整性/接受标签且原定位、义务、决策、候选、检查与成本相同时，升级报告重绑事实摘要但保留原终态时间；格式兼容不放宽执行源码恢复准入。旧 schema 1 缺可信终态时间且无实际进展时保持 agent_wall_ms/finished_at=null，reason=legacy_terminal_time_unknown，不根据当前日期推造旧耗时。缺原完成报告时只有本次首次报告观察，不能认证此前已完成工作的真实结束时刻。原模型/执行共享预算和截止时间不改变，来源兼容准入仍须通过。旧 SDK 报告按下节保留轨迹，不承担竞赛接受，不能用补丁落点覆盖初始定位。
 
