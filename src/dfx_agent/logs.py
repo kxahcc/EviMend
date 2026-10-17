@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import asdict, dataclass
+from typing import Any
 
 MAX_LOG_BYTES = 10_000_000
 FRAME = re.compile(r"^\s*at\s+(.*?)\((.+?\.(?:ets|ts|js)):(\d+):(\d+)\)\s*$")
@@ -23,6 +24,32 @@ def decode_text(data: bytes) -> tuple[str, str, list[str]]:
         except UnicodeError:
             pass
     return data.decode("utf-8", errors="replace"), "utf-8", ["undecodable_bytes_replaced"]
+
+
+def log_window(data: bytes, start_line: int = 1, end_line: int = 100,
+               query: str | None = None) -> dict[str, Any]:
+    """Read exact line anchors, or locate a literal and return a small surrounding window."""
+    if (type(start_line) is not int or type(end_line) is not int or start_line < 1 or
+            query is None and (end_line < start_line or end_line - start_line > 199)):
+        raise ValueError("invalid or oversized line range")
+    if len(data) > MAX_LOG_BYTES:
+        raise ValueError("crash log exceeds input limit")
+    text, encoding, warnings = decode_text(data)
+    lines = text.splitlines()
+    if query is None:
+        return {"start_line": start_line, "lines": lines[start_line - 1:end_line],
+                "encoding": encoding, "warnings": warnings}
+    if (not isinstance(query, str) or not query.strip() or len(query) > 200 or
+            any(c in query for c in ("\n", "\r", "\0"))):
+        raise ValueError("query must be a nonempty bounded single-line literal")
+    hit = next((i for i in range(start_line - 1, len(lines)) if query in lines[i]), None)
+    first = max(0, hit - 3) if hit is not None else start_line - 1
+    last = min(len(lines), hit + 13) if hit is not None else first
+    next_hit = (next((i + 1 for i in range(hit + 1, len(lines)) if query in lines[i]), None)
+                if hit is not None else None)
+    return {"start_line": first + 1, "lines": lines[first:last], "encoding": encoding,
+            "warnings": warnings, "query": query, "matched_line": None if hit is None else hit + 1,
+            "next_match_line": next_hit, "total_lines": len(lines)}
 
 
 def saved_log_excerpt_matches(data: bytes, start_line: int, statement: str) -> bool:

@@ -70,7 +70,7 @@ from .knowledge_run import (
     prepare_run_knowledge,
     read_run_knowledge,
 )
-from .logs import MAX_LOG_BYTES, decode_text
+from .logs import MAX_LOG_BYTES, log_window
 from .model_calls import (
     ModelCallConflict,
     ModelCallStore,
@@ -210,22 +210,22 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def read_log(start_line: int = 1, end_line: int = 100, proposal_json: str | None = None) -> str:
-        """Read a bounded line range from the hash-checked input crash log."""
+    def read_log(start_line: int = 1, end_line: int = 100, proposal_json: str | None = None,
+                 query: str | None = None) -> str:
+        """Read a bounded crash-log range, or find a literal query from start_line in the full log.
+
+        query returns up to 16 surrounding lines, their actual start_line and matched_line;
+        next_match_line allows another occurrence. Prefer query='Error message:' or an application
+        filename to reading entire logs. Query is literal, not regex; end_line controls range mode only.
+        """
         try:
-            if start_line < 1 or end_line < start_line or end_line - start_line > 199:
-                raise ValueError("invalid or oversized line range")
             path = _safe_file(task_directory, crash_log)
             if path.stat().st_size > MAX_LOG_BYTES:
                 raise ValueError("crash log exceeds input limit")
             raw = path.read_bytes()
             if digest(raw) != crash_sha256:
                 raise ValueError("crash log changed after task verification")
-            text, encoding, warnings = decode_text(raw)
-            lines = text.splitlines()
-            return json.dumps({"start_line": start_line, "lines": lines[start_line - 1:end_line],
-                               "encoding": encoding, "warnings": warnings},
-                              ensure_ascii=False)
+            return json.dumps(log_window(raw, start_line, end_line, query), ensure_ascii=False)
         except (OSError, ValueError) as exc:
             return f"rejected: {exc}"
 

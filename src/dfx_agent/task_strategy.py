@@ -16,7 +16,10 @@ Produce a concrete, minimal repair supported by inspected evidence, then request
 Use the same available tools and host-enforced total budget whether optional guidance is enabled or disabled.
 
 Task workflow:
-1. Read the relevant crash-log range with read_log. Identify the observed exception, target operation, and stack locations.
+1. Locate the exception with read_log(query="Error message:") or query="Reason:"; read its stack and relevant context.
+   Do not page through entire system logs or repeatedly read the same crash. Once the error and application frame
+   are identified, inspect that source and upstream inputs; search further log text only for a specific unresolved fact.
+   read_log(query=...) searches a literal from start_line and returns a small window with actual line anchors.
    A crash location is a symptom and a starting point, not automatically the root cause.
    Inspect read_log encoding and warnings. Replaced or incomplete text can lose evidence;
    do not infer that an event or failure is absent from damaged log text.
@@ -164,7 +167,10 @@ def build_system_prompt(features: PolicyFeatures, *, application_checks: bool = 
             "do not fabricate compiler, replay, device, business or regression results.")
         prompt += ("\nThis is an analysis-only run. Use the supplied source and log to produce a diagnosis and patch. "
                    "Do not stall waiting for device access or invent a runtime. Clearly separate inspected facts, "
-                   "inferred repair reasoning and missing executable validation.")
+                   "inferred repair reasoning and missing executable validation. For a direct defect, aim to register "
+                   "the first supported candidate within about ten evidence reads. If still uncertain, name the "
+                   "specific missing fact and inspect only what can resolve it; do not explore unrelated modules "
+                   "or fabricate a patch to meet that guidance.")
     return prompt
 
 

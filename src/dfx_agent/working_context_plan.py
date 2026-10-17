@@ -695,6 +695,9 @@ def _exploration_readback(item: dict[str, Any], value: dict[str, Any]) -> tuple[
             return None
         replay = {"start_line": args.get("start_line", 1), "end_line": args.get("end_line", 100)}
         if tool == "read_log":
+            if args.get("query") is not None:
+                replay = {"start_line": answer["start_line"],
+                          "end_line": answer["start_line"] + len(answer["lines"]) - 1}
             scope, version, subject = "input_log", "input", [tool, "input"]
         else:
             replay["path"] = answer["path"]

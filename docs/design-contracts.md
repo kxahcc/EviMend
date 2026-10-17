@@ -135,6 +135,8 @@ task_strategy 的共享指引接入 SDK system_prompt，启动消息包含核对
 
 `list_source(path_prefix=None, offset=0, limit=50)` 按相对路径排序返回原版文件名，每页最多100项。path_prefix 按文件/目录组件匹配，不展开glob；结果含files、total_files、offset、has_more及next_offset，不把第一页误作完整清单。只枚举任务快照，不读取原数据目录或额外注入全文；优先从栈路径直接读取或检索，避免文件清单占满思考模式必须保留的历史。
 
+`read_log(start_line=1, end_line=100, query=None)` 保持原范围读取；给出query时，从start_line起查找大小写敏感的单行字面串，end_line不控制查询模式。返回命中前3行及从命中起最多13行、实际start_line/matched_line、下一命中next_match_line、编码和警告；无命中返回空lines。查询最长200字符，不展开正则；输入仍核原字节摘要与总大小。继续查下一命中只需start_line=next_match_line。上下文回读导航用实际返回的原行范围，不将查询起点误当证据坐标；范围模式保持原解释。目录前缀查询接纳末尾斜杠，其余规范路径及穿越拒绝不变。
+
 `search_source(query, path_prefix=None, candidate_id=None, case_sensitive=True, offset=0, limit=30)` 只接受有限单行字面查询；大小写忽略也是转义后的字面匹配，不执行用户正则。path_prefix 是相对文件/目录的组件前缀，不展开 glob；模型不能指定任意 root。原版整树摘要必须匹配任务，候选须已登记且冻结字节、manifest 和 diff 相符；草稿不参与检索。规模、单文件、查询、片段与分页限额由 source_search.py 的固定常量和 search_limits 定义，超限拒绝，不静默放宽。
 
 结果包含原版 source_snapshot_sha256、实际 snapshot_sha256、scope、candidate_id、查询与过滤选项，以及 matches 中的 path、从 1 起的 line/column、有限 text、snippet_start_column、text_truncated、原字节 file_sha256。同一行只返回首个命中，按路径和行稳定排序；total_matched_lines、has_more、next_offset 明确分页，返回的下一页位置必须可用。NUL/非 UTF-8 文件以 skipped 原因列出；complete 只表示过滤范围内文件均可解码，不等于当前页包含全部命中，更不表示代码安全。长行片段截断用原列号定位，不能把片段前完整上下文。无匹配且 complete=False 时不得声明该范围没有目标文本。

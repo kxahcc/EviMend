@@ -67,6 +67,8 @@ class SourceSearch:
         if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= 100:
             raise ValueError("invalid source listing page")
         if path_prefix is not None:
+            if isinstance(path_prefix, str):
+                path_prefix = path_prefix.rstrip("/")
             require_path(path_prefix)
         files = sorted(path for path in _files(self.workspace.base)
                        if path_prefix is None or path == path_prefix or path.startswith(path_prefix + "/"))
@@ -88,6 +90,8 @@ class SourceSearch:
         if not 0 <= offset <= MAX_TREE_BYTES or not 1 <= limit <= 100:
             raise ValueError("invalid search page")
         if path_prefix is not None:
+            if isinstance(path_prefix, str):
+                path_prefix = path_prefix.rstrip("/")
             require_path(path_prefix)
         base_values = _read_tree(self.workspace.base)
         base_manifest = [{"path": path, "sha256": digest(raw)} for path, raw in base_values.items()]

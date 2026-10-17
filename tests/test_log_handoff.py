@@ -11,9 +11,14 @@ from test_decisions import FULL, diagnosis_submission
 from test_working_context_handoff import checked_completion
 from test_working_context_plan import SyntheticHost
 
-from dfx_agent import agent, diagnostics
+from dfx_agent import diagnostics, logs
 from dfx_agent.agent import run_fixed_agent
-from dfx_agent.logs import decode_text, parse_crash, saved_log_excerpt_matches
+from dfx_agent.logs import (
+    decode_text,
+    log_window,
+    parse_crash,
+    saved_log_excerpt_matches,
+)
 from dfx_agent.task import digest, verify_task
 from dfx_agent.verification import FixedTextExecutor
 from dfx_agent.working_context_plan import WorkingContextPolicy
@@ -79,7 +84,7 @@ def test_saved_legacy_decoding_is_read_only_and_does_not_rewrite_evidence(tmp_pa
         return raw.decode("utf-8", errors="replace"), "utf-8", []
 
     with monkeypatch.context() as patch:
-        patch.setattr(agent, "decode_text", legacy)
+        patch.setattr(logs, "decode_text", legacy)
         patch.setattr(diagnostics, "decode_text", legacy)
         host.step("read_log", {})
         host.step("read_source", {"path": "src/main.ets"})
@@ -129,3 +134,39 @@ def test_real_sdk_encoded_log_diagnosis_completion_and_resume(tmp_path: Path, ki
 @pytest.mark.parametrize(("start", "statement"), [(0, "header"), (3, "header"), (1, "not the header"), (1, "\n" * 200)])
 def test_saved_excerpt_rejects_wrong_anchors_text_and_oversized_spans(start: int, statement: str) -> None:
     assert not saved_log_excerpt_matches(b"header\nsecond", start, statement)
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "gb18030"])
+def test_literal_log_lookup_keeps_original_line_anchors_and_reachable_occurrences(encoding: str) -> None:
+    lines = ["无关系统日志"] * 500 + LINES + ["Error name: RangeError", "end"]
+    raw = "\n".join(lines).encode(encoding)
+    first = log_window(raw, query="Error name:")
+    assert first["matched_line"] == 502 and first["start_line"] == 499
+    assert first["next_match_line"] == 505 and len(first["lines"]) <= 16
+    assert saved_log_excerpt_matches(raw, first["start_line"], "\n".join(first["lines"]))
+    second = log_window(raw, start_line=first["next_match_line"], query="Error name:")
+    assert second["matched_line"] == 505 and second["next_match_line"] is None
+    assert log_window(raw, query="no-such-literal")["lines"] == []
+
+
+@pytest.mark.parametrize("query", ["", " ", "a\nb", "a\0b", "x" * 201])
+def test_literal_log_lookup_rejects_invalid_queries(query: str) -> None:
+    with pytest.raises(ValueError, match="query"):
+        log_window(b"source log\n", query=query)
+
+
+def test_literal_log_lookup_is_available_to_the_agent_with_real_line_receipts(tmp_path: Path) -> None:
+    from dfx_agent.working_context_plan import _exploration_readback
+
+    host = SyntheticHost(tmp_path, crash_text="noise\n" * 500 + TEXT, history_selection="repair_frontier")
+    result = host.step("read_log", {"query": "Error name:"})
+    assert result["matched_line"] == 502 and result["start_line"] == 499
+    assert host.step("read_log", {"query": "Error name:", "start_line": 502})["matched_line"] == 502
+    reread = host.step("read_log", {"start_line": result["start_line"],
+                                  "end_line": result["start_line"] + len(result["lines"]) - 1})
+    assert reread["lines"] == result["lines"] and reread["encoding"] == result["encoding"]
+    hint = _exploration_readback({"action": {"authorization": "allowed", "tool_name": "read_log",
+        "action_id": "query-read"}, "tool_call": {"args": {"query": "Error name:"}},
+        "receipt": {"content": json.dumps(result)}}, {})
+    assert hint is not None and hint[2]["args"] == {"start_line": 499, "end_line": 504}
+    assert host.plan().view_messages()

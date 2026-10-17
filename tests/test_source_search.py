@@ -51,6 +51,7 @@ def test_source_listing_pages_are_bounded_and_complete(tmp_path: Path) -> None:
     assert found == sorted([*files, "src/main.ets"])
     assert page["next_offset"] is None
     assert search.list_files(path_prefix="src/module0001")["files"] == ["src/module0001/file.ets"]
+    assert search.list_files(path_prefix="src/module0001/")["files"] == ["src/module0001/file.ets"]
     assert search.list_files(path_prefix="src/module000")["files"] == []
 
 
@@ -59,6 +60,15 @@ def test_source_listing_pages_are_bounded_and_complete(tmp_path: Path) -> None:
 def test_source_listing_rejects_unsafe_prefix_and_invalid_page(tmp_path: Path, options: dict) -> None:
     with pytest.raises(ValueError):
         SourceSearch(workspace_with_files(tmp_path, {})).list_files(**options)
+
+
+def test_search_accepts_directory_trailing_slash_without_weakening_path_checks(tmp_path: Path) -> None:
+    search = SourceSearch(workspace_with_files(tmp_path, {"src/nested/a.ets": b"needle\n"}))
+    assert search.search("needle", path_prefix="src/nested/")["matches"] == search.search(
+        "needle", path_prefix="src/nested")["matches"]
+    for prefix in ("/src/", "../src/", "src/../"):
+        with pytest.raises(ValueError):
+            search.search("needle", path_prefix=prefix)
 
 
 def test_large_match_set_has_a_reachable_next_page(tmp_path: Path) -> None:
@@ -279,7 +289,7 @@ def test_invalid_query_is_rejected(tmp_path: Path, query: object) -> None:
     {"path_prefix": "../data_B"}, {"path_prefix": "/tmp"},
     {"path_prefix": "C:/outside"}, {"path_prefix": "src\\main.ets"},
     {"path_prefix": "src//main.ets"}, {"path_prefix": "src/./main.ets"},
-    {"path_prefix": "src/"}, {"path_prefix": ""}, {"path_prefix": 2},
+    {"path_prefix": "src/../../"}, {"path_prefix": ""}, {"path_prefix": 2},
     {"candidate_id": "../draft"}, {"candidate_id": ""}, {"candidate_id": "g" * 64},
 ])
 def test_invalid_options_cannot_change_search_scope(tmp_path: Path, options: dict) -> None:
