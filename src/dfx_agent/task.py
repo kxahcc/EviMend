@@ -240,6 +240,9 @@ def prepare_task(data_root: Path, case: dict, output: Path) -> dict:
         local_evidence_path(target.parent).mkdir(parents=True, exist_ok=True)
         shutil.copyfile(local_evidence_path(path), local_evidence_path(target))
         entries.append({"path": relative, "sha256": digest(local_evidence_path(target).read_bytes())})
+    # Path ordering is case-insensitive on Windows. Snapshot identity must use
+    # the same POSIX string ordering as the frozen workspace on every host.
+    entries.sort(key=lambda item: item["path"])
     local_evidence_path(output / "crash.log").write_bytes(log_data)
     source_sha = snapshot_digest(entries)
     local_evidence_path(output / "source-manifest.json").write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")

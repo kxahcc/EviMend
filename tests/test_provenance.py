@@ -17,6 +17,13 @@ from dfx_agent import provenance
 _ORIGINAL_GIT_FACTS = provenance._git_facts
 
 
+def test_current_managed_environment_can_freeze_execution_facts() -> None:
+    """Exercise real installed metadata before a cloud run can spend anything."""
+    record = provenance.capture_execution_provenance()
+    assert provenance.validate_execution_provenance(record) == record
+    assert record["runtime"]["distributions"]["deepagents"]
+
+
 @pytest.fixture
 def host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for relative in (*provenance._HOST_SCRIPTS, "src/dfx_agent/__init__.py",

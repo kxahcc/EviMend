@@ -13,6 +13,47 @@ from dfx_agent.local_execution import LocalCheckConfig
 from dfx_agent.task import digest, verify_task
 
 
+def test_available_reviewed_pilot_initializes_without_network(tmp_path: Path) -> None:
+    """Optional local integration: no key read, request, repair or data mutation."""
+    from dfx_agent.competition import CompetitionConfig
+    from dfx_agent.model_provider import CloudChatCompletionsAdapter
+    from dfx_agent.workspace import CandidateWorkspace
+
+    root = Path(__file__).resolve().parents[1]
+    profile = root / "configs/pilot022-canonical.local.json"
+    task = root / ".dfx-local/tmp/reviewed/task022-canonical"
+    if not profile.exists() or not task.exists():
+        pytest.skip("the explicitly reviewed local pilot has not been prepared")
+    settings = CompetitionConfig.model_validate_json(profile.read_bytes())
+    adapter = CloudChatCompletionsAdapter(settings.model, settings.provider, allow_network=False)
+    assert adapter.profile()["settings"]["model_id"] == "deepseek-flash"
+    workspace = CandidateWorkspace(task, tmp_path / "admission-only", "no-network")
+    assert workspace.source_snapshot_sha256 == verify_task(task)["source_snapshot_sha256"]
+
+
+def test_prepared_manifest_uses_host_independent_case_order(tmp_path: Path) -> None:
+    from dfx_agent.task import prepare_task
+    from dfx_agent.workspace import CandidateWorkspace
+
+    data = tmp_path / "dataset"
+    app = data / "app"
+    app.mkdir(parents=True)
+    for name in ("build-profile.json5", "Index.ets", "hvigorfile.ts", "feature/Page.ets"):
+        path = app / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"export const value = 1;\n")
+    (data / "fault.log").write_bytes(b"synthetic fault")
+    task = tmp_path / "reviewed"
+    prepare_task(data, {"task_id": "mixed-case", "app": "app",
+        "log": {"path": "fault.log", "sha256": digest(b"synthetic fault")}}, task)
+    manifest = json.loads((task / "source-manifest.json").read_bytes())
+    assert [entry["path"] for entry in manifest] == [
+        "Index.ets", "build-profile.json5", "feature/Page.ets", "hvigorfile.ts"]
+    workspace = CandidateWorkspace(task, tmp_path / "work", "run")
+    workspace.start_draft()
+    assert workspace.source_snapshot_sha256 == verify_task(task)["source_snapshot_sha256"]
+
+
 def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path, dict[str, Any]]:
     root = tmp_path / "repo"
     for folder in (".dfx-local/state", ".dfx-local/tmp", "data_B/app", "data_B/logs"):
