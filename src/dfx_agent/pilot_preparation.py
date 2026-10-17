@@ -79,6 +79,20 @@ REVIEWED_ORACLES = {
          "finite marker calculations, Begin/End seek, paused/moving events and zero/one/normal duration; "
          "no audio output, player timing, UI rendering or device coverage"),
     ),
+    "resources/source-validation/calendar-days/oracle.cjs": (
+        "components/date_calculation/src/main/ets/utils/Utils.ets",
+        "DFX007_TARGET_BIGINT_MATH_FLOOR",
+        ("Execute actual complete calculateDaysBetweenDates after newline normalization and Node type erasure; "
+         "representative BigInt fault reproducer, absolute whole-day intervals, UTC leap/year/fractional boundaries; "
+         "no lunar conversion, date-picker or UI coverage"),
+    ),
+    "resources/source-validation/asset-pie/oracle.cjs": (
+        "features/assets/src/main/ets/viewmodels/AssetAnalysisVM.ets",
+        "DFX005_TARGET_OBJECT_KEYS_UNDEFINED",
+        ("Execute actual complete pieChartData getter after newline normalization and Node type erasure; "
+         "empty groups, fund/credit projections, sign/order/resource and state preservation; "
+         "no DB loading, observed scheduling, chart UI or device coverage"),
+    ),
 }
 REVIEWED_MOCKS = {
     "resources/source-validation/resource-sort/oracle.cjs": [
@@ -89,6 +103,9 @@ REVIEWED_MOCKS = {
     ],
     "resources/source-validation/music-slider/oracle.cjs": [
         "SliderChangeMode equality sentinels; Logger.info capture; MediaService.seek recorder; plain musicModel",
+    ],
+    "resources/source-validation/asset-pie/oracle.cjs": [
+        "AssetChangeType string constants; plain fund/credit groups instead of observed DB-backed state",
     ],
 }
 
