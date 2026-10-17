@@ -31,7 +31,7 @@
     "allow_background_services": false,
     "allow_local_model_weights": false,
     "allow_local_harmony_sdk": false,
-    "allow_model_experiments": true,
+    "allow_model_experiments": false,
     "allow_application_experiments": false
   },
   "cleanup": {

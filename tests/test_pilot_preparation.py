@@ -111,9 +111,11 @@ def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pat
     return root, config, value
 
 
+@pytest.mark.parametrize("mocks", [[], ["synthetic supplied platform values"]])
 def test_preparation_keeps_allowed_full_source_and_excludes_construction_material(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mocks: list[str]) -> None:
     root, config, value = _fixture(tmp_path, monkeypatch)
+    monkeypatch.setitem(pilot_preparation.REVIEWED_MOCKS, pilot_preparation.ORACLE, mocks)
     original = (root / "data_B/app" / pilot_preparation.SOURCE).read_bytes()
     result = pilot_preparation.run_preparation(root, config)
     assert result["status"] == "source_baseline_admitted" and result["fault_reproduced"] is True
@@ -126,7 +128,8 @@ def test_preparation_keeps_allowed_full_source_and_excludes_construction_materia
     assert (root / "data_B/app" / pilot_preparation.SOURCE).read_bytes() == original
     profile = LocalCheckConfig.model_validate_json((root / value["validation_profile"]).read_bytes())
     assert profile.mode == "source" and profile.project_root == str(output / "source")
-    assert profile.mocked_interfaces == [] and profile.source_mapping == {}
+    assert profile.mocked_interfaces == mocks and profile.source_mapping == {}
+    assert result["mocked_interfaces"] == mocks
     assert "1e09f387" not in json.dumps(profile.model_dump())
 
 

@@ -51,6 +51,25 @@ REVIEWED_ORACLES = {
          "unused preferences and TaskItem type imports removed; fixed state/literal-search and stock checks; "
          "no persistence, UI, device or caller-substitution coverage"),
     ),
+    "resources/source-validation/enterprise-property/oracle.cjs": (
+        "commons/component/src/main/ets/utils/PropUtil.js",
+        "DFX009_TARGET_IN_NON_OBJECT",
+        ("Execute the actual hasKey JavaScript module with local export rebinding; "
+         "undefined/null targets, own/inherited/callable/dictionary property checks and input immutability; "
+         "no ArkUI events, resume persistence or device coverage"),
+    ),
+    "resources/source-validation/resource-sort/oracle.cjs": (
+        "components/money_track/src/main/ets/viewmodels/ResourceManageVM.ets",
+        "DFX001_TARGET_SORTNUM_UNDEFINED",
+        ("Execute actual complete customSortResource method after unique-header/class-end extraction and Node type erasure; "
+         "BalanceChangeType strings and resource arrays supplied; both categories, integer bounds, swaps and slot sortNum; "
+         "no Grid routing, persistence or resource-initialization coverage"),
+    ),
+}
+REVIEWED_MOCKS = {
+    "resources/source-validation/resource-sort/oracle.cjs": [
+        "BalanceChangeType string constants; supplied income/expense resource arrays",
+    ],
 }
 
 
@@ -172,6 +191,7 @@ def run_preparation(root: Path, config_path: Path | str) -> dict[str, Any]:
     if raw["oracle"] not in REVIEWED_ORACLES:
         raise ValueError("only reviewed source oracles are admitted")
     selected_source, selected_marker, selected_scope = REVIEWED_ORACLES[raw["oracle"]]
+    selected_mocks = REVIEWED_MOCKS.get(raw["oracle"], [])
     oracle = _checked(root / raw["oracle"])
     oracle_sha = digest(_read(oracle, MAX_CONFIG_BYTES))
     node = Path(raw["node"])
@@ -185,7 +205,7 @@ def run_preparation(root: Path, config_path: Path | str) -> dict[str, Any]:
         "observed_at": datetime.now(UTC).isoformat(), "case_identity_sha256": case.sha256(),
         "task_id": case.task_id, "task": str(output), "validation_profile": str(profile_path),
         "oracle": str(oracle), "oracle_sha256": oracle_sha, "node": str(node),
-        "validation_scope": selected_scope, "mocked_interfaces": [], "stages": [],
+        "validation_scope": selected_scope, "mocked_interfaces": selected_mocks, "stages": [],
         "source_verification": "not_run", "application_verification": "not_run",
         "repair_success": None, "candidate_created": False, "model_calls": 0}
     _write_new(record_path, record)
@@ -220,7 +240,7 @@ def run_preparation(root: Path, config_path: Path | str) -> dict[str, Any]:
                     selected_marker not in observed["stdout"] + observed["stderr"]):
                 raise ValueError("original did not reproduce the reviewed fault")
         profile = LocalCheckConfig(mode="source", project_root=str(source),
-            validation_scope=selected_scope, mocked_interfaces=[], commands={stage: LocalCommand(
+            validation_scope=selected_scope, mocked_interfaces=selected_mocks, commands={stage: LocalCommand(
                 argv=[str(node), str(oracle), stage], oracle_sha256=oracle_sha, timeout_seconds=10)
                 for stage in STAGES}, independent_oracles={stage: IndependentOracle(
                     path=str(oracle), sha256=oracle_sha) for stage in STAGES},
