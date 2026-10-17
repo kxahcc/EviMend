@@ -239,10 +239,11 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `configs/harmonyos-app.template.json` | 可选完整应用配置：工程、工具路径、设备/签名、项目依赖准备和独立检查；不属于默认轻量安装前置 |
 | `configs/model.example.json`、`configs/model.local.json` | 无 Key 的模型模板与被 Git 忽略的本机私有配置；统一模型、Key、模式及单任务预算，使用方法见 src/dfx_agent/README.md |
 | `configs/evaluation.local.json` | 被 Git 忽略的本次私有批次清单：不含 Key，登记 run 与累计金额参数；不进入任务/源码或求解上下文，金额语义见评测口径 |
+| `configs/generated/` | 本机当前测试的四份生成配置：analysis 案例共用 analysis.local.json，三个 full-source 配置分别绑定检查协议；由 cases 清单关联，不要求逐例手写模型配置，与模型填写示例和部署配置分开 |
 | `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
-| `.dfx-local/` | 本机环境、缓存、任务/工作副本、导出暂存与运行状态根；Git 忽略，所有当前运行入口受管 |
-| `runs/` | 历史原型产物、管理工具接入前的临时材料及本机私有 exports；Git 忽略，普通清理保留导出包 |
-| `archive/` | 失效文档及配套材料；Git 忽略，不作为当前入口或运行依赖 |
+| `.dfx-local/` | 本机环境、缓存、当前任务快照、真实运行原件及管理回执；Git 忽略，所有当前运行入口受管。真实失败账本也保留，不通过归档重置消费 |
+| `runs/exports/cases/` | 面向用户的逐例修复结果；runs 当前只保留这一结果入口，Git 忽略，普通清理保留导出包 |
+| `archive/` | 失效文档、旧配置、历史合成运行/自检导出及一次性脚本；按主题保留原相对目录和本地说明，Git 忽略。当前命令及配置不依赖这里；归档不释放磁盘空间 |
 | `pyproject.toml`、`uv.lock`、`.python-version` | Python 3.13 基线、SDK 与质量工具的已解析依赖锁 |
 | `.gitignore` | 排除本地数据、归档、运行产物、缓存、虚拟环境和凭据文件 |
 | `.gitkeep` / 各目录 README.txt / template-session.json | 竞赛模板的占位及格式说明 |

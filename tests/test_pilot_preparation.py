@@ -13,17 +13,17 @@ from dfx_agent.local_execution import LocalCheckConfig
 from dfx_agent.task import digest, verify_task
 
 
-def test_available_reviewed_pilot_initializes_without_network(tmp_path: Path) -> None:
+def test_available_reviewed_source_initializes_without_network(tmp_path: Path) -> None:
     """Optional local integration: no key read, request, repair or data mutation."""
     from dfx_agent.competition import CompetitionConfig
     from dfx_agent.model_provider import CloudChatCompletionsAdapter
     from dfx_agent.workspace import CandidateWorkspace
 
     root = Path(__file__).resolve().parents[1]
-    profile = root / "configs/pilot022-canonical.local.json"
+    profile = root / "configs/generated/full-source022.local.json"
     task = root / ".dfx-local/tmp/reviewed/task022-canonical"
     if not profile.exists() or not task.exists():
-        pytest.skip("the explicitly reviewed local pilot has not been prepared")
+        pytest.skip("the explicitly reviewed local source case has not been prepared")
     settings = CompetitionConfig.model_validate_json(profile.read_bytes())
     adapter = CloudChatCompletionsAdapter(settings.model, settings.provider, allow_network=False)
     assert adapter.profile()["settings"]["model_id"] == "deepseek-flash"

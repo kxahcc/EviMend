@@ -1,0 +1,89 @@
+{
+  "date": "2026-10-17",
+  "scope": "User-authorized local archival and config consolidation; no deletion, model requests or submission rewrite",
+  "base_commit": "e165ef6",
+  "archive": {
+    "root": "archive/2026-10-17-development-artifacts",
+    "git_ignored": true,
+    "tracked_members": 0,
+    "moved_entries": 113,
+    "by_original_location": {
+      "runs": 11,
+      "configs": 29,
+      ".dfx-local/work": 30,
+      ".dfx-local/tmp": 30,
+      ".dfx-local/state": 13
+    },
+    "blocked_moves": 0,
+    "details": "Local README and manifest retain original relative paths. Six historical exports are offline_synthetic. Four early self-check trees and a one-off docs script left runs; no actual case exports moved.",
+    "permission_observation": "Recursive preflight hit access denial in a legacy runs test directory before any mutation. Same-volume root moves completed without traversing the denied children, changing ACLs or deleting contents."
+  },
+  "configuration": {
+    "identical_analysis_configs_archived": 23,
+    "early_pilot_configs_archived": 6,
+    "current_generated_directory": "configs/generated",
+    "current_generated_configs": 4,
+    "current_root_config_files": 9,
+    "prepared_cases": 26,
+    "analysis_cases": 23,
+    "source_cases": 3,
+    "case_map_updated": true,
+    "generated_parameter_bytes_preserved": true,
+    "user_maintained_model_file": "configs/model.local.json"
+  },
+  "preserved": {
+    "protected_files_unchanged": 17,
+    "actual_cloud_run_reports_and_ledgers": 4,
+    "data_B_modified": false,
+    "model_key_or_mode_changed": false,
+    "batch_budget_or_limits_changed": false,
+    "case_exports_moved_or_overwritten": false,
+    "source_tests_skills_and_current_design_retained": true,
+    "historical_sessions_rewritten": false,
+    "submission_templates_changed": false,
+    "disk_space_released_by_archive": false
+  },
+  "software_checks": [
+    {
+      "file": "tests/test_pilot_preparation.py",
+      "passed": 18,
+      "receipt": "57cacb9d-c9f1-4b58-bae9-88c6f74c72fe",
+      "prior_pass_receipt": "81553b37-8bc0-4762-b7fc-0311b1b47b24",
+      "scope": "Rechecked after grouping generated configs; optional local source admission uses the current config instead of an archived pilot. No key read or network."
+    },
+    {
+      "file": "tests/test_product_cli.py",
+      "passed": 53,
+      "receipt": "952641c4-582f-44b1-9fb1-b20beb040569",
+      "scope": "Existing finite software fixtures; no actual cloud API or data_B repair."
+    }
+  ],
+  "actual_cli_readback": {
+    "cases": 26,
+    "distinct_run_configs": 4,
+    "reports": ["live1017-case16", "live1017-retry02"],
+    "report_status": "source_verified",
+    "all_current_config_paths_checked_after_relocation": true,
+    "note": "Known tokens and accepted status unchanged; all 26 task/config locations exist and all four current config files retain their original parameter bytes."
+  },
+  "final_checks": {
+    "docs_receipt": "5c114b4e-3000-4db5-b902-2c2128c0df96",
+    "registered_documents": 14,
+    "documentation_errors": 0,
+    "diff_check": "passed",
+    "archive_and_generated_configs_ignored": true,
+    "archive_or_generated_files_tracked": 0,
+    "resource_accounting": "complete",
+    "inaccessible_managed_paths": [],
+    "active_state": "none",
+    "cleanup_available": true,
+    "note": "Current managed paths were inventoried; archived denied subtrees were relocated without claiming their access permissions were repaired."
+  },
+  "cost_and_environment": {
+    "new_model_calls": 0,
+    "dependencies_installed": false,
+    "global_environment_changed": false,
+    "acl_changed": false,
+    "note": "Sandboxed Windows launcher path lookup failed; existing project runtime and managed checks used outside the sandbox, without modifying installation."
+  }
+}

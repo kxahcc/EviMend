@@ -18,6 +18,8 @@ dfx.cmd cases
 
 `doctor`只核配置和本地前置，不调用推理；`cases`列出本机已准备目标、analysis/source模式、运行名及完整命令，existing表示原运行目录已经存在。`dfx.cmd cases --output-format json`返回同样的机器可读清单。清单来源是`.dfx-local/state/full-run-map.json`，原始数据只读，准备快照与本机配置不自动随Git克隆。
 
+本机当前运行参数集中在`configs/generated/`：一份共用的analysis.local.json及016/017/022三份full-source配置；后者各自绑定不同源码检查。它们由准备/配置流程生成，不要求用户给每例重写模型配置。`cases`已经关联对应文件，模型服务与Key仍统一在`configs/model.local.json`。根目录其余配置承担总预算、资源限制、安装及示例/模板职责，不要求逐个填写。旧pilot配置、重复的逐例analysis配置和历史合成自检产物已移入Git忽略的archive；当前命令不从归档读取配置。`runs/exports/cases/`只呈现逐例结果，完整真实账本和原件仍在`.dfx-local/work/`。
+
 | 数据 | 怎么进入系统 | 可以据此报告什么 |
 |---|---|---|
 | B1/B2较早材料 | 从应用/故障目录选择对应源码和一个明确日志，冻结相同任务格式 | 分析、根因和补丁；没有源码验证器时保持未验证 |
@@ -30,7 +32,7 @@ B1/B2/B3是数据批次，不是我们方法的基线/增强组。有效输入�
 先用已经接纳源码回放的016独立重测。下面使用预登记且尚未使用的重测名；如果它已被你用过，请从原批次选择另一个未使用的retry名，保留旧运行。
 
 ```text
-dfx.cmd --target .dfx-local/tmp/reviewed/task016 --config configs/full-source016.local.json --name live1017-retry03 --export-result
+dfx.cmd --target .dfx-local/tmp/reviewed/task016 --config configs/generated/full-source016.local.json --name live1017-retry03 --export-result
 ```
 
 这是新的付费修复任务。命令会读取故障、查源码、生成诊断和补丁、运行原版/候选四项检查、失败时有界修订，最后将结果导出到`runs/exports/cases/<task_id>/<run_id>/`。省略`--export-result`仍会生成work里的原报告和delivery.zip，之后可以单独export。当前本机其它已准备案例直接使用`cases`打印的命令；analysis产出可以正常结束，但保持accepted=false/source_verification=not_run。
