@@ -11,7 +11,11 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from dfx_agent import competition
-from dfx_agent.batch_budget import BatchBudget, check_batch_budget, deepseek_flash_peak_cost
+from dfx_agent.batch_budget import (
+    BatchBudget,
+    check_batch_budget,
+    deepseek_flash_peak_cost,
+)
 from dfx_agent.competition import CompetitionConfig
 from dfx_agent.model_calls import ModelCallIntent, ModelCallStore, canonical, sha256
 

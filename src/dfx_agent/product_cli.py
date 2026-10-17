@@ -276,12 +276,20 @@ def _summary(root: Path, name: str) -> dict[str, Any]:
                 accepted or source != "not_run" or application != "not_run" or level != "not_run")):
         raise ValueError("saved summary fields are invalid")
     scope_fields = {field: report[field] for field in ("validation_scope", "mocked_interfaces") if field in report}
+    evaluation: dict[str, Any] = {}
+    if (work / "competition-config.json").exists():
+        from .case_results import case_evaluation
+
+        frozen = _json(work / "competition-config.json")
+        terminal = _json(work / "run-state.json") if (work / "run-state.json").exists() else {}
+        evaluation = case_evaluation(work, name, report["task_id"], frozen, report, terminal)
     return {"event": "result", "name": name, "status": report["status"], **scope_fields,
             "accepted": report["accepted"], "application_verification": report["application_verification"],
             "source_verification": source,
             "verification_level": report.get("verification_level", "unknown"),
             "candidate_count": len(report.get("attempts", [])),
             "model_calls": calls, "known_tokens": tokens,
+            "evaluation": evaluation,
             "report": str(work / "result.md"), "evidence": str(work / "competition-report.json"),
             "delivery": str(work / "delivery.zip"), "view_authority": "saved_operational_view"}
 
@@ -298,7 +306,7 @@ def _resume_inputs(root: Path, name: str) -> tuple[str, str]:
     return task, _relative(root, config)
 
 
-def _run(root: Path, task: str, config: str, name: str, resume: bool, mode: str) -> int:
+def _run(root: Path, task: str, config: str, name: str, resume: bool, mode: str, *, export_result: bool = False) -> int:
     work = _work(root, name)
     args = ["Run", "-Task", "competition", "-CompetitionConfigPath", config, "-CompetitionWorkId", name]
     if task:
@@ -359,12 +367,92 @@ def _run(root: Path, task: str, config: str, name: str, resume: bool, mode: str)
         return 130
     if process.returncode:
         _emit({"event": "failed", "name": name, "manager_status": receipt.get("status"),
+               "manager_log": receipt.get("log_path"),
                "note": "inspect the private manager log; no verification success inferred"}, mode)
         return 1
     result = _summary(root, name)
     result = {**result, "tracking": remaining["tracking"]}
+    export_failed = False
+    if export_result:
+        export_code, export_receipt = _invoke(root, ["Run", "-Task", "case-export", "-CompetitionWorkId", name])
+        try:
+            if export_code:
+                raise ValueError("result export failed")
+            exported = _json(_checked(Path(export_receipt["log_path"])), 1024 * 1024)
+            if exported.get("status") != "exported" or exported.get("run_id") != name:
+                raise ValueError("result export identity differs")
+            result.update(export_status="exported", export_path=exported["path"])
+        except (OSError, ValueError, KeyError, TypeError):
+            export_failed = True
+            result.update(export_status="failed", export_manager_log=export_receipt.get("log_path"),
+                          export_note="run result retained; correct the export error then use dfx export NAME")
     _emit(result, mode)
+    if export_failed:
+        return 1
     return 0 if result["accepted"] or result.get("status") in {"analysis_completed", "patch_proposed"} else 2
+
+
+def _operation(root: Path, arguments: list[str], event: str, mode: str) -> int:
+    """Expose a small existing worker result, without a second task lifecycle."""
+    code, receipt = _invoke(root, arguments)
+    if code:
+        _emit({"event": "failed", "operation": event, "manager_status": receipt.get("status"),
+               "manager_log": receipt.get("log_path")}, mode)
+        return 1
+    result = _json(_checked(Path(receipt["log_path"])), 1024 * 1024)
+    fields = ("status", "task_id", "run_id", "task", "validation_profile", "path", "candidate_id",
+              "verification_level", "accepted", "bytes", "source_verification", "application_verification")
+    _emit({"event": event, **{key: result[key] for key in fields if key in result}}, mode)
+    return 0
+
+
+def _launch_budget(root: Path, profile: dict[str, Any], name: str, mode: str) -> bool:
+    """Explain registration errors before launching a worker or a paid request."""
+    if profile.get("model_mode") != "cloud":
+        return True
+    budget_path = profile.get("batch_budget_file")
+    if budget_path is None:
+        if (root / "configs/evaluation.local.json").exists():
+            _emit({"event": "budget_rejected", "reason": "batch_binding_required",
+                   "note": "configure --batch-budget configs/evaluation.local.json; no model call sent"}, mode)
+            return False
+        return True
+    from .batch_budget import BatchBudget
+
+    budget = BatchBudget.model_validate(_json(root / _relative(root, Path(budget_path))))
+    if _work(root, name).exists():
+        _emit({"event": "budget_rejected", "reason": "run_name_in_use", "name": name,
+               "note": "use report/resume for the old run; choose a new registered name for a paid retest"}, mode)
+        return False
+    if name not in budget.run_ids:
+        unused = [value for value in budget.run_ids if not _work(root, value).exists() and
+                  not (root / ".dfx-local/state" / ("competition-" + value + "-approval.json")).exists() and
+                  not (root / ".dfx-local/tmp" / ("competition-" + value + "-library")).exists()]
+        _emit({"event": "budget_rejected", "reason": "unregistered_run_name", "name": name,
+               "unused_registered_names": unused, "note": "select an unused name; do not edit a frozen batch"}, mode)
+        return False
+    return True
+
+
+def _cases(root: Path, plan: Path, mode: str) -> None:
+    value = _json(root / _relative(root, plan))
+    if value.get("schema_version") != 1 or not isinstance(value.get("entries"), list):
+        raise ValueError("invalid prepared case plan")
+    rows = []
+    for row in value["entries"]:
+        task, config = _relative(root, Path(row["task"]), directory=True), _relative(root, Path(row["config"]))
+        name = _name(row["run_id"])
+        if row["mode"] not in {"analysis", "source"}:
+            raise ValueError("invalid prepared case mode")
+        rows.append({"task_id": row["task_id"], "mode": row["mode"], "task": task,
+                     "config": config, "run_id": name, "started": _work(root, name).exists()})
+    if mode == "text":
+        for row in rows:
+            print(f"{row['task_id']} | {row['mode']} | {row['run_id']} | "
+                  f"{'existing' if row['started'] else 'not_started'}", flush=True)
+            print(f"  dfx.cmd --target {row['task']} --config {row['config']} --name {row['run_id']} --export-result", flush=True)
+    else:
+        _emit({"event": "cases", "cases": rows, "authority": "prepared_operational_plan_not_success_statistics"}, mode)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -379,6 +467,7 @@ def parser() -> argparse.ArgumentParser:
     selection.add_argument("--resume", type=_name, metavar="NAME", help="resume using saved original launch inputs")
     result.add_argument("--config", type=Path, help="provider/budget profile with optional local validation")
     result.add_argument("--name", type=_name, help="session name (auto-generated for a new run)")
+    result.add_argument("--export-result", action="store_true", help="after a new real-model run, export a browsable result directory")
     sub = result.add_subparsers(dest="command")
     for command in ("status", "logs", "stop", "report"):
         entry = sub.add_parser(command)
@@ -387,6 +476,15 @@ def parser() -> argparse.ArgumentParser:
         if command == "logs":
             entry.add_argument("--follow", action="store_true")
             entry.add_argument("--after", type=int, default=0, help="last seen event sequence")
+    prepare = sub.add_parser("prepare", help="prepare reviewed source/log inputs and an optional admitted source replay")
+    prepare.add_argument("--plan", type=Path, required=True, help="reviewed preparation JSON in .dfx-local/state")
+    export = sub.add_parser("export", help="export one stopped result without model calls")
+    export.add_argument("session", type=_name)
+    export.add_argument("--project", type=Path, help="optional original application to include assets and build files")
+    cases = sub.add_parser("cases", help="list prepared local cases and their run commands; no model call")
+    cases.add_argument("--plan", type=Path, default=Path(".dfx-local/state/full-run-map.json"))
+    for entry in (prepare, export, cases):
+        entry.add_argument("--output-format", choices=("text", "json", "stream-json"), default=argparse.SUPPRESS)
     env = sub.add_parser("env", help="project-scoped installation and resource management")
     actions = env.add_subparsers(dest="action", required=True)
     for action in ("status", "prepare", "sync"):
@@ -409,6 +507,10 @@ def parser() -> argparse.ArgumentParser:
     checks.add_argument("--validation", type=Path, help="device-free, host-owned source validation profile")
     checks.add_argument("--application", type=Path, help="optional full-application profile; may require a device")
     configure.add_argument("--save", type=Path, help="new profile inside the project")
+    configure.add_argument("--batch-budget", type=Path, help="shared monetary budget (default: existing configs/evaluation.local.json)")
+    configure.add_argument("--batch-cost-mode", choices=("flat8", "deepseek_flash_peak"))
+    configure.add_argument("--charge-unknown-run-cap", action="append", default=[], type=_name,
+                           help="explicitly occupy an old unknown run's full frozen cap; repeat for each accepted run")
     configure.add_argument("--thinking", choices=("enabled", "disabled"))
     configure.add_argument("--max-calls", type=int)
     configure.add_argument("--max-tokens", type=int)
@@ -420,6 +522,8 @@ def parser() -> argparse.ArgumentParser:
     doctor_checks.add_argument("--validation", type=Path, help="check a source validation declaration locally")
     doctor_checks.add_argument("--application", type=Path)
     doctor.add_argument("--model-config", type=Path, help="validate a private model file locally; no API request")
+    for entry in (configure, doctor):
+        entry.add_argument("--output-format", choices=("text", "json", "stream-json"), default=argparse.SUPPRESS)
     return result
 
 
@@ -522,7 +626,23 @@ def _configure_or_doctor(root: Path, args: argparse.Namespace, cli: argparse.Arg
         budget = ModelBudget(max_calls=40 if args.max_calls is None else args.max_calls,
             max_known_tokens=256000 if args.max_tokens is None else args.max_tokens,
             max_seconds=900 if args.max_seconds is None else args.max_seconds)
+    batch_path = args.batch_budget
+    if batch_path is None and (root / "configs/evaluation.local.json").exists():
+        batch_path = Path("configs/evaluation.local.json")
+    batch = None
+    if batch_path is not None:
+        from .batch_budget import BatchBudget
+
+        batch_path = Path(_relative(root, batch_path))
+        batch = BatchBudget.model_validate(_json(root / batch_path))
+        if (batch.model_id != model.model_id or connection.credential_file is None or
+                _checked(root / batch.credential_file) != _checked(Path(connection.credential_file))):
+            raise ValueError("batch model or credential locator differs from the model configuration")
+    cost_mode = args.batch_cost_mode or ("deepseek_flash_peak" if batch is not None and model.model_id == "deepseek-flash"
+        and connection.endpoint in {"https://api.deepseek.com/chat/completions", "https://api.deepseek.com/v1/chat/completions"} else "flat8")
     profile = CompetitionConfig(provider=connection, model=model, model_mode="cloud",
+        batch_budget_file=None if batch_path is None else batch_path.as_posix(), batch_cost_mode=cost_mode,
+        charge_unknown_run_caps=args.charge_unknown_run_cap,
         execution=execution, max_calls=budget.max_calls, max_known_tokens=budget.max_known_tokens,
         max_seconds=budget.max_seconds, max_candidates=budget.max_candidates, max_tool_calls=budget.max_tool_calls,
         working_context=WorkingContextPolicy(enabled=False) if mode == "enabled"
@@ -548,7 +668,9 @@ def _configure_or_doctor(root: Path, args: argparse.Namespace, cli: argparse.Arg
         "validation_prerequisites": observation["status"],
         "verification_scope": ("application_execution" if args.application is not None else
                                "source_execution" if args.validation is not None else "analysis_only"),
-        "model_verification": "not_run", "experiments_enabled": False}, args.output_format)
+        "model_verification": "not_run", "experiment_permissions": "unchanged_by_configure",
+        "batch_budget_file": profile.batch_budget_file, "batch_cost_mode": profile.batch_cost_mode,
+        "max_known_tokens": profile.max_known_tokens}, args.output_format)
     return 0
 
 
@@ -558,10 +680,24 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root = _workspace(args.workspace)
         if args.command:
-            if args.target or args.demo or args.resume or args.config or args.name:
+            if args.target or args.demo or args.resume or args.config or args.name or args.export_result:
                 cli.error("launch flags cannot be combined with a management command")
             if args.command in {"configure", "doctor"}:
                 return _configure_or_doctor(root, args, cli)
+            if args.command == "cases":
+                _cases(root, args.plan, args.output_format)
+                return 0
+            if args.command == "prepare":
+                return _operation(root, ["Run", "-Task", "prepare", "-PreparationConfigPath",
+                    _relative(root, args.plan)], "prepared", args.output_format)
+            if args.command == "export":
+                arguments = ["Run", "-Task", "case-export", "-CompetitionWorkId", args.session]
+                if args.project is not None:
+                    project = _checked(args.project if args.project.is_absolute() else root / args.project)
+                    if project == root or not project.is_relative_to(root) or not project.is_dir():
+                        raise ValueError("original export project must be inside the deployed workspace")
+                    arguments += ["-ExportProjectPath", project.relative_to(root).as_posix()]
+                return _operation(root, arguments, "exported", args.output_format)
             if args.command == "env":
                 backend = [{"status": "Status", "prepare": "Prepare", "sync": "Init", "clean": "Clean"}[args.action]]
                 if args.action == "sync" and args.offline:
@@ -623,7 +759,7 @@ def main(argv: list[str] | None = None) -> int:
                     time.sleep(0.2)
             return 0
         if args.resume:
-            if args.config or args.name:
+            if args.config or args.name or args.export_result:
                 cli.error("resume uses the saved profile and name; do not replace them")
             task, config = _resume_inputs(root, args.resume)
             return _run(root, task, config, args.resume, True, args.output_format)
@@ -633,10 +769,16 @@ def main(argv: list[str] | None = None) -> int:
         profile = _json(root / config)
         if args.demo != (profile.get("model_mode") == "mock_demo"):
             cli.error("--demo requires a demo profile; --target requires a real-model profile")
+        if args.export_result and args.demo:
+            cli.error("--export-result requires a real-model task; the demo keeps its synthetic work artifacts")
         if args.target is not None and args.config is None:
             cli.error("--target requires an explicit --config profile")
         task = _relative(root, args.target, directory=True) if args.target else ""
         name = args.name or datetime.now(UTC).strftime("run-%Y%m%d-%H%M%S-") + os.urandom(3).hex()
+        if not _launch_budget(root, profile, name, args.output_format):
+            return 1
+        if args.export_result:
+            return _run(root, task, config, name, False, args.output_format, export_result=True)
         return _run(root, task, config, name, False, args.output_format)
     except KeyboardInterrupt:
         _emit({"event": "interrupted", "note": "viewer stopped; use dfx stop NAME to stop an active session"}, args.output_format)

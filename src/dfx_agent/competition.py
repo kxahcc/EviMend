@@ -548,7 +548,7 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
         if any(credential_file == path or credential_file.is_relative_to(path) for path in inputs):
             raise ValueError("private credential file overlaps task, application, run or run configuration")
     batch_binding = None
-    if (not resume and config.model_mode == "cloud" and config.batch_budget_file is None and
+    if (not resume and not test_scope and config.model_mode == "cloud" and config.batch_budget_file is None and
             (repo / "configs/evaluation.local.json").exists()):
         raise ValueError("this deployment requires the existing shared batch monetary budget")
     if config.batch_budget_file is not None:

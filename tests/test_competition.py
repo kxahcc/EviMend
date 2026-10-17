@@ -139,9 +139,19 @@ def test_complete_sdk_local_repair_feedback_skills_report_and_resume(
 def test_cloud_mode_refused_before_writable_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DFX_MANAGED_COMPETITION", "local-v1")
     settings = REPO / "configs/competition-cloud.template.json"
+    # The user's real deployment is now explicitly enabled. Exercise a separate
+    # disabled host instead of depending on that mutable local authorization.
+    host = tmp_path / "disabled-host"
+    (host / "configs").mkdir(parents=True)
+    (host / "configs/local-runtime.json").write_text(json.dumps({"execution": {
+        "allow_model_experiments": False, "allow_application_experiments": False}}), encoding="utf-8")
+    state = host / ".dfx-local/state"
+    state.mkdir(parents=True)
+    (state / "active.json").write_text('{"task":"competition"}', encoding="utf-8")
+    work = host / ".dfx-local/work/run"
     with pytest.raises(ValueError, match="real model experiments are disabled"):
-        run_competition(tmp_path / "missing", tmp_path / "run", "no-network", settings, REPO)
-    assert not (tmp_path / "run").exists()
+        run_competition(tmp_path / "missing", work, "no-network", settings, host)
+    assert not work.exists()
 
 
 def test_interruption_after_saved_model_response_replays_then_continues(

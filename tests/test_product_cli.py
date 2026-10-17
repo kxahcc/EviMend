@@ -343,7 +343,7 @@ def test_cloud_configuration_saves_unready_application_without_network_or_readin
     assert receipt["event"] == "configuration_created"
     assert receipt["application_prerequisites"] == "blocked"
     assert receipt["model_verification"] == "not_run"
-    assert receipt["experiments_enabled"] is False
+    assert receipt["experiment_permissions"] == "unchanged_by_configure"
     assert receipt["credential_env"] == environment_name
     saved_bytes = (workspace / "configs/cloud.json").read_bytes()
     assert private.encode() not in saved_bytes
@@ -543,3 +543,91 @@ def test_environment_deletion_is_rejected_before_invoke_and_points_to_external_s
     assert receipt["scope"] == scope
     assert receipt["command"] == f"setup.cmd --clean --scope {scope} --apply --plan-id reviewed-plan" + (
         " --discard-evidence" if discard else "")
+
+
+def test_configuration_defaults_to_existing_shared_batch_without_exporting_key(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    _reject_external_actions(monkeypatch)
+    private = _private_profile(workspace)
+    batch = {"schema_version": 1, "budget_id": "self-service", "model_id": "file-chosen-model",
+        "credential_file": str(private), "max_cny": "18", "ceiling_cny_per_million_tokens": "8",
+        "run_ids": ["old-unknown", "new-test"]}
+    (workspace / "configs/evaluation.local.json").write_text(json.dumps(batch), encoding="utf-8")
+    assert cli.main(["configure", "--save", "configs/new.local.json",
+                     "--charge-unknown-run-cap", "old-unknown", "--output-format", "json"]) == 0
+    saved = (workspace / "configs/new.local.json").read_text(encoding="utf-8")
+    configured = json.loads(saved)
+    assert configured["batch_budget_file"] == "configs/evaluation.local.json"
+    assert configured["charge_unknown_run_caps"] == ["old-unknown"]
+    assert "file-private-key-must-not-be-saved" not in saved + capsys.readouterr().out
+
+
+@pytest.mark.parametrize("registered", [False, True])
+def test_launch_rejects_missing_budget_or_unregistered_name_before_model_dispatch(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], registered: bool,
+) -> None:
+    task = workspace / "reviewed/task"
+    task.mkdir(parents=True)
+    profile: dict[str, Any] = {"model_mode": "cloud"}
+    batch = {"schema_version": 1, "budget_id": "self-service", "model_id": "deepseek-flash",
+        "credential_file": "configs/model.local.json", "max_cny": "18",
+        "ceiling_cny_per_million_tokens": "8", "run_ids": ["registered-unused"]}
+    (workspace / "configs/evaluation.local.json").write_text(json.dumps(batch), encoding="utf-8")
+    if registered:
+        profile["batch_budget_file"] = "configs/evaluation.local.json"
+    (workspace / "configs/new.local.json").write_text(json.dumps(profile), encoding="utf-8")
+    monkeypatch.setattr(cli, "_run", lambda *args, **kwargs: pytest.fail("no paid task may start"))
+    assert cli.main(["--target", "reviewed/task", "--config", "configs/new.local.json",
+                     "--name", "unregistered", "--output-format", "json"]) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["event"] == "budget_rejected"
+    if registered:
+        assert output["unused_registered_names"] == ["registered-unused"]
+
+
+def test_prepare_and_original_project_export_delegate_to_guarded_workers(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    state = workspace / ".dfx-local/state"
+    state.mkdir(parents=True)
+    plan = state / "prepare.json"
+    plan.write_text("{}", encoding="utf-8")
+    project = workspace / "data_B/original"
+    project.mkdir(parents=True)
+    worker_log = state / "worker.log"
+    calls = []
+
+    def invoke(root: Path, arguments: list[str]) -> tuple[int, dict[str, Any]]:
+        calls.append(arguments)
+        worker_log.write_text(json.dumps({"status": "exported", "path": "owned-export"}), encoding="utf-8")
+        return 0, {"status": "finished", "log_path": str(worker_log)}
+
+    monkeypatch.setattr(cli, "_invoke", invoke)
+    assert cli.main(["prepare", "--plan", ".dfx-local/state/prepare.json", "--output-format", "json"]) == 0
+    assert cli.main(["export", "sample", "--project", "data_B/original", "--output-format", "json"]) == 0
+    assert calls == [["Run", "-Task", "prepare", "-PreparationConfigPath", ".dfx-local/state/prepare.json"],
+        ["Run", "-Task", "case-export", "-CompetitionWorkId", "sample", "-ExportProjectPath", "data_B/original"]]
+    assert [json.loads(line)["event"] for line in capsys.readouterr().out.splitlines()] == ["prepared", "exported"]
+
+
+def test_run_with_export_emits_one_final_json_and_keeps_run_result_on_export_failure(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    log = workspace / "export-result.json"
+    log.write_text(json.dumps({"status": "exported", "run_id": "sample", "path": "owned-export"}), encoding="utf-8")
+    monkeypatch.setattr(cli, "_backend", lambda *args: ["fixed-manager"])
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda *args, **kwargs: _Process({"status": "finished"}))
+    monkeypatch.setattr(cli, "_active", lambda _: None)
+    monkeypatch.setattr(cli, "read_progress", lambda *args, **kwargs: _observation())
+    monkeypatch.setattr(cli.time, "sleep", lambda _: None)
+    monkeypatch.setattr(cli, "_summary", lambda *args: {"accepted": True, "status": "source_verified"})
+    monkeypatch.setattr(cli, "_invoke", lambda *args: (0, {"log_path": str(log)}))
+    assert cli._run(workspace, "task", "config", "sample", False, "json", export_result=True) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["export_path"] == "owned-export"
+    monkeypatch.setattr(cli, "_invoke", lambda *args: (2, {"log_path": str(log)}))
+    assert cli._run(workspace, "task", "config", "sample", False, "json", export_result=True) == 1
+    output = json.loads(capsys.readouterr().out)
+    assert output["accepted"] is True and output["status"] == "source_verified"
+    assert output["export_status"] == "failed"

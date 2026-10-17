@@ -120,10 +120,11 @@ def _name(value: str) -> str:
     return value
 
 
-def _input(root: Path, value: str, *, directory: bool = False) -> Path:
+def _input(root: Path, value: str, *, directory: bool = False, original_copy: bool = False) -> Path:
     parts = value.replace("\\", "/").split("/")
+    forbidden = _FORBIDDEN - {"data_b"} if original_copy else _FORBIDDEN
     if not value or Path(value).is_absolute() or any(part in ("", ".", "..") or
-            part.casefold() in _FORBIDDEN or part != part.rstrip(" .") or ":" in part for part in parts):
+            part.casefold() in forbidden or part != part.rstrip(" .") or ":" in part for part in parts):
         raise ValueError("input must be a canonical reviewed project-relative path")
     result = checked(root / value, root, exists=True)
     if _io_path(result).is_dir() != directory:
@@ -362,12 +363,15 @@ class Runtime:
             for folder in (self.root / "tmp", self.root / "artifacts"):
                 checked(folder, self.repo).mkdir(parents=True, exist_ok=True)
             task = "bootstrap" if args.action == "Init" else args.Task
-            if task not in {"bootstrap", "competition", "provider", "prepare", "test", "docs", "ruff", "pyright"}:
+            if task not in {"bootstrap", "competition", "case-export", "provider", "prepare", "test", "docs", "ruff", "pyright"}:
                 raise ValueError("unsupported native task")
             effective = self.limits(args.TimeoutSeconds)
             run_id = str(uuid.uuid4())
-            name = _name(args.CompetitionWorkId) if task == "competition" else None
-            work = checked(self.root / "work" / ("competition-" + name), self.repo) if name else None
+            name = _name(args.CompetitionWorkId) if task in {"competition", "case-export"} else None
+            work = None
+            if task == "competition":
+                assert name is not None
+                work = checked(self.root / "work" / ("competition-" + name), self.repo)
             python = Path(sys.executable) if task == "bootstrap" else self.environment_python()
             env = os.environ.copy()
             for variable in ("VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONSTARTUP"):
@@ -396,6 +400,13 @@ class Runtime:
                 argv += ["-CompetitionConfigPath", str(config), "-CompetitionTaskPath", str(source), "-CompetitionWorkId", name]
                 if args.Resume:
                     argv += ["-Resume"]
+            elif task == "case-export":
+                assert name is not None
+                checked(self.root / "work" / ("competition-" + name), self.repo, exists=True)
+                argv += ["-CompetitionWorkId", name]
+                if args.ExportProjectPath:
+                    project = _input(self.repo, args.ExportProjectPath, directory=True, original_copy=True)
+                    argv += ["-ExportProjectPath", str(project)]
             elif task == "prepare":
                 config = _input(self.repo, args.PreparationConfigPath)
                 if config.parent != self.state:
@@ -629,6 +640,12 @@ def _worker(args: argparse.Namespace, root: Path) -> int:
 
         print(json.dumps(run_preparation(root, Path(args.PreparationConfigPath)), ensure_ascii=True), flush=True)
         return 0
+    if args.Task == "case-export":
+        from .case_results import export_case_result
+
+        project = Path(args.ExportProjectPath) if args.ExportProjectPath else None
+        print(json.dumps(export_case_result(root, args.CompetitionWorkId, project=project), ensure_ascii=True), flush=True)
+        return 0
     if args.Task == "competition":
         from .cli import main
         os.environ["DFX_MANAGED_COMPETITION"] = "local-v1"
@@ -680,8 +697,8 @@ def parser() -> argparse.ArgumentParser:
     cli = argparse.ArgumentParser(prog="dfx-managed")
     cli.add_argument("--workspace", type=Path, required=True)
     cli.add_argument("action", choices=("Prepare", "Status", "Stop", "Clean", "Init", "Run", "Worker"))
-    cli.add_argument("-Task", choices=("competition", "provider", "prepare", "test", "docs", "ruff", "pyright", "bootstrap"), default="competition")
-    for name in ("CompetitionTaskPath", "CompetitionConfigPath", "CompetitionWorkId", "PreparationConfigPath", "TestPath", "ExpectedRunId", "PlanId"):
+    cli.add_argument("-Task", choices=("competition", "case-export", "provider", "prepare", "test", "docs", "ruff", "pyright", "bootstrap"), default="competition")
+    for name in ("CompetitionTaskPath", "CompetitionConfigPath", "CompetitionWorkId", "PreparationConfigPath", "ExportProjectPath", "TestPath", "ExpectedRunId", "PlanId"):
         cli.add_argument("-" + name, default="")
     cli.add_argument("-Scope", choices=("cache", "testcache", "tmp", "work", "env", "all"), default="cache")
     for name in ("Resume", "OfflineSync", "Apply", "DiscardEvidence"):

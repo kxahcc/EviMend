@@ -7,7 +7,7 @@
 
 **做一个普通电脑可运行的故障定位与自修复 Agent：给它 HarmonyOS 等应用的源码和故障日志，配置云端模型，它自动找原因、修改代码；有宿主验证器时回放相关真实源码，失败后根据反馈继续修，最后交出补丁和验证报告。** Windows x64 是当前部署范围，不要求 HarmonyOS 真机、模拟器、签名或完整应用构建环境，也不承诺其他操作系统已经验收。
 
-当前产品形态是命令行 Agent，competition 处理单个故障。面向用户的入口设计采用 Strix 式直接传参：`dfx --target 任务快照 --config 配置` 启动，`--resume NAME` 恢复，`status/logs/stop/report NAME` 追踪会话；实际安装及验收状态见 STATUS。任务快照同时含源码与故障日志，不再强制绑定完整应用。analysis 模式可以直接分析和产出未验证补丁；source_execution 模式使用预先接纳的宿主运行器检查原版和冻结候选，得到限于相应逻辑与输入的验证结论。synthetic 用于软件自检，完整 application 验证保留为可选扩展。人准备允许输入与可信业务要求，系统负责读取、修改、调用已批准检查和有界修订；没有检查能力时如实报告未验证。
+当前产品形态是命令行 Agent，competition 处理单个故障。面向用户的入口设计采用 Strix 式直接传参：`dfx --target 任务快照 --config 配置` 启动，`--resume NAME` 恢复，`status/logs/stop/report NAME`追踪运行，`cases`列出本机已准备命令，`prepare`准备审核输入，`export`导出可浏览结果；新任务加`--export-result`可自动导出；实际安装及验收状态见 STATUS。任务快照同时含源码与故障日志，不再强制绑定完整应用。analysis 模式可以直接分析和产出未验证补丁；source_execution 模式使用预先接纳的宿主运行器检查原版和冻结候选，得到限于相应逻辑与输入的验证结论。synthetic 用于软件自检，完整 application 验证保留为可选扩展。人准备允许输入与可信业务要求，系统负责读取、修改、调用已批准检查和有界修订；没有检查能力时如实报告未验证。
 
 用户最终拿到三类结果：
 
@@ -17,11 +17,12 @@
 
 默认 `dfx configure --save RUN` 生成 analysis 配置；`--validation PROFILE` 选择宿主源码检查，`--application PROFILE` 选择完整应用扩展，二者互斥。analysis 输出 `analysis_completed` 或 `patch_proposed`，不表示验证成功；`source_verified` 仅表示声明的宿主源码协议通过，`application_verified` 才表示完整应用协议通过。报告 schema 4 的 accepted 按这个验证层级解释，不能脱离 verification_level 和覆盖说明引用；历史报告保持原含义。
 
+每次测试的原运行保存在`.dfx-local/work/competition-<run_id>/`，面向人的结果目录为`runs/exports/cases/<task_id>/<run_id>/`。新ID表示一次新测试，恢复原ID表示继续原预算和账本。目录含解释、根因、patch、冻结源码、检查、时间/Token/缓存费用及原证据；首次导出可核对并附带原工程资源。完整操作与换机前置统一见[使用说明](src/dfx_agent/README.md)，本导览不另维护命令矩阵或成绩表。
 这些是目标产品能力，现有实现与验证范围见 [STATUS](docs/STATUS.md)。轻量主线复用已有 SDK 循环、云端请求、上下文、Skills 和本机执行。用户于 2026-10-17 确认 Key 已配置，并授权在有限总预算内进行真实 DeepSeek 测试；先零推理预检，再小额接入与代表源码回放，确认后才扩大范围。软件验收、已配置与已授权都不能推定真实模型兼容性或修复效果通过，实际结果只记 STATUS。
 
 ## 2. 用一个例子理解它怎样工作
 
-例如：某页面加载数据时崩溃，日志指向一次 `Uint16Array` 构造。下面是基于已审查材料的设计推演，不是已验证修复。
+例如：某页面加载数据时崩溃，日志指向一次`Uint16Array`构造。下面解释业务路径；该案例的具体实测及覆盖范围见STATUS，不将局部源码通过解释为整个页面/应用通过。
 
 1. **读故障**：找到报错位置，读取附近代码及相关调用，识别“缓冲区容量不够”。
 2. **找原因**：发现前面按 N 个字节分配容量，后面却想放 N 个 16 位元素，需要 2N 个字节；报错发生在使用处，问题来自容量与使用方式不一致。
@@ -215,7 +216,8 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_office_source_replay.py` | 017实际DataManager的正则故障、状态/字面查询和库存回归；拒绝恒定输出及忽略查询，尚非真实模型修复结果 |
 | `tests/test_pilot_preparation.py`、`tests/test_workspace_long_paths.py` | 代表任务的受管只读准备、原版复现准入及拒绝反例；Windows 深层源码的快照、SDK 编辑、检索、定位和候选回读 |
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
-| `tests/test_product_cli.py`、`tests/test_progress.py` | 用户参数、输出/分页、停止归属、中断及有界侧录的软件用例；组件与实际产品验收结果见 STATUS |
+| `tests/test_product_cli.py`、`tests/test_progress.py` | 用户命令、总预算绑定、自动导出/失败保留、输出/分页、停止归属、中断及有限侧录；实际验收见STATUS |
+| `tests/test_case_results.py` | 冻结候选/原件绑定、工程增删覆盖、拒绝漂移/覆盖/超限、无候选与未知成本保留及阶段时间/缓存费用视图 |
 | `tests/test_managed_runtime.py`、`tests/test_managed_bootstrap.py`、`tests/test_application_profile.py` | 原生 Job 身份/停止/清理、锁定安装隔离与只读应用前置检查的软件验收 |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
 | `tests/test_context_compaction.py`、`tests/test_compaction_loop.py` | 主机压缩的完整工具组、冻结来源、独立费用、格式失败、未知结果、恢复及实际 SDK 交接的合成验收 |
@@ -251,7 +253,8 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 
 | 文件 | 职责与边界 |
 |---|---|
-| `product_cli.py` | 标准 dfx console entry、配置/只读前置检查、会话操作和活动反馈；委托 Python 受管后端，不直接放行真实实验 |
+| `product_cli.py` | 标准dfx入口：准备、案例命令、配置/总预算绑定、运行/监控/停止/重测、报告与自动或手动导出；委托Python受管后端，不另建会话/调度系统 |
+| `case_results.py` | 从终态原件导出每例说明、补丁、源码/可选工程、验证、用量/阶段时间/缓存费用估算及原证据；不改原报告，不调用模型，不覆盖旧结果 |
 | `managed_runtime.py`、`windows_job.py`、`managed_bootstrap.py` | 标准库管理入口、Windows 原生 Job 与锁定安装，保留限额/精确停止/预览清理；不引入另一套会话或调度服务 |
 | `source_profile.py` | 读取 --validation 的宿主源码检查配置，只读预检运行器、相关源码、四项判据和覆盖说明；不联网或执行候选，不认证 ArkTS 与宿主语义等价 |
 | `application_profile.py` | 读取主机应用配置并报告缺失工具、工程、设备声明和独立判据；不联网、不安装、不探测实际设备 |

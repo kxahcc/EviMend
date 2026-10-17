@@ -108,7 +108,7 @@ def _prepare_analysis(root: Path, config: Path, raw: dict[str, Any]) -> dict[str
         raise ValueError("analysis preparation fields or dataset root differ")
     case = CaseSelection.model_validate(raw["case"])
     if not isinstance(raw["output"], str) or not isinstance(raw["record"], str):
-        raise ValueError("analysis preparation paths must be strings")
+        raise TypeError("analysis preparation paths must be strings")
     data = _checked(root / "data_B")
     output = _owned(root, raw["output"], ".dfx-local/tmp")
     record_path = _owned(root, raw["record"], ".dfx-local/state")

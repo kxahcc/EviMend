@@ -18,6 +18,17 @@ from dfx_agent import managed_runtime as runtime
 from dfx_agent.windows_job import BoundedJob, process_identity
 
 
+def test_original_project_copy_exception_does_not_enable_data_as_executable_input(tmp_path: Path) -> None:
+    original = tmp_path / "data_B/application"
+    original.mkdir(parents=True)
+    with pytest.raises(ValueError):
+        runtime._input(tmp_path, "data_B/application", directory=True)
+    assert runtime._input(tmp_path, "data_B/application", directory=True, original_copy=True) == original.resolve()
+    for forbidden in ("../application", "archive/application", ".git/application"):
+        with pytest.raises(ValueError):
+            runtime._input(tmp_path, forbidden, directory=True, original_copy=True)
+
+
 @pytest.fixture
 def managed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> runtime.Runtime:
     root = tmp_path / "project"

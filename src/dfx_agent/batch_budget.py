@@ -144,6 +144,7 @@ def deepseek_flash_peak_cost(work: Path, *, task_id: str, run_id: str,
                 if type(cached) is not int or cached < 0 or cached != hit:
                     valid_cache = False
         if valid_cache:
+            assert isinstance(hit, int) and isinstance(miss, int)
             hits += hit
             misses += miss
         else:

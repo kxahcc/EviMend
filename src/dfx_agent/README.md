@@ -3,7 +3,103 @@
 状态：当前使用说明。最后维护：2026-10-17。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
-当前产品在普通 Windows x64 本机分析应用源码和故障日志，调用云端模型定位、编辑并输出补丁；不要求完整 HarmonyOS 工程、平台 SDK、签名、真机或模拟器。默认 analysis 无执行配置，可选 --validation 接纳宿主真实源码回放及失败修订，--application 保留完整应用扩展。现有 Deep Agents 循环、上下文、Skills、预算、停止/恢复共用；repair/resume、旧离线聚合与 Export/Verify 保留其原模拟语义。用户已授权有限总预算内的真实 DeepSeek 测试，实际运行与结果只见 [STATUS](../../docs/STATUS.md)；不把 synthetic、源码回放或静态定位混称完整应用成绩。
+当前产品是Windows x64本机CLI Agent，配置云端模型后从源码/日志自动定位、编辑、登记候选、按已接纳验证反馈修订并产出结果。Deep Agents/LangGraph负责模型/工具循环，官方SDK负责云端通信；本机不要求HarmonyOS SDK、设备或模型权重。实际成功案例、软件验收和未覆盖项只见[STATUS](../../docs/STATUS.md)。
+
+## 先照这份流程独立使用
+
+### 1. 当前本机输入和数据分组
+
+从项目根目录打开CMD执行`dfx.cmd`；PowerShell在命令前加`.\`，例如`.\dfx.cmd cases`。这些是同一个CLI，不需要调用ps1脚本。当前已有项目环境与configs/model.local.json，不用重新安装或填写Key。
+
+```text
+dfx.cmd doctor
+dfx.cmd cases
+```
+
+`doctor`只核配置和本地前置，不调用推理；`cases`列出本机已准备目标、analysis/source模式、运行名及完整命令，existing表示原运行目录已经存在。`dfx.cmd cases --output-format json`返回同样的机器可读清单。清单来源是`.dfx-local/state/full-run-map.json`，原始数据只读，准备快照与本机配置不自动随Git克隆。
+
+| 数据 | 怎么进入系统 | 可以据此报告什么 |
+|---|---|---|
+| B1/B2较早材料 | 从应用/故障目录选择对应源码和一个明确日志，冻结相同任务格式 | 分析、根因和补丁；没有源码验证器时保持未验证 |
+| B3改进组织 | 从App与ZIP内明确日志成员取输入；构造报告/Prompt/Hypium不进入模型 | 同一Agent流程；有独立宿主协议才额外执行源码验证 |
+
+B1/B2/B3是数据批次，不是我们方法的基线/增强组。有效输入选择和排除项见[数据核查](../../docs/preparation/data-b-assessment.md)。本机已准备26项，其中016/017/022接了不同的局部源码协议，其余23项当前为analysis。source只覆盖声明的真实源码逻辑，不等于完整应用验证；不能把26份补丁自动称为26项修复成功。
+
+### 2. 一条命令启动单例并自动导出
+
+先用已经接纳源码回放的016独立重测。下面使用预登记且尚未使用的重测名；如果它已被你用过，请从原批次选择另一个未使用的retry名，保留旧运行。
+
+```text
+dfx.cmd --target .dfx-local/tmp/reviewed/task016 --config configs/full-source016.local.json --name live1017-retry03 --export-result
+```
+
+这是新的付费修复任务。命令会读取故障、查源码、生成诊断和补丁、运行原版/候选四项检查、失败时有界修订，最后将结果导出到`runs/exports/cases/<task_id>/<run_id>/`。省略`--export-result`仍会生成work里的原报告和delivery.zip，之后可以单独export。当前本机其它已准备案例直接使用`cases`打印的命令；analysis产出可以正常结束，但保持accepted=false/source_verification=not_run。
+
+016/022的既有成功原件不用付费重跑也能查看：
+
+```text
+dfx.cmd report live1017-case16
+dfx.cmd report live1017-retry02
+```
+
+本次配置共用configs/evaluation.local.json的总金额门。不要自选未登记运行名、复制另一批次绕开累计消费或修改已冻结名单；无效名字会在启动前提示可用登记名。单例Token cap是最坏预留，不是预计花费；历史完整用量按确认的缓存字段计算保守费用，未知请求保留占用，费率与公式唯一见[费用口径](../../docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界)。
+
+### 3. 运行中看什么、如何停止
+
+启动终端持续显示模型派发/回执、工具、候选和检查事件，等待期间有活动提示，不显示虚构百分比。另开项目目录的终端：
+
+```text
+dfx.cmd status live1017-retry03
+dfx.cmd logs live1017-retry03 --follow
+dfx.cmd logs live1017-retry03 --after 20 --follow --output-format stream-json
+dfx.cmd stop live1017-retry03
+```
+
+看日志时Ctrl+C只退出查看；运行终端Ctrl+C请求停止本次任务。状态/日志是操作观察，最终是否通过看report的验证层级和检查记录。失败输出给出私有manager_log位置；先检查停止、错误或预算原因，不要连续重试付费请求。未知外部结果不能自动重发。
+
+### 4. 测完拿到什么
+
+```text
+dfx.cmd report live1017-retry03 --output-format json
+dfx.cmd export live1017-retry03
+```
+
+开启自动导出且已经成功后，不必再export；重复导出会拒绝覆盖原目录。若想保留原工程资源，请启动时省略--export-result，结束后在首次手动导出时加`--project 原工程相对路径`；程序先核原工程源码与本次基线一致，再复制并覆盖候选。022首次导出的命令形式如下；本机若已存在该结果目录可直接查看，重复导出会拒绝覆盖，不调用模型：
+
+```text
+dfx.cmd export live1017-retry02 --project data_B/data_B3/benchmarkfordfx-better/App/HouseholdService1
+```
+
+每例目录内容如下，路径始终带任务及运行ID，重测不会覆盖旧结果。
+
+| 文件/目录 | 给谁看、是什么 |
+|---|---|
+| README.md、explanation.md | 先读结果范围，再看原运行定位、代码依据和尝试说明 |
+| root-cause.json、patch.diff | 结构化根因和冻结候选的实际补丁；没有候选不生成patch |
+| repaired-source/ | 候选的完整筛选源码快照；没有候选时仍是原版，不叫修复成功 |
+| repaired-project/ | 仅首次export加--project时提供，保留资源/构建配置并应用候选增删；移除缓存、评测材料及私有配置，不保证平台可构建 |
+| verification.json | 原版复现、候选检查、验证层级/范围、失败及限制 |
+| summary.json | 原cost/metrics/timing、输入/输出/缓存Token、调用数、阶段耗时与费用估算，可用于后续汇总 |
+| input-task/、evidence.zip | 可重测输入、原私有原件包；含源码/日志/模型消息，分享前审查；不包含模型Key原文件 |
+
+report也显示同样的用量与费用视图。总耗时按原会话开始至原终态观察计；阶段耗时分别为会话开始到首个诊断、首个诊断到首个候选、已保存执行区间之和，均有明确口径，未知不补0。费用按已保存usage和查阅日期的官方峰值价格估算，不是账户实扣；缓存字段缺失不虚构优惠。模型推理Token属于输出，不能重复相加。
+
+`source_verified/accepted=true`表示声明的局部源码协议通过；`patch_proposed/accepted=false`表示有未验证补丁；`unresolved`表示未解决。application_verification=not_run不等于源码未测。根因真值命中、完整业务正确性和稳定性不得只从这些状态推定。
+
+### 5. 恢复、重测与换机
+
+`dfx.cmd --resume 原名`沿原输入和剩余预算恢复；完成运行通常回读，不是重新实验。真正重测使用相同审核输入/配置和新的已登记run ID，会重新调用模型；可以用原prepared任务或导出包中的input-task。修改源码、检查器或实现后可能无法恢复旧运行，但旧report/export仍可只读查看。不要为了恢复旧任务改写其冻结身份。
+
+当前26例已有准备原件，不要重复prepare。新案例先按下文准备JSON审阅输入，在本机生成新快照与验证profile：
+
+```text
+dfx.cmd prepare --plan .dfx-local/state/NEW-preparation.json
+dfx.cmd configure --validation .dfx-local/state/NEW-validation.json --batch-budget configs/evaluation.local.json --batch-cost-mode deepseek_flash_peak --charge-unknown-run-cap live1017-022b --save configs/NEW-run.local.json
+```
+
+`--charge-unknown-run-cap`仅对应本次用户已接纳的旧未知请求，不是一般用户应照抄的自动例外；没有未知记录时省略。analysis的prepare用mode=analysis且只准备输入，configure省略--validation。配置/检查中的绝对路径属于当前部署，换机需重新setup、prepare和configure，不能复制本机私有配置冒充跨机验收。正式提交整理在用户完成测试并另给要求后进行。
+
+## 参数、部署及高级格式
 
 ### 标准用户命令与部署
 
@@ -82,7 +178,8 @@ DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文�
 
 它只对 DeepSeek 官方地址通过官方 SDK 发 GET 模型列表和余额查询，不调用推理、不产生推理 Token 费用；另检查本机普通 Node 是否有 stripTypeScriptTypes。不回显 Key，观察写入 `.dfx-local/state/provider-admission.json`。model_available、余额及 Node 能力属于当时观察，不证明工具续轮、usage 或修复已经通过；余额查询也不替代逐调用账本。接口失败按类别停止，不用生成请求试探连通性。
 
-受管 prepare 只准备已审阅的 022 或 016 任务与原版回放，按案例选择对应固定 oracle。下例使用 `.dfx-local/state/022-preparation.json`；016 使用独立配置/输出路径。顶层恰有以下七个字段，不加 Key 或模型参数：
+受管prepare在source模式准备已审阅的022、016或017任务与原版回放，按案例选择对应固定oracle；analysis模式只准备输入，不执行任何源码。下例使用 `.dfx-local/state/022-preparation.json`；016 使用独立配置/输出路径。source模式顶层恰有以下七个字段，不加Key或模型参数：
+analysis准备配置顶层恰为五个字段：`mode="analysis"`、`case=CaseSelection对象`、`data_root="data_B"`、`output=.dfx-local/tmp内新目录`、`record=.dfx-local/state内新记录`；不填node/oracle/validation_profile，也不调用模型。source的七字段保持下表规则。使用统一`dfx prepare --plan PATH`即可委托原生受管入口，底层Python命令保留兼容。
 
 | 字段 | 内容 |
 |---|---|
@@ -91,7 +188,7 @@ DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文�
 | output | 新任务目录，位于 .dfx-local/tmp 内，例如 .dfx-local/tmp/022-task |
 | validation_profile | 新 source profile，位于 .dfx-local/state 内，例如 .dfx-local/state/022-validation.json |
 | node | 已存在的普通 node.exe 绝对路径，不使用 Codex 运行时或 shell 包装器 |
-| oracle | 022 使用 resources/source-validation/household-checksum/oracle.cjs；016 使用 resources/source-validation/tourist-phone/oracle.cjs，不接受任意其他脚本 |
+| oracle | 022使用resources/source-validation/household-checksum/oracle.cjs；016使用resources/source-validation/tourist-phone/oracle.cjs；017使用resources/source-validation/office-tasks/oracle.cjs，不接受任意其他脚本 |
 | record | 新准备记录 JSON，位于 .dfx-local/state 内，与配置和 profile 分开 |
 
 ```text
@@ -104,7 +201,7 @@ prepare 校验源码/日志、生成快照、实际加载原版逻辑并要求�
 
 付费前在被 Git 忽略的 `configs/evaluation.local.json` 冻结批次配置。它是独立批次费用门，不是前文旧 offline_synthetic 评测清单，不能混用 schema。字段为 schema_version=1、budget_id、model_id、credential_file、max_cny、ceiling_cny_per_million_tokens、run_ids；credential_file 只保存 configs/model.local.json 等私有位置，文件本身不含 Key。金额字符串、费率与保留规则依 [评测口径](../../docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界) 填写，run_ids 预先列出全部允许运行的唯一 ID。
 
-在 configure 生成的 cloud 运行配置顶层增加 `"batch_budget_file": "configs/evaluation.local.json"`，再以已登记的 ID 启动，例如：
+configure默认绑定本机现有configs/evaluation.local.json，也可用--batch-budget显式选择；--batch-cost-mode选择计价方式。新cloud任务不能在已有本次总预算文件时省略绑定。以已登记的ID启动，例如：
 
 ```text
 dfx.cmd --target .dfx-local/tmp/022-task --config configs/022-run.json --name pilot022
