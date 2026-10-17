@@ -282,7 +282,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
     @tool
     def record_diagnosis(path: str | None = None, line: int | None = None, reason: str | None = None,
                          diagnosis_json: str | None = None, proposal_json: str | None = None) -> str:
-        """Record an unknown hypothesis or diagnosis_json; inspect_analysis(include_schema=True) provides its schema."""
+        """Record root cause. Prefer path/line/reason for direct defects; only structured diagnosis_json needs inspect_analysis schema."""
         try:
             if diagnosis_json is not None:
                 if any(value is not None for value in (path, line, reason)):

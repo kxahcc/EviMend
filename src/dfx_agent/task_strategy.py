@@ -30,8 +30,11 @@ Task workflow:
 3. Form a concise root-cause hypothesis citing the original snapshot's relative file path and one-based line locations.
    Distinguish the failing use site from an upstream faulty assignment, allocation, ordering, or transformation.
    State the violated runtime condition and the intended behavior that the repair must preserve, with uncertainty where needed.
-   Record the hypothesis through record_diagnosis. A simple path/line/reason submission is available;
-   call inspect_analysis(include_schema=True) before making a structured submission and follow the actual returned schema.
+   Record the hypothesis through record_diagnosis. Prefer its simple path/line/reason submission for a direct local defect.
+   Once inspected evidence establishes the cause and the behavior to preserve, record that diagnosis, make a minimal candidate
+   and run verification before further optional searches. Do not keep reading unrelated log ranges or request a full schema
+   merely to complete a checklist. Use structured diagnosis only when extra causal/obligation links affect the repair choice;
+   then call inspect_analysis(include_schema=True) and follow the actual returned schema.
    Obtain referenced evidence, diagnosis, obligation, decision, and condition-result IDs from tool receipts or inspect_analysis;
    never invent references, parameter fields, runtime values, or an independent causal confirmation.
 4. Inspect enough surrounding code and consumers to choose a behavior-preserving repair, then edit_source on the independent draft.
