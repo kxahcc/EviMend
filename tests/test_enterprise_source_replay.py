@@ -97,9 +97,7 @@ def check_exported_candidate(
         baseline_target_exit_codes=[9], baseline_fault_pattern=marker, max_check_seconds=90)
     executor = LocalApplicationExecutor(config, workspace, managed_root=managed_root)
     checked = CheckLedger(workspace, executor).run(candidate.candidate_id)
-    assert checked.status == "pass" and checked.level == "source_execution"
     receipt = executor.evidence(checked.idempotency_key)
-    assert receipt["baseline"]["fault_reproduced"] is True
     assert executor.root is not None
     destination = result_root / "source-validation" / protocol
     assert not destination.exists(), "do not overwrite a prior verification"
@@ -116,6 +114,8 @@ def check_exported_candidate(
         "oracle_sha256": sha, "model_calls": 0, "model_tokens": 0,
         "limitation": "Checks the exact exported candidate after generation; original model report remains analysis-only."}
     (destination / "result.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    assert checked.status == "pass" and checked.level == "source_execution"
+    assert receipt["baseline"]["fault_reproduced"] is True
 
 
 @pytest.mark.skipif(os.environ.get("DFX_REAL_EXPORT_ACCEPTANCE") != "1", reason="local exported candidate not requested")

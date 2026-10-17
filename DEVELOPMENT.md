@@ -1,6 +1,6 @@
 # 项目蓝图与开发导览
 
-状态：当前开发入口。最后维护：2026-10-17。
+状态：当前开发入口。最后维护：2026-10-18。
 职责：先用通俗语言说明要做什么、如何做和重点在哪，再提供文件导航。这里是设计的概览；具体技术决策以开发设计为准，实际进度以 STATUS 为准。
 
 ## 1. 我们最终要做出什么
@@ -50,7 +50,7 @@ flowchart LR
 
 **大模型负责理解与修改，程序负责执行与判断流程是否完成。** 模型可以提出“应该修好了”，但只有实际验证记录满足选定层级的协议，控制器才给出该范围内的通过结果。Agent、源码回放与评测都在本机受管运行，基础模型调用云端 API，不部署本机模型权重。完整应用构建/设备回放是可选后端，不是使用 Agent 的前置。
 
-共同验收协议在看候选结果之前按故障变体和源码版本固定。宿主源码级验证要求实际加载原版/候选相关源码，原版在回放输入下触发指定故障，候选通过同一目标、业务和回归检查；抽取/转译步骤、平台 mock 及语义限制必须披露。不能用另一份手写的“正确算法”替代被修代码，也不能只重读历史日志。完整 application 后端仍要求完整工程和平台执行事实。缺检查、仅静态分析或 synthetic 通过不得写成源码/应用修复成功，宿主通过也不自动成为完整应用成功。具体字段和拒绝条件见 [模块规格](docs/design-contracts.md#13-补丁验证和尝试)，接受与评测口径见 [评测规格](docs/preparation/metrics-and-gates.md)。
+正式方法比较的共同验收协议须在看候选结果之前按故障变体和源码版本固定；已有候选的事后补验单独标记，不能冒充事前独立评测或原运行的首次通过。宿主源码级验证要求实际加载原版/候选相关源码，原版在回放输入下触发指定故障，候选通过同一目标、业务和回归检查；抽取/转译步骤、平台mock及语义限制必须披露。不能用另一份手写的“正确算法”替代被修代码，也不能只重读历史日志。完整application后端仍要求完整工程和平台执行事实。缺检查、仅静态分析或synthetic通过不得写成源码/应用修复成功，宿主通过也不自动成为完整应用成功。具体字段和拒绝条件见[模块规格](docs/design-contracts.md#13-补丁验证和尝试)，接受与评测口径见[评测规格](docs/preparation/metrics-and-gates.md)。
 
 ## 4. 工作重点与自己的贡献在哪里
 
@@ -231,6 +231,8 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `resources/source-validation/household-checksum/oracle.cjs`、`resources/source-validation/household-checksum/README.txt` | 022 可分离校验逻辑的宿主运行器及抽取/类型剥离、覆盖和语义说明；evaluator 独立使用，不能将判据或参考答案混入求解上下文，不代表整应用已可运行 |
 | `resources/source-validation/tourist-phone/oracle.cjs`、`resources/source-validation/tourist-phone/README.txt` | 016 日志对应 module_base CommonUtil 的实际源码宿主运行器及局部方法协议；不把正常同名文件、调用端绕过或 UI 覆盖当成本协议结果 |
 | `resources/source-validation/office-tasks/oracle.cjs`、`resources/source-validation/office-tasks/README.txt` | 017实际DataManager的宿主类型剥离、Map/查询/状态与回归协议；不含持久化、UI或调用端替代 |
+| `resources/source-validation/enterprise-property/`、`resources/source-validation/resource-sort/` | 009实际JavaScript属性检查模块、001完整排序方法的本机执行判据及README.txt；检查保留行为、边界和错误补丁，披露抽取与提供的状态，不含UI/持久化 |
+| `resources/source-validation/music-slider/`、`resources/source-validation/teleprompter-font/` | 025播放进度、026字号设置的完整实际回调与正常/边界判据及README.txt；披露日志/媒体接口和普通状态替代，不执行音频输出或ArkUI渲染 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 唯一 Skill 源库与提交入口；四类标准 SKILL.md 及后续外部 Skill 的 references/scripts/assets 均放在所属包内。它们是产品指导资源，不采用设计文档的状态头；格式由锁定 SDK 解析及软件测试核验 |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
@@ -271,7 +273,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `value_sources.py` | 独立核对冻结源码字节、主机 fixture 的参数角色及模拟操作事件，登记绑定、意图与合成凭据；未接入 SDK、真实解析/采样或新来源条件计算 |
 | `model_profile.py` | 有界读取本机私有模型配置，用既有 Pydantic 校验模型/预算，密钥排除序列化；生产 SDK 发送时直接读取 Key |
 | `provider_probe.py` | 受管 provider 任务，经官方 SDK 只读查询模型与余额并核对既有普通 Node 类型剥离能力；不发推理请求、不回显 Key，不替代工具续轮或修复实测 |
-| `pilot_preparation.py` | 受管prepare从审核选择冻结允许源码/日志；analysis只准备输入，source按016/017/022固定运行器复现原版并生成独立验证配置；不创建候选，不把oracle放入求解上下文 |
+| `pilot_preparation.py` | 受管prepare从审核选择冻结允许源码/日志；analysis只准备输入，source按已登记的实际源码运行器复现原版并生成包含范围/mock的验证配置；不创建候选，不把oracle放入求解上下文 |
 | `batch_budget.py` | 只读汇总真实账本，按确认缓存用量估算历史费用并预留新任务最坏费用；未知默认阻断，仅显式接纳的完整终态可按原cap占用；不改原unknown、不建新账本 |
 | `cloud_retries.py` | 复用官方异步 SDK 的退避与标准 asyncio 超时；公共 transport 接口限制安全重试类别，保存有界尝试统计，不实现自有退避循环 |
 | `knowledge_contracts.py` | 不可变经验、求解指导、来源权限与知识快照对象；明确前提、未知问题、保留行为、反例和有限历史范围，不授予应用资格 |

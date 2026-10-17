@@ -65,10 +65,30 @@ REVIEWED_ORACLES = {
          "BalanceChangeType strings and resource arrays supplied; both categories, integer bounds, swaps and slot sortNum; "
          "no Grid routing, persistence or resource-initialization coverage"),
     ),
+    "resources/source-validation/teleprompter-font/oracle.cjs": (
+        "components/teleprompter/src/main/ets/components/ConfigSheet.ets",
+        "DFX026_TARGET_TOFIXED_RANGE",
+        ("Execute actual complete font-size changeValue callback with Node type erasure; "
+         "default interval read from checked PrompterConfigModel, normal/endpoints/repeated updates and unrelated state; "
+         "no ArkUI observation, rendering, event delivery or device coverage"),
+    ),
+    "resources/source-validation/music-slider/oracle.cjs": (
+        "components/module_musicplay/src/main/ets/components/PlayerControlArea.ets",
+        "DFX025_TARGET_REPEAT_RANGE",
+        ("Execute actual complete progress-slider onChange callback with Node type erasure; "
+         "finite marker calculations, Begin/End seek, paused/moving events and zero/one/normal duration; "
+         "no audio output, player timing, UI rendering or device coverage"),
+    ),
 }
 REVIEWED_MOCKS = {
     "resources/source-validation/resource-sort/oracle.cjs": [
         "BalanceChangeType string constants; supplied income/expense resource arrays",
+    ],
+    "resources/source-validation/teleprompter-font/oracle.cjs": [
+        "hilog.error capture; plain config/configList state instead of ArkUI observation",
+    ],
+    "resources/source-validation/music-slider/oracle.cjs": [
+        "SliderChangeMode equality sentinels; Logger.info capture; MediaService.seek recorder; plain musicModel",
     ],
 }
 
