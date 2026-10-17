@@ -1,6 +1,6 @@
 # 项目蓝图与开发导览
 
-状态：当前开发入口。最后维护：2026-10-15。
+状态：当前开发入口。最后维护：2026-10-17。
 职责：先用通俗语言说明要做什么、如何做和重点在哪，再提供文件导航。这里是设计的概览；具体技术决策以开发设计为准，实际进度以 STATUS 为准。
 
 ## 1. 我们最终要做出什么
@@ -17,7 +17,7 @@
 
 默认 `dfx configure --save RUN` 生成 analysis 配置；`--validation PROFILE` 选择宿主源码检查，`--application PROFILE` 选择完整应用扩展，二者互斥。analysis 输出 `analysis_completed` 或 `patch_proposed`，不表示验证成功；`source_verified` 仅表示声明的宿主源码协议通过，`application_verified` 才表示完整应用协议通过。报告 schema 4 的 accepted 按这个验证层级解释，不能脱离 verification_level 和覆盖说明引用；历史报告保持原含义。
 
-这些是目标产品能力，现有实现与验证范围见 [STATUS](docs/STATUS.md)。当前交付重点是消除完整应用/设备的默认绑定，将已有 SDK 循环、云端请求、上下文、Skills 和本机执行收口为轻量竞赛版。软件验收使用模拟传输和短时程序；真实模型兼容性、代表案例宿主源码回放及方法效果仍须后续接纳，不能由本次路线修正推定通过。
+这些是目标产品能力，现有实现与验证范围见 [STATUS](docs/STATUS.md)。轻量主线复用已有 SDK 循环、云端请求、上下文、Skills 和本机执行。用户于 2026-10-17 确认 Key 已配置，并授权在有限总预算内进行真实 DeepSeek 测试；先零推理预检，再小额接入与代表源码回放，确认后才扩大范围。软件验收、已配置与已授权都不能推定真实模型兼容性或修复效果通过，实际结果只记 STATUS。
 
 ## 2. 用一个例子理解它怎样工作
 
@@ -82,7 +82,7 @@ flowchart LR
 
 ## 5. 开发框架和资源
 
-**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。云端通信复用锁定的官方 OpenAI Python SDK；同类 Chat Completions 服务默认在 Git 忽略的 `configs/model.local.json` 统一填写地址、模型、Key、单任务预算及网络重试/超时，环境变量保留为兼容选项，不自研供应商通信库。连接未建立的故障及明确 429 由 SDK 有限退避，结果不明的请求不重发；重试等待受本次请求与任务剩余时间共同限制，不重跑 Agent 工具。初始化、预检和参数说明见 [使用说明](src/dfx_agent/README.md)。真实服务及型号须小额核验，宿主验证器须接纳实际运行时、源码加载方式、输入和独立预期；不预设所有 `.ets` 都能在普通 JavaScript 运行时等价执行。具体选择与实现边界见 [开发设计](docs/development/system-design-draft.md)。
+**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。云端通信复用锁定的官方 OpenAI Python SDK；同类 Chat Completions 服务默认在 Git 忽略的 `configs/model.local.json` 统一填写地址、模型、Key、单任务预算及网络重试/超时，环境变量保留为兼容选项，不自研供应商通信库。当前接纳对象为 deepseek-flash、thinking enabled，工具续轮保留提供方要求的完整推理历史，不擅自关闭用户模式。连接未建立的故障及明确 429 由 SDK 有限退避，结果不明的请求不重发；重试等待受本次请求与任务剩余时间共同限制，不重跑 Agent 工具。私有批次清单 `configs/evaluation.local.json` 不含 Key，批次预算读取已有真实账本并在新 run 前预留其最坏费用，未知 usage 停止后续付费；金额和公式唯一见 [评测口径](docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界)。初始化、预检和参数说明见 [使用说明](src/dfx_agent/README.md)。真实服务及型号须小额核验，宿主验证器须接纳实际运行时、源码加载方式、输入和独立预期；不预设所有 `.ets` 都能在普通 JavaScript 运行时等价执行。具体选择与实现边界见 [开发设计](docs/development/system-design-draft.md)。
 
 | 部分 | 用什么 | 为什么 |
 |---|---|---|
@@ -106,7 +106,7 @@ CLI 只承担传参、显示活动、停止/恢复与读取结果。后续需要
 
 本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；离线证据可通过受管 Export 保留到 runs/exports。日常只启动一个受管任务。宿主验证运行时及临时产物也纳入同一管理范围；新增运行时先检查容量、来源和停止/清理，不改全局环境。可选完整应用扩展再单独接纳 SDK/设备缓存，当前没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
 
-面向用户的 `dfx` 前端负责启动、配置、进度和会话操作，`env` 管理安装、占用和按计划清理。交付范围是 Windows x64 下的完整项目目录、项目专属环境和标准 console entry。一次 `setup.cmd` 使用普通 Python 3.11+ 引导并创建锁定环境；日常用 `dfx.cmd` 或环境内的 `dfx`，生产运行不依赖 PowerShell、Codex 安装或全局 PATH 修改。Python 管理入口直接调用 Windows Job，保留停止、归属核对和资源限额；历史研究/导出 PS 入口只作开发兼容，不是产品运行前置。项目资源集中在 .dfx-local；删除 env/all 时先退出 Agent，再用外部普通 Python 的 `setup.cmd --clean` 应用预览计划，避免删除正在使用的解释器。独立 wheel 和跨平台不在本轮范围。真实实验开关仍为 false；实际验收与命令见 [Agent 说明](src/dfx_agent/README.md) 和 STATUS，限制边界见 [设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+面向用户的 `dfx` 前端负责启动、配置、进度和会话操作，`env` 管理安装、占用和按计划清理。交付范围是 Windows x64 下的完整项目目录、项目专属环境和标准 console entry。一次 `setup.cmd` 使用普通 Python 3.11+ 引导并创建锁定环境；日常用 `dfx.cmd` 或环境内的 `dfx`，生产运行不依赖 PowerShell、Codex 安装或全局 PATH 修改。Python 管理入口直接调用 Windows Job，保留停止、归属核对和资源限额；历史研究/导出 PS 入口只作开发兼容，不是产品运行前置。项目资源集中在 .dfx-local；删除 env/all 时先退出 Agent，再用外部普通 Python 的 `setup.cmd --clean` 应用预览计划，避免删除正在使用的解释器。独立 wheel 和跨平台不在本轮范围。本次授权仅开放受管模型/源码测试，application 和平台 SDK 仍禁用，资源数值不变；实际配置、验收与命令见 [Agent 说明](src/dfx_agent/README.md) 和 STATUS，限制边界见 [设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
 ### 竞赛版的交付标准从哪里来
 
@@ -118,7 +118,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 
 ## 6. 怎样一步步把它做出来
 
-竞赛版的交付路线先收口轻量入口：解除完整应用/设备必填，保留已有有限工作集、SDK 发送/反馈/恢复和根因输出，接上选定真实源码的宿主验证。随后接纳云端模型和代表案例宿主协议，先跑强基础版，再成对筛选增强、冻结确认并整理竞赛材料。到正式截止及提前内部完成的日期、依赖和退出扩展规则统一见 [实施计划](docs/project-work-plan.md)，不在本导览复制日程或评测数量；实际进度只见 [STATUS](docs/STATUS.md)。
+竞赛版接下来的交付路线是：在累计费用门下做零推理预检与小额真实接入，先接 022 的可分离校验逻辑，再接 021 和必要数据覆盖；每例有可信宿主检查才计源码级结果，没有 adapter 的案例仍保留 analysis/未验证。先保证真实基础闭环与完整逐例记录，预算允许再成对筛选增强，最后冻结确认并整理竞赛材料。到正式截止及提前内部完成的日期、依赖和退出扩展规则统一见 [实施计划](docs/project-work-plan.md)，费用和比较规模见 [评测口径](docs/preparation/metrics-and-gates.md)，不在本导览复制日程或额度表；实际进度只见 [STATUS](docs/STATUS.md)。
 
 竞赛版保留修复义务、工作上下文、有条件经验使用和任务内反馈修订。跨任务模型提炼与自动晋升、完整生命周期科研成本和自动运行采值作为扩展保留，不再阻塞该节点。交付软件后先接通并验证真实基础闭环，再按相同模型、材料、工具和预算比较增强；依据实测决定比赛配置与论文主张。
 
@@ -161,7 +161,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `src/dfx_agent/` | Python 证据与修复 Agent、候选工作区、SDK 闭环、云端请求和本机检查通道、竞赛交付及受控策略；实际验收见 STATUS，模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 competition / repair / resume / aggregate / export / verify-export 入口 |
 | `scripts/bootstrap.py`、`setup.cmd`、`dfx.cmd` | 无 PowerShell 的一次安装/外部环境清理、仓库快捷启动；初始安装需要普通 Python 3.11+，不借用 Codex 路径 |
-| `scripts/local.ps1` | 历史研究/导出及 PS 开发兼容入口；生产 competition、安装和基础检查已由 Python 管理入口承担，真实实验开关仍关闭 |
+| `scripts/local.ps1` | 历史研究/导出及 PS 开发兼容入口；生产 competition、安装和基础检查由 Python 管理入口承担，不承担本次真实接入主线 |
 | `scripts/local_job.cs`、`scripts/local_synthetic.ps1` | Windows Job/输出管道封装与固定合成工作负载；不执行模型或应用任务 |
 | `scripts/local_bootstrap.ps1`、`scripts/local_test.ps1`、`scripts/local_quality.ps1` | Job 内的固定依赖安装、pytest 和文档/Ruff/Pyright 检查，不接受任意 shell 命令 |
 | `scripts/local_agent.ps1` | Job 内固定响应或模拟模型协议的离线 repair / resume 工作进程，输入由管理入口限定 |
@@ -209,6 +209,9 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_model_profile.py` | 私有配置字段/预算校验、无 Key 的序列化、文件容量和错误回显反例；CLI、SDK 与交付包接线分别由产品、云端和竞赛用例验收 |
 | `tests/test_cloud_retries.py`、`tests/test_retrying_competition.py` | 官方异步 SDK 的安全网络重试、总超时、次数与隐私反例，以及现有完整合成修复/交付/恢复在新通道的验收 |
 | `tests/test_light_cli.py`、`tests/test_source_replay_example.py`、`tests/test_light_competition.py` | analysis 默认配置、--validation 只读预检与参数互斥；纯 JavaScript 示例实际装载原版/候选、四项检查及错误修复拒绝，以及模拟模型＋宿主源码检查/恢复整链的软件验收，实际结果只见 STATUS，不是 data_B 成绩 |
+| `tests/test_provider_probe.py`、`tests/test_batch_budget.py` | 官方 SDK 只读模型/余额查询的无密钥输出与失败边界；真实账本汇总、未知费用停止及新 run 最坏额度预留的软件反例，实际结果见 STATUS |
+| `tests/test_household_source_replay.py` | 022 校验逻辑的源码加载/类型剥离、原故障及正常/边界判据接线；固定反例或合成候选通过不等于真实模型修复成绩 |
+| `tests/test_pilot_preparation.py`、`tests/test_workspace_long_paths.py` | 代表任务的受管只读准备、原版复现准入及拒绝反例；Windows 深层源码的快照、SDK 编辑、检索、定位和候选回读 |
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
 | `tests/test_product_cli.py`、`tests/test_progress.py` | 用户参数、输出/分页、停止归属、中断及有界侧录的软件用例；组件与实际产品验收结果见 STATUS |
 | `tests/test_managed_runtime.py`、`tests/test_managed_bootstrap.py`、`tests/test_application_profile.py` | 原生 Job 身份/停止/清理、锁定安装隔离与只读应用前置检查的软件验收 |
@@ -221,13 +224,15 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `resources/preparation/sources.json` | 研究来源登记；不是当前实施配置 |
 | `resources/preparation/case-oracles.json` | 两个候选案例的有限接口输入与独立预期；仅供 evaluator，应用准入待核定，不进入求解上下文 |
 | `resources/source-validation/example/` | 普通 Node 的局部真实 JavaScript 源码回放示例、独立 oracle 与说明；无平台 mock，不是 data_B 或 ArkTS 已适配证明 |
+| `resources/source-validation/household-checksum/oracle.cjs`、`resources/source-validation/household-checksum/README.txt` | 022 可分离校验逻辑的宿主运行器及抽取/类型剥离、覆盖和语义说明；evaluator 独立使用，不能将判据或参考答案混入求解上下文，不代表整应用已可运行 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 唯一 Skill 源库与提交入口；四类标准 SKILL.md 及后续外部 Skill 的 references/scripts/assets 均放在所属包内。它们是产品指导资源，不采用设计文档的状态头；格式由锁定 SDK 解析及软件测试核验 |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
-| `configs/local-runtime.json` | 本机资源/清理策略；合成 Run、Init、测试、质量、离线 Agent、competition、聚合和 Export 的受管限制与共同磁盘预算，真实实验开关保持 false，字段语义见设计与契约 |
-| `configs/competition-demo.json`、`configs/competition-cloud.template.json` | mock_demo 软件演示配置与云端轻量入口模板；模板不是当前获准的真实实验入口 |
+| `configs/local-runtime.json` | 本机资源/清理策略；各受管入口共用限额与磁盘预算。按本次授权只开放 model 实验，application/平台 SDK 仍禁用，不放宽资源数值，字段语义见设计与契约 |
+| `configs/competition-demo.json`、`configs/competition-cloud.template.json` | mock_demo 软件演示配置与云端轻量入口模板；真实 run 另须核本机私有模型、显式任务及批次费用预留，模板不构成评分成绩 |
 | `configs/harmonyos-app.template.json` | 可选完整应用配置：工程、工具路径、设备/签名、项目依赖准备和独立检查；不属于默认轻量安装前置 |
 | `configs/model.example.json`、`configs/model.local.json` | 无 Key 的模型模板与被 Git 忽略的本机私有配置；统一模型、Key、模式及单任务预算，使用方法见 src/dfx_agent/README.md |
+| `configs/evaluation.local.json` | 被 Git 忽略的本次私有批次清单：不含 Key，登记 run 与累计金额参数；不进入任务/源码或求解上下文，金额语义见评测口径 |
 | `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
 | `.dfx-local/` | 本机环境、缓存、任务/工作副本、导出暂存与运行状态根；Git 忽略，所有当前运行入口受管 |
 | `runs/` | 历史原型产物、管理工具接入前的临时材料及本机私有 exports；Git 忽略，普通清理保留导出包 |
@@ -257,6 +262,9 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `conditions.py` | 对主机固定合成输入计算索引、字节/元素和使用时就绪条件，保存并重新核验版本/范围绑定结果，供 Agent 回读引用；不证明源码产生这些值 |
 | `value_sources.py` | 独立核对冻结源码字节、主机 fixture 的参数角色及模拟操作事件，登记绑定、意图与合成凭据；未接入 SDK、真实解析/采样或新来源条件计算 |
 | `model_profile.py` | 有界读取本机私有模型配置，用既有 Pydantic 校验模型/预算，密钥排除序列化；生产 SDK 发送时直接读取 Key |
+| `provider_probe.py` | 受管 provider 任务，经官方 SDK 只读查询模型与余额并核对既有普通 Node 类型剥离能力；不发推理请求、不回显 Key，不替代工具续轮或修复实测 |
+| `pilot_preparation.py` | 受管 prepare 任务，从审核选择准备完整允许源码/日志快照，执行原版检查并生成独立宿主验证配置；不创建修复候选、不把 oracle 放入求解上下文 |
+| `batch_budget.py` | 只读汇总私有批次各 run 的真实请求账本，以冻结费率核费用上界并在新 run 前预留单任务最坏额度；未知/缺 usage 阻断后续付费，不创建另一套模型账本 |
 | `cloud_retries.py` | 复用官方异步 SDK 的退避与标准 asyncio 超时；公共 transport 接口限制安全重试类别，保存有界尝试统计，不实现自有退避循环 |
 | `knowledge_contracts.py` | 不可变经验、求解指导、来源权限与知识快照对象；明确前提、未知问题、保留行为、反例和有限历史范围，不授予应用资格 |
 | `knowledge.py` | 捕获主机批准的原字节、按来源交集保存经验和冻结快照、受容量限制完整回读；为独立检索复用同操作闭包，不接 SDK 或自动学习 |
@@ -283,7 +291,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `model_provider.py` | 官方 OpenAI SDK 的薄接入、模型配置预设及领域消息/预算边界；单次有界调用，旧 profile 只读回放；不自写 HTTP 请求协议或声明所有服务均已实测 |
 | `local_execution.py` | 宿主源码与可选完整应用共用的受管执行器；绑定原版/候选、source_mapping、固定检查、判据与覆盖说明，保存阶段回执，未知执行不重做；两类结果分层报告 |
 | `domain_skills.py`、`skill_packages.py` | 动态发现根目录标准 Skill 包，复用 SDK 元数据解析并桥接已有批准知识和冻结选择；保留原文及配套文本，不解析领域标题为另一套作者 schema，不学习或晋升 |
-| `competition.py` | 统一任务、配置、模型、本机检查和领域资源；保留失败修订及恢复原件，生成 competition-report.json、result.md 和私有 delivery.zip；mock_demo 只用模拟模型和合成判据 |
+| `competition.py` | 统一任务、配置、模型、本机检查和领域资源；可通过 batch_budget_file 接纳私有批次总预算，保留失败修订及恢复原件，生成 competition-report.json、result.md 和私有 delivery.zip；mock_demo 只用模拟模型和合成判据 |
 | `offline_script.py` | 校验固定响应及模拟协议 JSON 脚本、策略与限额，建立隔离响应流；期望答案只供合成执行器 |
 | `reporting.py` | 从版本、诊断、模型/工具账本和检查重建最终摘要，核验补丁及可验证报告字段；不执行模型或应用 |
 | `metrics.py` | 按显式 task/variant/repeat 清单只读核验停止记录，汇总初始定位、全部候选及完整成本；应用指标未知 |

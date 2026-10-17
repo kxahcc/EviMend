@@ -19,7 +19,8 @@ from deepagents.backends import FilesystemBackend
 from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import CandidatePatch, require_hash, require_path
-from .task import digest, snapshot_digest, verify_task
+from .evidence_io import local_evidence_path
+from .task import _resolve_logical, digest, snapshot_digest, verify_task
 
 _WINDOWS = sys.platform == "win32"
 _RENAME_DELAYS = (0.025, 0.05, 0.075, 0.1)
@@ -36,7 +37,7 @@ def _rename_owned(source: Path, destination: Path) -> None:
         raise ValueError("workspace rename must stay inside the same owned directory")
     for attempt in range(len(_RENAME_DELAYS) + 1):
         try:
-            source.rename(destination)
+            local_evidence_path(source).rename(local_evidence_path(destination))
             return
         except OSError as error:
             if not _WINDOWS or getattr(error, "winerror", None) not in {5, 32} or attempt == len(_RENAME_DELAYS):
@@ -57,53 +58,57 @@ class TextEdit(BaseModel):
 
 def _files(root: Path) -> dict[str, Path]:
     """Enumerate without following links, including Windows junctions."""
-    root_info = root.lstat()
+    root_info = local_evidence_path(root).lstat()
     if stat.S_ISLNK(root_info.st_mode) or getattr(root_info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
         raise ValueError("source or workspace root is a link")
     found: dict[str, Path] = {}
     pending = [root]
     while pending:
         folder = pending.pop()
-        for entry in os.scandir(folder):
-            info = entry.stat(follow_symlinks=False)
-            if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
-                raise ValueError("source or workspace contains a link")
-            path = Path(entry.path)
-            if entry.is_dir(follow_symlinks=False):
-                pending.append(path)
-            elif entry.is_file(follow_symlinks=False):
-                relative = path.relative_to(root).as_posix()
-                require_path(relative)
-                found[relative] = path
-            else:
-                raise ValueError("unsupported source entry")
+        with os.scandir(local_evidence_path(folder)) as entries:
+            for entry in entries:
+                info = entry.stat(follow_symlinks=False)
+                if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+                    raise ValueError("source or workspace contains a link")
+                # DirEntry.path contains an extended prefix on Windows. Keep
+                # logical paths for containment, manifests and public identity.
+                path = folder / entry.name
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+                elif entry.is_file(follow_symlinks=False):
+                    relative = path.relative_to(root).as_posix()
+                    require_path(relative)
+                    found[relative] = path
+                else:
+                    raise ValueError("unsupported source entry")
     return found
 
 
 def _manifest(root: Path) -> list[dict[str, str]]:
     return [
-        {"path": path, "sha256": digest(file.read_bytes())}
+        {"path": path, "sha256": digest(local_evidence_path(file).read_bytes())}
         for path, file in sorted(_files(root).items())
     ]
 
 
 def _copy_tree(source: Path, target: Path) -> None:
     files = _files(source)
-    target.mkdir(parents=True, exist_ok=False)
+    local_evidence_path(target).mkdir(parents=True, exist_ok=False)
     for relative, file in files.items():
         destination = target / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(file, destination)
-        if os.stat(file).st_ino == os.stat(destination).st_ino and os.stat(file).st_dev == os.stat(destination).st_dev:
+        local_evidence_path(destination.parent).mkdir(parents=True, exist_ok=True)
+        source_io, destination_io = local_evidence_path(file), local_evidence_path(destination)
+        shutil.copyfile(source_io, destination_io)
+        if os.stat(source_io).st_ino == os.stat(destination_io).st_ino and os.stat(source_io).st_dev == os.stat(destination_io).st_dev:
             raise ValueError("source and copy share a writable inode")
 
 
 def _remove_owned_tree(path: Path, owner: Path) -> None:
     if path.parent != owner or not path.name.startswith(("draft", "candidate-temp-")):
         raise ValueError("refusing to remove a non-owned workspace path")
-    if path.exists():
+    if local_evidence_path(path).exists():
         _files(path)
-        shutil.rmtree(path)
+        shutil.rmtree(local_evidence_path(path))
 
 
 def _file_diff(path: str, old: bytes, new: bytes, old_exists: bool, new_exists: bool) -> str:
@@ -127,8 +132,8 @@ def _diff(base: Path, changed: Path) -> tuple[str, list[str]]:
     output: list[str] = []
     changed_paths: list[str] = []
     for path in sorted(set(old_files) | set(new_files)):
-        old = old_files[path].read_bytes() if path in old_files else b""
-        new = new_files[path].read_bytes() if path in new_files else b""
+        old = local_evidence_path(old_files[path]).read_bytes() if path in old_files else b""
+        new = local_evidence_path(new_files[path]).read_bytes() if path in new_files else b""
         if old == new and (path in old_files) == (path in new_files):
             continue
         changed_paths.append(path)
@@ -140,13 +145,13 @@ class CandidateWorkspace:
     """One run's baseline, mutable draft and immutable registered candidates."""
 
     def __init__(self, task_directory: Path, work_directory: Path, run_id: str):
-        task_directory = task_directory.resolve(strict=True)
-        work_directory = work_directory.parent.resolve() / work_directory.name
-        if work_directory.exists() or work_directory.is_relative_to(task_directory) or task_directory.is_relative_to(work_directory):
+        task_directory = _resolve_logical(task_directory, strict=True)
+        work_directory = _resolve_logical(work_directory.parent) / work_directory.name
+        if local_evidence_path(work_directory).exists() or work_directory.is_relative_to(task_directory) or task_directory.is_relative_to(work_directory):
             raise ValueError("work directory must be new and separate from the task snapshot")
         task = verify_task(task_directory)
         source = task_directory / task["source_root"]
-        if _manifest(source) != json.loads((task_directory / task["source_manifest"]).read_text(encoding="utf-8")):
+        if _manifest(source) != json.loads(local_evidence_path(task_directory / task["source_manifest"]).read_text(encoding="utf-8")):
             raise ValueError("source manifest does not match source tree")
         _files(source)
         self.root = work_directory
@@ -156,23 +161,23 @@ class CandidateWorkspace:
         self.task_id = task["task_id"]
         self.run_id = run_id
         self.source_snapshot_sha256 = task["source_snapshot_sha256"]
-        self.root.mkdir(parents=True, exist_ok=False)
+        local_evidence_path(self.root).mkdir(parents=True, exist_ok=False)
         try:
             _copy_tree(source, self.base)
-            self.candidates.mkdir()
-            (self.root / "workspace.json").write_text(json.dumps({
+            local_evidence_path(self.candidates).mkdir()
+            local_evidence_path(self.root / "workspace.json").write_text(json.dumps({
                 "schema_version": 1, "task_id": self.task_id, "run_id": run_id,
                 "source_snapshot_sha256": self.source_snapshot_sha256,
             }, sort_keys=True), encoding="utf-8")
         except Exception:
             _files(self.root)
-            shutil.rmtree(self.root)
+            shutil.rmtree(local_evidence_path(self.root))
             raise
 
     @classmethod
     def reopen(cls, task_directory: Path, work_directory: Path, run_id: str) -> CandidateWorkspace:
         """Reopen an owned run only after rechecking its task and frozen baseline."""
-        task_directory = task_directory.resolve(strict=True)
+        task_directory = _resolve_logical(task_directory, strict=True)
         task = verify_task(task_directory)
         return cls._reopen_verified_task(task_directory, work_directory, run_id, task)
 
@@ -186,12 +191,12 @@ class CandidateWorkspace:
         cache across tools, model calls or recovery. Public reopen always
         performs its own full task verification before entering here.
         """
-        task_directory = task_directory.resolve(strict=True)
+        task_directory = _resolve_logical(task_directory, strict=True)
         task = task_record
-        root = work_directory.resolve(strict=True)
+        root = _resolve_logical(work_directory, strict=True)
         if root.is_relative_to(task_directory) or task_directory.is_relative_to(root):
             raise ValueError("work directory overlaps the task snapshot")
-        meta = json.loads((root / "workspace.json").read_text(encoding="utf-8"))
+        meta = json.loads(local_evidence_path(root / "workspace.json").read_text(encoding="utf-8"))
         expected = {
             "schema_version": 1, "task_id": task["task_id"], "run_id": run_id,
             "source_snapshot_sha256": task["source_snapshot_sha256"],
@@ -205,14 +210,14 @@ class CandidateWorkspace:
         instance.source_snapshot_sha256 = task["source_snapshot_sha256"]
         if snapshot_digest(_manifest(instance.base)) != instance.source_snapshot_sha256:
             raise ValueError("workspace baseline changed")
-        if not instance.candidates.is_dir() or instance.candidates.is_symlink():
+        if not local_evidence_path(instance.candidates).is_dir() or local_evidence_path(instance.candidates).is_symlink():
             raise ValueError("workspace candidates directory is missing or linked")
-        if instance.draft.exists():
+        if local_evidence_path(instance.draft).exists():
             _files(instance.draft)
         return instance
 
     def start_draft(self) -> Path:
-        if self.draft.exists():
+        if local_evidence_path(self.draft).exists():
             raise ValueError("draft already exists; register or discard it first")
         if snapshot_digest(_manifest(self.base)) != self.source_snapshot_sha256:
             raise ValueError("baseline changed")
@@ -228,11 +233,11 @@ class CandidateWorkspace:
 
     def apply_text_edits(self, edits: list[TextEdit]) -> None:
         """Apply exact edits to a temporary copy; a failed edit leaves the draft intact."""
-        if not self.draft.is_dir() or not edits:
+        if not local_evidence_path(self.draft).is_dir() or not edits:
             raise ValueError("an active draft and at least one edit are required")
         temp = self.root / ("candidate-temp-" + uuid4().hex)
         backup = self.root / "draft-backup"
-        if backup.exists():
+        if local_evidence_path(backup).exists():
             raise ValueError("unfinished draft swap requires recovery")
         try:
             _copy_tree(self.draft, temp)
@@ -240,10 +245,15 @@ class CandidateWorkspace:
             _remove_owned_tree(temp, self.root)
             raise
         try:
-            backend = FilesystemBackend(root_dir=temp.resolve(), virtual_mode=True)
+            backend_root = _resolve_logical(temp, strict=True)
+            if os.name == "nt" and any(len(str(temp / edit.path)) >= 260 for edit in edits):
+                # The locked SDK keeps this root through resolve()/os.open(),
+                # so its real edit implementation supports extended paths.
+                backend_root = local_evidence_path(backend_root)
+            backend = FilesystemBackend(root_dir=backend_root, virtual_mode=True)
             for edit in edits:
                 path = temp / edit.checked_path()
-                if not path.is_file() or path.is_symlink():
+                if not local_evidence_path(path).is_file() or local_evidence_path(path).is_symlink():
                     raise ValueError("edit target is missing or linked")
                 result = backend.edit(f"/{edit.path}", edit.old, edit.new, replace_all=False)
                 if result.error is not None:
@@ -257,7 +267,7 @@ class CandidateWorkspace:
                 _rename_owned(backup, self.draft)
                 raise
             _files(backup)
-            shutil.rmtree(backup)
+            shutil.rmtree(local_evidence_path(backup))
         finally:
             _remove_owned_tree(temp, self.root)
 
@@ -266,7 +276,7 @@ class CandidateWorkspace:
                            preserves: list[str] | None = None, *, decision_id: str | None = None,
                            direction_id: str | None = None) -> CandidatePatch:
         """Freeze a complete diff and copy before any candidate-specific check."""
-        if not self.draft.is_dir() or ordinal < 1:
+        if not local_evidence_path(self.draft).is_dir() or ordinal < 1:
             raise ValueError("draft and positive ordinal required")
         if snapshot_digest(_manifest(self.base)) != self.source_snapshot_sha256:
             raise ValueError("baseline changed")
@@ -278,7 +288,7 @@ class CandidateWorkspace:
         diff_sha256 = digest(diff.encode("utf-8"))
         candidate_id = hashlib.sha256((self.source_snapshot_sha256 + candidate_snapshot_sha256 + diff_sha256).encode()).hexdigest()
         destination = self.candidates / candidate_id
-        if destination.exists():
+        if local_evidence_path(destination).exists():
             raise ValueError("candidate already registered")
         record = CandidatePatch(
             task_id=self.task_id, run_id=self.run_id, record_id=f"candidate-{ordinal}",
@@ -290,19 +300,19 @@ class CandidateWorkspace:
             restores=restores or [], preserves=preserves or [],
         )
         temp = self.candidates / ("candidate-temp-" + uuid4().hex)
-        temp.mkdir()
+        local_evidence_path(temp).mkdir()
         try:
             _copy_tree(self.draft, temp / "source")
             if _manifest(temp / "source") != candidate_manifest:
                 raise ValueError("draft changed while freezing candidate")
-            (temp / "manifest.json").write_text(json.dumps(candidate_manifest, sort_keys=True), encoding="utf-8")
-            (temp / "patch.diff").write_bytes(diff.encode("utf-8"))
-            (temp / "candidate.json").write_text(record.model_dump_json(), encoding="utf-8")
+            local_evidence_path(temp / "manifest.json").write_text(json.dumps(candidate_manifest, sort_keys=True), encoding="utf-8")
+            local_evidence_path(temp / "patch.diff").write_bytes(diff.encode("utf-8"))
+            local_evidence_path(temp / "candidate.json").write_text(record.model_dump_json(), encoding="utf-8")
             _rename_owned(temp, destination)
         except Exception:
-            if temp.exists():
+            if local_evidence_path(temp).exists():
                 _files(temp)
-                shutil.rmtree(temp)
+                shutil.rmtree(local_evidence_path(temp))
             raise
         self.discard_draft()
         return record
@@ -311,19 +321,19 @@ class CandidateWorkspace:
         """Return only a frozen snapshot whose record, diff and content still agree."""
         require_hash(candidate_id)
         folder = self.candidates / candidate_id
-        if not folder.is_dir():
+        if not local_evidence_path(folder).is_dir():
             raise ValueError("candidate is not registered")
-        record = CandidatePatch.model_validate_json((folder / "candidate.json").read_text(encoding="utf-8"))
+        record = CandidatePatch.model_validate_json(local_evidence_path(folder / "candidate.json").read_text(encoding="utf-8"))
         source = folder / "source"
-        manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+        manifest = json.loads(local_evidence_path(folder / "manifest.json").read_text(encoding="utf-8"))
         actual_diff, actual_paths = _diff(self.base, source)
         expected_id = hashlib.sha256((self.source_snapshot_sha256 + record.candidate_snapshot_sha256 + record.diff_sha256).encode()).hexdigest()
         if (record.candidate_id != candidate_id or expected_id != candidate_id or
                 record.task_id != self.task_id or record.run_id != self.run_id or
                 record.source_snapshot_sha256 != self.source_snapshot_sha256 or
                 _manifest(source) != manifest or snapshot_digest(manifest) != record.candidate_snapshot_sha256 or
-                digest((folder / "patch.diff").read_bytes()) != record.diff_sha256 or
-                actual_diff.encode("utf-8") != (folder / "patch.diff").read_bytes() or
+                digest(local_evidence_path(folder / "patch.diff").read_bytes()) != record.diff_sha256 or
+                actual_diff.encode("utf-8") != local_evidence_path(folder / "patch.diff").read_bytes() or
                 actual_paths != record.changed_paths):
             raise ValueError("registered candidate identity or contents changed")
         return source

@@ -362,7 +362,7 @@ class Runtime:
             for folder in (self.root / "tmp", self.root / "artifacts"):
                 checked(folder, self.repo).mkdir(parents=True, exist_ok=True)
             task = "bootstrap" if args.action == "Init" else args.Task
-            if task not in {"bootstrap", "competition", "test", "docs", "ruff", "pyright"}:
+            if task not in {"bootstrap", "competition", "provider", "prepare", "test", "docs", "ruff", "pyright"}:
                 raise ValueError("unsupported native task")
             effective = self.limits(args.TimeoutSeconds)
             run_id = str(uuid.uuid4())
@@ -396,6 +396,11 @@ class Runtime:
                 argv += ["-CompetitionConfigPath", str(config), "-CompetitionTaskPath", str(source), "-CompetitionWorkId", name]
                 if args.Resume:
                     argv += ["-Resume"]
+            elif task == "prepare":
+                config = _input(self.repo, args.PreparationConfigPath)
+                if config.parent != self.state:
+                    raise ValueError("preparation config must be inside the managed state directory")
+                argv += ["-PreparationConfigPath", str(config)]
             elif task == "test":
                 test = _input(self.repo, args.TestPath)
                 if not test.is_relative_to(self.repo / "tests") or not re.fullmatch(r"test_[A-Za-z0-9_]+\.py", test.name):
@@ -614,6 +619,16 @@ def _worker(args: argparse.Namespace, root: Path) -> int:
         from .managed_bootstrap import bootstrap
         bootstrap(root, offline=args.OfflineSync)
         return 0
+    if args.Task == "provider":
+        from .provider_probe import run_probe
+
+        print(json.dumps(run_probe(root), ensure_ascii=True), flush=True)
+        return 0
+    if args.Task == "prepare":
+        from .pilot_preparation import run_preparation
+
+        print(json.dumps(run_preparation(root, Path(args.PreparationConfigPath)), ensure_ascii=True), flush=True)
+        return 0
     if args.Task == "competition":
         from .cli import main
         os.environ["DFX_MANAGED_COMPETITION"] = "local-v1"
@@ -665,8 +680,8 @@ def parser() -> argparse.ArgumentParser:
     cli = argparse.ArgumentParser(prog="dfx-managed")
     cli.add_argument("--workspace", type=Path, required=True)
     cli.add_argument("action", choices=("Prepare", "Status", "Stop", "Clean", "Init", "Run", "Worker"))
-    cli.add_argument("-Task", choices=("competition", "test", "docs", "ruff", "pyright", "bootstrap"), default="competition")
-    for name in ("CompetitionTaskPath", "CompetitionConfigPath", "CompetitionWorkId", "TestPath", "ExpectedRunId", "PlanId"):
+    cli.add_argument("-Task", choices=("competition", "provider", "prepare", "test", "docs", "ruff", "pyright", "bootstrap"), default="competition")
+    for name in ("CompetitionTaskPath", "CompetitionConfigPath", "CompetitionWorkId", "PreparationConfigPath", "TestPath", "ExpectedRunId", "PlanId"):
         cli.add_argument("-" + name, default="")
     cli.add_argument("-Scope", choices=("cache", "testcache", "tmp", "work", "env", "all"), default="cache")
     for name in ("Resume", "OfflineSync", "Apply", "DiscardEvidence"):

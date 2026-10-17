@@ -58,7 +58,7 @@ from .contracts import (
 )
 from .decisions import DecisionRequest, DecisionStore, feedback_key
 from .diagnostics import AnalysisStore, DiagnosisSubmission
-from .evidence_io import open_readonly_database
+from .evidence_io import local_evidence_path, open_readonly_database
 from .knowledge_handoff import (
     audit_run_knowledge,
     audit_stored_queries,
@@ -118,13 +118,14 @@ from .verification import (
     _atomic_json,
 )
 from .working_context_plan import WorkingContextPolicy, WorkingContextStore
-from .workspace import CandidateWorkspace, TextEdit
+from .workspace import CandidateWorkspace, TextEdit, _files
 
 
 def _safe_file(root: Path, relative: str) -> Path:
     require_path(relative)
-    path = root / relative
-    if not path.is_file() or path.is_symlink() or not path.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+    path = local_evidence_path(root / relative)
+    if (not path.is_file() or path.is_symlink() or
+            not path.resolve(strict=True).is_relative_to(local_evidence_path(root).resolve(strict=True))):
         raise ValueError("source path is missing or linked")
     return path
 
@@ -231,7 +232,7 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
     @tool
     def list_source(proposal_json: str | None = None) -> str:
         """List source files in the task snapshot (not the original dataset)."""
-        return json.dumps(sorted(p.relative_to(workspace.base).as_posix() for p in workspace.base.rglob("*") if p.is_file()))
+        return json.dumps(sorted(_files(workspace.base)))
 
     @tool
     def read_source(path: str, start_line: int = 1, end_line: int = 100, draft: bool = False,

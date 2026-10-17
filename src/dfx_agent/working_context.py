@@ -28,6 +28,7 @@ from .contracts import (
 )
 from .decisions import DecisionRecord, DecisionStore
 from .diagnostics import AnalysisStore
+from .evidence_io import local_evidence_path
 from .logs import saved_log_excerpt_matches
 from .model_calls import canonical, sha256
 from .policies import (
@@ -153,7 +154,7 @@ def _guard(path: Path, *, directory: bool = False) -> Path:
     if ".." in path.parts:
         raise ValueError("working context source path is not canonical")
     for component in (*reversed(path.parents), path):
-        info = component.lstat()
+        info = local_evidence_path(component).lstat()
         if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & getattr(
             stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0
         ):
@@ -182,11 +183,11 @@ class _Sources:
             reference = "task/" + path.relative_to(self.task).as_posix()
         else:
             raise ValueError("working context source belongs to another root")
-        before = path.stat()
+        before = local_evidence_path(path).stat()
         if before.st_size > MAX_SOURCE_RECORD_BYTES:
             raise ValueError("working context source record exceeds bound")
-        raw = path.read_bytes()
-        after = _guard(path).stat()
+        raw = local_evidence_path(path).read_bytes()
+        after = local_evidence_path(_guard(path)).stat()
         if ((before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) !=
                 (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) or len(raw) != before.st_size):
             raise ValueError("working context source changed during read")

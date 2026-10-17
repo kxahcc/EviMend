@@ -2,27 +2,42 @@
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 from collections import defaultdict
 from pathlib import Path
 
+from .evidence_io import local_evidence_path
 from .logs import decode_text, framework_path, normalize_frame_path
+from .task import _resolve_logical
 
 SOURCE_SUFFIXES = {".ets", ".ts", ".js", ".c", ".cpp", ".h", ".hpp"}
 
 
 class SourceIndex:
     def __init__(self, root: Path):
-        self.root = root.resolve()
+        self.root = _resolve_logical(root)
         self.paths: dict[str, Path] = {}
         self.by_name: dict[str, list[str]] = defaultdict(list)
         self.by_folded_path: dict[str, list[str]] = defaultdict(list)
         self._lines: dict[str, list[str]] = {}
-        for path in sorted(self.root.rglob("*")):
-            if not path.is_file() or path.suffix.lower() not in SOURCE_SUFFIXES:
-                continue
-            if path.is_symlink() or not path.resolve().is_relative_to(self.root):
-                continue
+        paths: list[Path] = []
+        pending = [self.root]
+        while pending:
+            folder = pending.pop()
+            with os.scandir(local_evidence_path(folder)) as entries:
+                for entry in entries:
+                    info = entry.stat(follow_symlinks=False)
+                    if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & getattr(
+                            stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+                        continue
+                    path = folder / entry.name
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(path)
+                    elif entry.is_file(follow_symlinks=False) and path.suffix.lower() in SOURCE_SUFFIXES:
+                        paths.append(path)
+        for path in sorted(paths):
             relative = path.relative_to(self.root).as_posix()
             self.paths[relative] = path
             self.by_name[path.name.casefold()].append(relative)
@@ -54,7 +69,7 @@ class SourceIndex:
         if path not in self.paths:
             raise ValueError("Path is not in the source index")
         if path not in self._lines:
-            self._lines[path] = decode_text(self.paths[path].read_bytes())[0].splitlines()
+            self._lines[path] = decode_text(local_evidence_path(self.paths[path]).read_bytes())[0].splitlines()
         return self._lines[path]
 
     def context(self, path: str, line: int, radius: int = 6) -> dict:

@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "batch": "real-test-admission",
+  "date": "2026-10-17",
+  "scope": "Bounded DeepSeek pilot admission, not model repair results",
+  "model": {
+    "model_id": "deepseek-flash",
+    "thinking_mode": "enabled",
+    "inference_requests": 0,
+    "private_config": "configs/model.local.json",
+    "key_logged": false
+  },
+  "budget": {
+    "user_limit_cny": "20",
+    "active_ceiling_cny": "18",
+    "reserve_cny": "2",
+    "ceiling_per_million_tokens_cny": "8",
+    "first_run_token_cap": 256000,
+    "first_run_worst_reservation_cny": "2.048",
+    "private_batch": "configs/evaluation.local.json"
+  },
+  "source_baseline": {
+    "task_id": "B3-022",
+    "source_files": 289,
+    "receipt": "9b7e27a1-c5ba-4b57-be9d-db8c52ed4abd",
+    "source_snapshot_sha256": "f9eb6e83b3321f94c7f7aa7044cd78377d3dab7c057ee7ad2302fcc4e31545f5",
+    "original_fault_reproduced": true,
+    "source_verification": "not_run",
+    "application_verification": "not_run",
+    "scope": "OrderRequestChecksum.create/verify; Node official type erasure and interface import removal; no UI/server/device"
+  },
+  "checks": [
+    {
+      "passed": 14,
+      "test": "test_provider_probe.py",
+      "receipt": "b220fb83-4d51-4f39-8fea-eb3c38adef53"
+    },
+    {
+      "passed": 29,
+      "test": "test_batch_budget.py",
+      "receipt": "bbc37f1a-0ecc-4155-ab14-0a21dbce5a78"
+    },
+    {
+      "passed": 4,
+      "test": "test_household_source_replay.py",
+      "receipt": "c8590902-5490-45bd-8f28-7237dec26bed"
+    },
+    {
+      "passed": 15,
+      "test": "test_pilot_preparation.py",
+      "receipt": "a34e1509-1dc1-45f8-ac31-5b37e2016629"
+    },
+    {
+      "receipt": "ebd80c4f-ec4c-45cb-b528-5b320232674c",
+      "passed": 29,
+      "test": "test_workspace.py",
+      "skipped": 1
+    },
+    {
+      "receipt": "46d9971c-7339-4e31-b38c-75091a8d9668",
+      "passed": 4,
+      "test": "test_workspace_long_paths.py",
+      "skipped": 1
+    },
+    {
+      "test": "ruff",
+      "status": "passed",
+      "receipt": "10a937e5-1268-480c-ab44-ca03141a883c"
+    },
+    {
+      "test": "pyright",
+      "status": "passed",
+      "receipt": "2c43de34-a67e-43de-938f-97031274f0ce"
+    },
+    {
+      "test": "docs",
+      "status": "passed",
+      "receipt": "2fc7597f-35c2-4390-8193-398aac1d6ca4"
+    }
+  ],
+  "initial_failures": [
+    {
+      "receipt": "6932428d-2d00-4ac4-8798-a1a4bafe0578",
+      "failure": "Real Windows long source path copy rejected; fixed using existing extended-path IO helper, preserving logical identities"
+    },
+    {
+      "receipt": "c47eec88-dc7a-4a31-9587-9b7d36a50b1e",
+      "failure": "Replay now passed but test itself read the long candidate with ordinary Path; test read fixed"
+    },
+    {
+      "receipt": "98140d33-427d-4db8-874a-e60da9a4a9d6",
+      "failure": "New test expected LF bytes but fixture wrote platform CRLF; fixture now explicitly writes its declared bytes"
+    },
+    {
+      "receipt": "6f010d52-15c4-430d-afd7-de5a9e19d9cc",
+      "failure": "Ruff initial import ordering and explicit boundary exception annotations; corrected"
+    }
+  ],
+  "limitations": [
+    "No paid model inference in this admission batch",
+    "No HarmonyOS application/device run",
+    "No all-case source adapter or root-cause accuracy claim",
+    "Native symlink tests skipped by account permission; permission-independent reparse/traversal checks passed",
+    "No runtime/SDK/dependency installation; existing managed Python and ordinary Node reused"
+  ]
+}

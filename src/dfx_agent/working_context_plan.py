@@ -46,6 +46,7 @@ from .contracts import (
     require_identifiers,
 )
 from .decisions import DecisionRecord
+from .evidence_io import local_evidence_path
 from .logs import saved_log_excerpt_matches
 from .model_calls import ModelCallIntent, ModelCallStore, canonical, sha256
 from .model_provider import AdapterError, PreparedRequest
@@ -968,7 +969,7 @@ def _capture_material(workspace: CandidateWorkspace, task: Path, packet: Working
     # diagnosis is not selected. Freeze that original admission container too.
     needed_evidence = set(packet.contents()["evidence"])
     for path in sorted((workspace.root / "diagnoses").glob("*.json")):
-        bundle = _load(_guard(path).read_bytes() if reader is None else reader(path))
+        bundle = _load(local_evidence_path(_guard(path)).read_bytes() if reader is None else reader(path))
         if any(item["record_id"] in needed_evidence for item in bundle["evidence"]):
             references.add("workspace/" + path.relative_to(workspace.root).as_posix())
     for file in _files(workspace.base).values():
@@ -979,15 +980,15 @@ def _capture_material(workspace: CandidateWorkspace, task: Path, packet: Working
     for reference in sorted(references):
         scope, relative = reference.split("/", 1)
         path = _guard((workspace.root if scope == "workspace" else task) / relative)
-        before = path.stat()
+        before = local_evidence_path(path).stat()
         if before.st_size > MAX_ARTIFACT_BYTES:
             raise WorkingContextError("working_context_material_limit")
         if reader is None:
-            with path.open("rb") as source:
+            with local_evidence_path(path).open("rb") as source:
                 raw = source.read(min(before.st_size + 1, MAX_ARTIFACT_BYTES + 1))
         else:
             raw = reader(path)
-        after = _guard(path).stat()
+        after = local_evidence_path(_guard(path)).stat()
         if len(raw) > MAX_ARTIFACT_BYTES:
             raise WorkingContextError("working_context_material_limit")
         if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (

@@ -20,10 +20,11 @@ from .contracts import (
     require_path,
     validate_references,
 )
+from .evidence_io import local_evidence_path
 from .logs import decode_text
 from .task import digest
 from .verification import CheckLedger, _atomic_json
-from .workspace import CandidateWorkspace
+from .workspace import CandidateWorkspace, _files
 
 
 class SourceCitation(Contract):
@@ -62,8 +63,9 @@ class DiagnosisSubmission(Contract):
 
 def safe_source(root: Path, relative: str) -> Path:
     require_path(relative)
-    path = root / relative
-    if not path.is_file() or path.is_symlink() or not path.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+    path = local_evidence_path(root / relative)
+    if (not path.is_file() or path.is_symlink() or
+            not path.resolve(strict=True).is_relative_to(local_evidence_path(root).resolve(strict=True))):
         raise ValueError("source path is missing or linked")
     return path
 
@@ -137,9 +139,8 @@ class AnalysisStore:
         return set(evidence), targets
 
     def line_counts(self) -> dict[str, int]:
-        return {path.relative_to(self.workspace.base).as_posix():
-                len(path.read_text(encoding="utf-8").splitlines())
-                for path in self.workspace.base.rglob("*") if path.is_file()}
+        return {relative: len(local_evidence_path(path).read_text(encoding="utf-8").splitlines())
+                for relative, path in _files(self.workspace.base).items()}
 
     def put_bundle(self, diagnosis: Diagnosis, evidence: list[Evidence],
                    obligations: list[RepairObligation]) -> dict:

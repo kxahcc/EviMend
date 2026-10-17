@@ -23,6 +23,7 @@ from .actions import ToolActionStore
 from .agent import ResumeAdmissionRejected, preflight_resume, run_provider_agent
 from .applicability_contracts import TaskKnowledgeBinding
 from .applicability_handoff import ApplicabilityPolicy
+from .batch_budget import check_batch_budget
 from .contracts import SourceLocation
 from .domain_skills import prepare_domain_knowledge
 from .evidence_io import local_evidence_path
@@ -39,7 +40,7 @@ from .static_skills import StaticSkillPolicy
 from .task import digest, prepare_task, verify_task
 from .verification import AnalysisOnlyExecutor, OfflineExecutor, _atomic_json
 from .working_context_plan import WorkingContextPolicy
-from .workspace import CandidateWorkspace
+from .workspace import CandidateWorkspace, _files
 
 
 class CompetitionConfig(BaseModel):
@@ -49,6 +50,7 @@ class CompetitionConfig(BaseModel):
     provider: CloudProviderConfig
     model: ProviderSettings
     execution: LocalCheckConfig | None = None
+    batch_budget_file: str | None = Field(default=None, exclude_if=lambda value: value is None)
     policy_features: PolicyFeatures = PolicyFeatures(rule_guidance=True, obligation_tracking=True, decision_checks=True)
     working_context: WorkingContextPolicy = WorkingContextPolicy(enabled=True)
     applicability_enabled: bool = True
@@ -63,6 +65,8 @@ class CompetitionConfig(BaseModel):
     def valid_mode(self) -> CompetitionConfig:
         if self.model_mode == "mock_demo" and self.execution is not None:
             raise ValueError("mock_demo uses only its declared synthetic project")
+        if self.model_mode == "mock_demo" and self.batch_budget_file is not None:
+            raise ValueError("batch monetary budgets apply only to cloud model runs")
         return self
 
 
@@ -462,26 +466,24 @@ def _report(work: Path, solver: dict[str, Any], executor: OfflineExecutor,
 def private_delivery(work: Path, task: Path, max_bytes: int) -> Path:
     """Bounded private result bundle; its manifest verifies bytes, not causal truth."""
     target = work / "delivery.zip"
+    temporary_path = target.with_suffix(".new")
     files: list[tuple[str, Path]] = []
     for prefix, source in (("task", task), ("run", work)):
-        for path in source.rglob("*"):
-            if path.is_symlink():
-                raise ValueError("private delivery contains a link")
-            relative = path.relative_to(source).as_posix()
-            if path.is_file() and path != target and not relative.endswith((".sqlite-wal", ".sqlite-shm")):
+        for relative, path in sorted(_files(source).items()):
+            if path not in (target, temporary_path) and not relative.endswith((".sqlite-wal", ".sqlite-shm")):
                 # Execution work copies are mutable build products. The frozen
                 # project-base, source manifests, patches and stage originals suffice.
                 if prefix == "run" and relative.startswith("local-execution/") and any(
                         part.startswith(("b-", "c-")) for part in path.relative_to(source).parts[1:2]):
                     continue
                 files.append((prefix + "/" + relative, path))
-    if sum(path.stat().st_size for _, path in files) > max_bytes:
+    if sum(local_evidence_path(path).stat().st_size for _, path in files) > max_bytes:
         raise ValueError("private delivery exceeds the export byte limit")
-    originals = {name: path.read_bytes() for name, path in files}
+    originals = {name: local_evidence_path(path).read_bytes() for name, path in files}
     manifest = {"schema_version": 1, "scope": "private_competition_delivery",
         "verification": "content hashes only; not an independent effect evaluation",
         "files": [{"path": name, "sha256": digest(raw), "bytes": len(raw)} for name, raw in originals.items()]}
-    temporary = local_evidence_path(target.with_suffix(".new"))
+    temporary = local_evidence_path(temporary_path)
     with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for name, raw in originals.items():
             archive.writestr(name, raw)
@@ -495,7 +497,7 @@ def private_delivery(work: Path, task: Path, max_bytes: int) -> Path:
 
 
 def verify_private_delivery(package: Path, max_bytes: int) -> dict[str, Any]:
-    if package.stat().st_size > max_bytes:
+    if local_evidence_path(package).stat().st_size > max_bytes:
         raise ValueError("private delivery exceeds byte limit")
     with zipfile.ZipFile(local_evidence_path(package)) as archive:
         if sum(item.file_size for item in archive.infolist()) > max_bytes:
@@ -539,6 +541,11 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
             inputs.append(Path(config.execution.project_root).absolute())
         if any(credential_file == path or credential_file.is_relative_to(path) for path in inputs):
             raise ValueError("private credential file overlaps task, application, run or run configuration")
+    batch_binding = None
+    if config.batch_budget_file is not None:
+        batch_binding = check_batch_budget(project_root=repo, managed_root=managed, work=work, run_id=run_id,
+            profile_path=config.batch_budget_file, model_id=config.model.model_id,
+            credential_file=config.provider.credential_file, max_known_tokens=config.max_known_tokens, resume=resume)
     auxiliary = work.parent if test_scope else managed / "tmp"
     library = auxiliary / ("competition-" + run_id + "-library")
     approval_path = ((auxiliary if test_scope else managed / "state") /
@@ -562,6 +569,8 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
         executor.verify_oracles()
     frozen = {"config": config.model_dump(mode="json"), "task": verify_task(task),
               "execution": None if execution is None else execution.model_dump(mode="json")}
+    if batch_binding is not None:
+        frozen["batch_budget"] = batch_binding
     approval = None
     knowledge = None
     if resume:

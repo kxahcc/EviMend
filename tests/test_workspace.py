@@ -324,6 +324,7 @@ def test_windows_persistent_rename_denial_preserves_draft_and_does_not_publish_c
     denied, sleeps = [], []
 
     def persistent(source: Path, destination: Path) -> Path:
+        source, destination = workspace_module._resolve_logical(source), workspace_module._resolve_logical(destination)
         selected = ((source.name.startswith("candidate-temp-") and destination == workspace.draft)
                     if stage == "draft_swap" else source.parent == workspace.candidates)
         if selected:
@@ -364,7 +365,8 @@ def test_other_rename_errors_are_not_retried_and_leave_the_complete_draft(
     monkeypatch.setattr(workspace_module.time, "sleep", lambda _: pytest.fail("other filesystem errors must not retry"))
     with pytest.raises(OSError):
         workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="good")])
-    assert attempts == [(workspace.draft, workspace.root / "draft-backup")]
+    assert [(workspace_module._resolve_logical(source), workspace_module._resolve_logical(destination))
+            for source, destination in attempts] == [(workspace.draft, workspace.root / "draft-backup")]
     assert (workspace.draft / "src/main.ets").read_bytes() == before
     assert not list(workspace.root.glob("candidate-temp-*"))
     assert not list(workspace.candidates.iterdir())

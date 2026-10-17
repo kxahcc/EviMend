@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .contracts import require_hash, require_path
+from .evidence_io import local_evidence_path
 from .task import digest, snapshot_digest
 from .workspace import CandidateWorkspace, _files
 
@@ -30,7 +31,7 @@ def _bounded_files(root: Path) -> dict[str, Path]:
         raise ValueError("source search file count exceeds limit; use a smaller task snapshot")
     total = 0
     for path in files.values():
-        size = path.stat().st_size
+        size = local_evidence_path(path).stat().st_size
         if size > MAX_FILE_BYTES:
             raise ValueError("source search file bytes exceed limit")
         total += size
@@ -43,7 +44,7 @@ def _read_tree(root: Path) -> dict[str, bytes]:
     values: dict[str, bytes] = {}
     total = 0
     for relative, path in sorted(_bounded_files(root).items()):
-        with path.open("rb") as stream:
+        with local_evidence_path(path).open("rb") as stream:
             raw = stream.read(MAX_FILE_BYTES + 1)
         if len(raw) > MAX_FILE_BYTES:
             raise ValueError("source search file bytes exceed limit")
@@ -88,7 +89,7 @@ class SourceSearch:
             snapshot_sha256 = snapshot_digest([
                 {"path": path, "sha256": digest(raw)} for path, raw in values.items()
             ])
-            record = json.loads((root.parent / "candidate.json").read_text(encoding="utf-8"))
+            record = json.loads(local_evidence_path(root.parent / "candidate.json").read_text(encoding="utf-8"))
             if snapshot_sha256 != record["candidate_snapshot_sha256"]:
                 raise ValueError("candidate changed during source search")
         expression = re.compile(re.escape(query), 0 if case_sensitive else re.IGNORECASE)

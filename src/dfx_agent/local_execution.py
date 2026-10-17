@@ -169,7 +169,7 @@ def _checked(path: Path, *, exists: bool = True) -> Path:
         raise ValueError("noncanonical local execution path")
     for component in (*reversed(absolute.parents), absolute):
         try:
-            info = component.lstat()
+            info = local_evidence_path(component).lstat()
         except FileNotFoundError:
             if exists:
                 raise ValueError("local execution path is missing") from None
@@ -182,7 +182,7 @@ def _checked(path: Path, *, exists: bool = True) -> Path:
 
 def _inventory(root: Path, cap: int) -> dict[str, Any]:
     root = _checked(root)
-    if not root.is_dir():
+    if not local_evidence_path(root).is_dir():
         raise ValueError("full project root is not a directory")
     files: list[dict[str, Any]] = []
     directories: list[str] = []
@@ -191,9 +191,9 @@ def _inventory(root: Path, cap: int) -> dict[str, Any]:
     pending = [root]
     while pending:
         folder = pending.pop()
-        with os.scandir(folder) as entries:
+        with os.scandir(local_evidence_path(folder)) as entries:
             for entry in entries:
-                path = Path(entry.path)
+                path = folder / entry.name
                 info = entry.stat(follow_symlinks=False)
                 relative = path.relative_to(root).as_posix()
                 require_path(relative)
@@ -210,7 +210,7 @@ def _inventory(root: Path, cap: int) -> dict[str, Any]:
                     total += info.st_size
                     if total > cap:
                         raise ValueError("full project exceeds copy byte limit")
-                    content = path.read_bytes()
+                    content = local_evidence_path(path).read_bytes()
                     if len(content) != info.st_size:
                         raise ValueError("full project changed during inventory")
                     files.append({"path": relative, "sha256": digest(content), "size_bytes": len(content)})
@@ -222,17 +222,17 @@ def _inventory(root: Path, cap: int) -> dict[str, Any]:
 
 def _copy_project(source: Path, destination: Path, manifest: dict[str, Any], cap: int) -> None:
     _checked(destination, exists=False)
-    if destination.exists():
+    if local_evidence_path(destination).exists():
         raise ValueError("local project copy already exists")
-    destination.mkdir()
+    local_evidence_path(destination).mkdir()
     for directory in manifest["directories"]:
-        (destination / directory).mkdir(parents=True, exist_ok=True)
+        local_evidence_path(destination / directory).mkdir(parents=True, exist_ok=True)
     for item in manifest["files"]:
         old, new = source / item["path"], destination / item["path"]
         _checked(old)
-        new.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(old, new)
-        if os.path.samefile(old, new):
+        local_evidence_path(new.parent).mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(local_evidence_path(old), local_evidence_path(new))
+        if os.path.samefile(local_evidence_path(old), local_evidence_path(new)):
             raise ValueError("local project copy shares a writable inode")
     if _inventory(source, cap) != manifest or _inventory(destination, cap) != manifest:
         raise ValueError("full project changed while making an independent copy")
@@ -473,8 +473,8 @@ class LocalApplicationExecutor:
     def _guard(self) -> dict[str, Any]:
         if os.environ.get("DFX_MANAGED_COMPETITION") != "local-v1":
             raise ValueError("local checks require the managed competition entry point")
-        owner = json.loads(_checked(self.managed_root / "owner.json").read_text(encoding="utf-8-sig"))
-        lease = json.loads(_checked(self.lease_path).read_text(encoding="utf-8-sig"))
+        owner = json.loads(local_evidence_path(_checked(self.managed_root / "owner.json")).read_text(encoding="utf-8-sig"))
+        lease = json.loads(local_evidence_path(_checked(self.lease_path)).read_text(encoding="utf-8-sig"))
         if (owner.get("schema_version") != 1 or lease.get("schema_version") != 1 or
                 owner.get("managed_real_path") != str(self.managed_root) or
                 lease.get("task") not in ("competition", "test") or
@@ -492,7 +492,7 @@ class LocalApplicationExecutor:
             raise ValueError("local check limits exceed the managed lease")
         if self.config.mode == "application":
             policy_path = Path(owner["repo_real_path"]) / "configs/local-runtime.json"
-            policy = json.loads(_checked(policy_path).read_text(encoding="utf-8"))
+            policy = json.loads(local_evidence_path(_checked(policy_path)).read_text(encoding="utf-8"))
             if not self.allow_application or policy.get("execution", {}).get("allow_application_experiments") is not True:
                 raise ValueError("real application experiments are disabled")
         return lease
@@ -523,7 +523,7 @@ class LocalApplicationExecutor:
                     "config": self.config.model_dump(mode="json"), "project_manifest": self.project_manifest}
         if self.root.exists():
             _checked(self.root)
-            saved = json.loads(_checked(self.root / "protocol.json").read_text(encoding="utf-8"))
+            saved = json.loads(local_evidence_path(_checked(self.root / "protocol.json")).read_text(encoding="utf-8"))
             if saved != identity or _inventory(self.root / "project-base", self.config.max_project_bytes) != self.project_manifest:
                 raise ValueError("frozen local execution protocol or project changed")
             return
@@ -569,9 +569,10 @@ class LocalApplicationExecutor:
             if actual.is_relative_to(self.project_root) or (self.workspace is not None and
                     actual.is_relative_to(self.workspace.root)):
                 raise ValueError("independent oracle is inside a writable project or run")
-            if not actual.is_file() or actual.stat().st_size > oracle.max_bytes:
+            actual_io = local_evidence_path(actual)
+            if not actual_io.is_file() or actual_io.stat().st_size > oracle.max_bytes:
                 raise ValueError("independent oracle is unavailable or exceeds its read limit")
-            with actual.open("rb") as stream:
+            with actual_io.open("rb") as stream:
                 content = stream.read(oracle.max_bytes + 1)
             if len(content) > oracle.max_bytes or digest(content) != oracle.sha256:
                 raise ValueError("independent oracle bytes differ from the frozen execution protocol")
@@ -583,9 +584,9 @@ class LocalApplicationExecutor:
                        name.casefold() not in {"npm_config_cache", "dfx_project_cache_root"} and
                        not name.startswith("DFX_COMPETITION_")}
         temporary = project / ".dfx-command-tmp"
-        temporary.mkdir(exist_ok=True)
+        local_evidence_path(temporary).mkdir(exist_ok=True)
         cache = project / ".dfx-tool-cache"
-        (cache / "npm").mkdir(parents=True, exist_ok=True)
+        local_evidence_path(cache / "npm").mkdir(parents=True, exist_ok=True)
         # npm documents npm_config_* as process-local settings. HarmonyOS's
         # other tools must use reviewed cache arguments/provisioning; this
         # project variable is for the approved runner, not a guessed SDK API.
@@ -594,9 +595,9 @@ class LocalApplicationExecutor:
         return environment
 
     def _stopped(self, lease: dict[str, Any]) -> bool:
-        if not self.stop_path.exists():
+        if not local_evidence_path(self.stop_path).exists():
             return False
-        stop = json.loads(_checked(self.stop_path).read_text(encoding="utf-8-sig"))
+        stop = json.loads(local_evidence_path(_checked(self.stop_path)).read_text(encoding="utf-8-sig"))
         if stop.get("run_id") != lease["run_id"]:
             raise ValueError("managed stop request has a different run identity")
         return True
@@ -633,7 +634,7 @@ class LocalApplicationExecutor:
 
         def collect(pipe: BinaryIO, path: Path, index: int) -> None:
             try:
-                with path.open("xb") as output:
+                with local_evidence_path(path).open("xb") as output:
                     while chunk := pipe.read(8192):
                         remaining = self.config.max_output_bytes - counts[index]
                         output.write(chunk[:max(0, remaining)])
@@ -722,9 +723,9 @@ class LocalApplicationExecutor:
                     receipt["oracle_binding_verified"] = receipt["process_started"]
             receipt["finished_at"] = _now()
             for label, path, size in zip(("stdout", "stderr"), paths, counts, strict=True):
-                if path.exists() and not any(thread.is_alive() for thread in threads):
+                if local_evidence_path(path).exists() and not any(thread.is_alive() for thread in threads):
                     receipt[label] = {"path": path.relative_to(receipt_root).as_posix(), "size_bytes": size,
-                                      "sha256": digest(_checked(path).read_bytes())}
+                                      "sha256": digest(local_evidence_path(_checked(path)).read_bytes())}
             _atomic_json(record_path, receipt)
             emit_progress("check_stage_completed", stage=stage, role=role, status=receipt["status"],
                           reason=receipt["reason"], process_started=receipt["process_started"])
@@ -740,30 +741,30 @@ class LocalApplicationExecutor:
         project_files = {item["path"] for item in self.project_manifest["files"]}
         for source, source_sha in baseline.items():
             destination = project / mapping.get(source, source)
-            if digest(_checked(destination).read_bytes()) != source_sha:
+            if digest(local_evidence_path(_checked(destination)).read_bytes()) != source_sha:
                 raise ValueError("candidate overlay base differs from the frozen full project")
             if source not in candidate_names:
-                destination.unlink()
+                local_evidence_path(destination).unlink()
         for item in current:
             relative = mapping.get(item["path"], item["path"])
             destination = _checked(project / relative, exists=False)
             if item["path"] not in baseline and relative in project_files:
                 raise ValueError("candidate addition would overwrite an unrelated full-project resource")
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(candidate / item["path"], destination)
-            if digest(destination.read_bytes()) != item["sha256"]:
+            local_evidence_path(destination.parent).mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(local_evidence_path(candidate / item["path"]), local_evidence_path(destination))
+            if digest(local_evidence_path(destination).read_bytes()) != item["sha256"]:
                 raise ValueError("candidate changed while overlaying the full project")
         return snapshot_digest(current)
 
     def _assert_source_binding(self, project: Path, manifest: list[dict[str, str]], removed: set[str]) -> None:
         for item in manifest:
             relative = self.config.source_mapping.get(item["path"], item["path"])
-            if digest(_checked(project / relative).read_bytes()) != item["sha256"]:
+            if digest(local_evidence_path(_checked(project / relative)).read_bytes()) != item["sha256"]:
                 raise ValueError("command changed the bound execution source")
         for source in removed:
             path = project / self.config.source_mapping.get(source, source)
             _checked(path, exists=False)
-            if path.exists():
+            if local_evidence_path(path).exists():
                 raise ValueError("command restored a deleted candidate source")
 
     def _record_source_binding(self, result: dict[str, Any], project: Path, manifest: list[dict[str, str]],
@@ -796,12 +797,12 @@ class LocalApplicationExecutor:
                     "command_sha256": self.command_sha256, "mode": self.config.mode}
         receipt_root = root / key
         path = receipt_root / "execution.json"
-        if receipt_root.exists():
+        if local_evidence_path(receipt_root).exists():
             _checked(receipt_root)
-            if not path.exists():
+            if not local_evidence_path(path).exists():
                 evidence = self.evidence(key)
                 return evidence["status"], evidence["detail"]
-            saved = json.loads(_checked(path).read_text(encoding="utf-8"))
+            saved = json.loads(local_evidence_path(_checked(path)).read_text(encoding="utf-8"))
             if any(saved.get(name) != value for name, value in identity.items()):
                 raise ValueError("local check key was reused with different source or protocol")
             if saved.get("state") == "done":
@@ -814,7 +815,7 @@ class LocalApplicationExecutor:
         self.verify_oracles()
         if _inventory(root / "project-base", self.config.max_project_bytes) != self.project_manifest:
             raise ValueError("frozen full project changed")
-        receipt_root.mkdir()
+        local_evidence_path(receipt_root).mkdir()
         record: dict[str, Any] = {**identity, "schema_version": (4 if self.config.mode == "source" else
             3 if self.config.independent_oracles is not None else 2),
             "state": "pending", "started_at": _now(),
@@ -870,7 +871,7 @@ class LocalApplicationExecutor:
                 baseline_stages.append(target)
                 self._record_source_binding(target, base, base_manifest, set(), receipt_root, record, path)
                 marker = self.config.baseline_fault_pattern
-                captured = "".join((receipt_root / result["path"]).read_text(encoding="utf-8", errors="replace")
+                captured = "".join(local_evidence_path(receipt_root / result["path"]).read_text(encoding="utf-8", errors="replace")
                     for result in (target["stdout"], target["stderr"]) if result is not None)
                 reproduced = (target["reason"] == "exited" and target["subtree_stopped"] and
                               target["exit_code"] in self.config.baseline_target_exit_codes and
@@ -887,7 +888,7 @@ class LocalApplicationExecutor:
                         if output is None or output["size_bytes"] == 0:
                             output = result["stdout"]
                         if output is not None:
-                            with _checked(receipt_root / output["path"]).open("rb") as stream:
+                            with local_evidence_path(_checked(receipt_root / output["path"])).open("rb") as stream:
                                 excerpt = stream.read(1024).decode("utf-8", errors="replace").strip()
                             if excerpt:
                                 detail += "; output: " + excerpt
@@ -925,8 +926,8 @@ class LocalApplicationExecutor:
         workspace, root = self._bound()
         folder = _checked(root / key)
         path = folder / "execution.json"
-        if not path.exists():
-            if any(folder.iterdir()):
+        if not local_evidence_path(path).exists():
+            if any(local_evidence_path(folder).iterdir()):
                 raise ValueError("local execution receipt is missing from a nonempty evidence directory")
             # mkdir precedes the first durable intent. An empty directory has
             # no execution facts to authenticate; retain uncertainty without
@@ -937,7 +938,7 @@ class LocalApplicationExecutor:
                     "application_verification": "inconclusive" if self.config.mode == "application" else "not_run",
                     "application_success": False, "accepted": False, "baseline": None, "stages": [],
                     **({"source_verification": "inconclusive"} if self.config.mode == "source" else {})}
-        record = json.loads(_checked(path).read_text(encoding="utf-8"))
+        record = json.loads(local_evidence_path(_checked(path)).read_text(encoding="utf-8"))
         if (record.get("protocol_sha256") != self.protocol_sha256 or record.get("idempotency_key") != key or
                 record.get("project_sha256") != self.project_sha256 or record.get("command_sha256") != self.command_sha256 or
                 record.get("source_snapshot_sha256") != workspace.source_snapshot_sha256 or record.get("mode") != self.config.mode):
@@ -988,7 +989,7 @@ class LocalApplicationExecutor:
             if schema in (3, 4) and type(result.get("oracle_binding_verified")) is not bool:
                 raise ValueError("local stage oracle binding observation is missing")
             stage_path = folder / f"{result['role']}-{result['stage']}.json"
-            if json.loads(_checked(stage_path).read_text(encoding="utf-8")) != result:
+            if json.loads(local_evidence_path(_checked(stage_path)).read_text(encoding="utf-8")) != result:
                 raise ValueError("local stage receipt changed")
             for label in ("stdout", "stderr"):
                 output = result[label]
@@ -997,7 +998,7 @@ class LocalApplicationExecutor:
                 require_path(output["path"])
                 if output["path"] != f"{role}-{stage}.{label}.txt":
                     raise ValueError("local stage output belongs to another command")
-                content = _checked(folder / output["path"]).read_bytes()
+                content = local_evidence_path(_checked(folder / output["path"])).read_bytes()
                 if len(content) > self.config.max_output_bytes or len(content) != output["size_bytes"] or digest(content) != output["sha256"]:
                     raise ValueError("local stage output evidence changed")
                 captured[(role, stage)] = captured.get((role, stage), "") + content.decode("utf-8", errors="replace")

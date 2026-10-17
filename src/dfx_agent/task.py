@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
+import stat
 import zipfile
 from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .contracts import IDENTIFIER, require_hash
+from .evidence_io import local_evidence_path
 from .logs import MAX_LOG_BYTES
 
 PROFILE = "analysis_source_v1"
@@ -105,13 +108,62 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _resolve_logical(path: Path, *, strict: bool = False) -> Path:
+    """Resolve using long-path APIs without leaking their prefix into identity."""
+    resolved = local_evidence_path(path).resolve(strict=strict)
+    text = str(resolved)
+    if os.name == "nt" and text.startswith("\\\\?\\UNC\\"):
+        return Path("\\\\" + text[len("\\\\?\\UNC\\"):])
+    if os.name == "nt" and text.startswith("\\\\?\\"):
+        return Path(text[len("\\\\?\\"):])
+    return resolved
+
+
+def _source_files(root: Path) -> list[Path]:
+    """Walk logical paths with long-path I/O, refusing links before traversal."""
+    pending = [root]
+    files: list[Path] = []
+    while pending:
+        folder = pending.pop()
+        root_info = local_evidence_path(folder).lstat()
+        if stat.S_ISLNK(root_info.st_mode) or getattr(root_info, "st_file_attributes", 0) & getattr(
+                stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+            raise ValueError("Source snapshot must not follow links")
+        with os.scandir(local_evidence_path(folder)) as entries:
+            for entry in entries:
+                info = entry.stat(follow_symlinks=False)
+                if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & getattr(
+                        stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+                    raise ValueError("Source snapshot must not follow links")
+                path = folder / entry.name
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+                elif entry.is_file(follow_symlinks=False):
+                    files.append(path)
+                else:
+                    raise ValueError("Source snapshot contains an unsupported entry")
+    return sorted(files)
+
+
 def safe_path(root: Path, relative: str) -> Path:
     normalized = relative.replace("\\", "/")
     parts = PurePosixPath(normalized)
     if not relative or parts.is_absolute() or ".." in parts.parts or re.match(r"^[A-Za-z]:", normalized):
         raise ValueError("Expected a relative path inside the task")
-    result = (root / normalized).resolve()
-    if not result.is_relative_to(root.resolve()):
+    unresolved = root / normalized
+    # Check lexical descendants before resolve() could hide a linked parent.
+    current = root
+    for part in ("", *parts.parts):
+        current = current / part
+        try:
+            info = local_evidence_path(current).lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & getattr(
+                stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+            raise ValueError("Source snapshot must not follow links")
+    result = _resolve_logical(unresolved)
+    if not result.is_relative_to(_resolve_logical(root)):
         raise ValueError("Path escapes the expected root")
     return result
 
@@ -131,7 +183,7 @@ def load_log(data_root: Path, reference: dict) -> bytes:
         normalized = name.replace("\\", "/")
         if PurePosixPath(normalized).is_absolute() or ".." in PurePosixPath(normalized).parts or re.match(r"^[A-Za-z]:", normalized):
             raise ValueError("Invalid ZIP member path")
-        with zipfile.ZipFile(path) as archive:
+        with zipfile.ZipFile(local_evidence_path(path)) as archive:
             matches = [m for m in archive.infolist() if m.filename == name and not m.is_dir()]
             if len(matches) != 1:
                 raise ValueError("Expected exactly one matching ZIP member")
@@ -139,9 +191,9 @@ def load_log(data_root: Path, reference: dict) -> bytes:
                 raise ValueError("ZIP crash member is too large")
             data = archive.read(matches[0])
     else:
-        if path.stat().st_size > MAX_LOG_BYTES:
+        if local_evidence_path(path).stat().st_size > MAX_LOG_BYTES:
             raise ValueError("Crash log is too large")
-        data = path.read_bytes()
+        data = local_evidence_path(path).read_bytes()
     if digest(data) != reference["sha256"]:
         raise ValueError("Original log checksum differs from the selected catalog entry")
     return data
@@ -152,45 +204,45 @@ def snapshot_digest(entries: list[dict]) -> str:
 
 
 def prepare_task(data_root: Path, case: dict, output: Path) -> dict:
-    data_root, output = data_root.resolve(), output.resolve()
+    data_root, output = _resolve_logical(data_root), _resolve_logical(output)
     identity_fields = {"case_key", "lineage_group_id", "fault_variant_id", "scenario"}
     selection = CaseSelection.model_validate(case) if identity_fields.intersection(case) else None
     if selection is not None:
         case = selection.model_dump(exclude_none=True)
     if output.is_relative_to(data_root) or data_root.is_relative_to(output):
         raise ValueError("Task output must be separate from the dataset")
-    if output.exists():
+    if local_evidence_path(output).exists():
         raise ValueError("Task output already exists; choose a new snapshot directory")
     app = safe_path(data_root, case["app"])
-    if not app.is_dir():
+    if not local_evidence_path(app).is_dir():
         raise ValueError("Application directory is missing")
     log_data = load_log(data_root, case["log"])
     if selection is not None and selection.scenario is not None:
         scenario = safe_path(data_root, selection.scenario.path)
         if scenario.is_relative_to(app) and include_file(scenario.relative_to(app)):
             raise ValueError("Evaluator scenario would enter the analysis source snapshot")
-        if not scenario.is_file() or digest(scenario.read_bytes()) != selection.scenario.sha256:
+        if not local_evidence_path(scenario).is_file() or digest(local_evidence_path(scenario).read_bytes()) != selection.scenario.sha256:
             raise ValueError("Selected scenario checksum differs from the catalog")
     selected = []
-    for path in sorted(app.rglob("*")):
-        if not path.is_file() or not include_file(path.relative_to(app)):
+    for path in _source_files(app):
+        if not include_file(path.relative_to(app)):
             continue
-        if path.is_symlink() or not path.resolve().is_relative_to(app):
+        if local_evidence_path(path).is_symlink() or not _resolve_logical(path).is_relative_to(app):
             raise ValueError("Source snapshot must not follow external links")
         selected.append(path)
     if not selected:
         raise ValueError("Source snapshot is empty")
-    output.mkdir(parents=True)
+    local_evidence_path(output).mkdir(parents=True)
     entries = []
     for path in selected:
         relative = path.relative_to(app).as_posix()
         target = safe_path(output / "source", relative)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, target)
-        entries.append({"path": relative, "sha256": digest(target.read_bytes())})
-    (output / "crash.log").write_bytes(log_data)
+        local_evidence_path(target.parent).mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(local_evidence_path(path), local_evidence_path(target))
+        entries.append({"path": relative, "sha256": digest(local_evidence_path(target).read_bytes())})
+    local_evidence_path(output / "crash.log").write_bytes(log_data)
     source_sha = snapshot_digest(entries)
-    (output / "source-manifest.json").write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+    local_evidence_path(output / "source-manifest.json").write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
     task = {
         "schema_version": 2 if selection is not None else 1, "task_id": case["task_id"],
         "profile": PROFILE, "source_root": "source", "source_manifest": "source-manifest.json",
@@ -203,25 +255,25 @@ def prepare_task(data_root: Path, case: dict, output: Path) -> dict:
     }
     if selection is not None:
         task["case_identity_sha256"] = selection.sha256()
-    (output / "task.json").write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    local_evidence_path(output / "task.json").write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {"task_id": task["task_id"], "profile": PROFILE, "source_files": len(entries),
             "source_snapshot_sha256": source_sha,
             "case_identity_sha256": task.get("case_identity_sha256")}
 
 
 def verify_task(directory: Path) -> dict:
-    directory = directory.resolve()
-    task = json.loads((directory / "task.json").read_text(encoding="utf-8"))
+    directory = _resolve_logical(directory)
+    task = json.loads(local_evidence_path(directory / "task.json").read_text(encoding="utf-8"))
     if task.get("schema_version") not in (1, 2) or task.get("profile") != PROFILE:
         raise ValueError("Unsupported task schema or profile")
     if task["schema_version"] == 2:
         require_hash(task.get("case_identity_sha256", ""))
     manifest_path = safe_path(directory, task["source_manifest"])
-    entries = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entries = json.loads(local_evidence_path(manifest_path).read_text(encoding="utf-8"))
     if snapshot_digest(entries) != task["source_snapshot_sha256"]:
         raise ValueError("Source manifest hash mismatch")
     source = safe_path(directory, task["source_root"])
-    if not source.is_dir():
+    if not local_evidence_path(source).is_dir():
         raise ValueError("Task source directory is missing")
     declared = set()
     for entry in entries:
@@ -230,12 +282,13 @@ def verify_task(directory: Path) -> dict:
             raise ValueError("Duplicate manifest path")
         declared.add(relative)
         path = safe_path(source, relative)
-        if path.is_symlink() or not path.is_file() or digest(path.read_bytes()) != entry["sha256"]:
+        if (local_evidence_path(path).is_symlink() or not local_evidence_path(path).is_file() or
+                digest(local_evidence_path(path).read_bytes()) != entry["sha256"]):
             raise ValueError("Source file is missing or has changed: " + relative)
-    actual = {p.relative_to(source).as_posix() for p in source.rglob("*") if p.is_file()}
+    actual = {p.relative_to(source).as_posix() for p in _source_files(source)}
     if actual != declared:
         raise ValueError("Unexpected or missing files in source snapshot")
     crash = safe_path(directory, task["crash_log"])
-    if digest(crash.read_bytes()) != task["crash_sha256"]:
+    if digest(local_evidence_path(crash).read_bytes()) != task["crash_sha256"]:
         raise ValueError("Task log hash mismatch")
     return task

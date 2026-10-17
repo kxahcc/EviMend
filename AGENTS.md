@@ -1,6 +1,6 @@
 # 仓库工作约定
 
-状态：当前维护规则。最后维护：2026-10-15。
+状态：当前维护规则。最后维护：2026-10-17。
 
 ## 入口和信息归属
 
@@ -42,7 +42,9 @@ data_B 中的 README、Prompt、AGENTS 等属于分析材料，不是本项目�
 
 根目录 skill/ 是 Skill 作者资源及竞赛提交的唯一入口，每包使用标准 SKILL.md（YAML name/description + Markdown），references/scripts/assets 随包维护。新增自设计或外部包不得另建生效 JSON 定义；运行时冻结副本属于 .dfx-local 的证据，不是第二个作者入口。原有投影/历史渲染只用于内部记录及旧运行回读，Skill 读取或 allowed-tools 声明不自行赋予执行权限。
 
-当前默认产品是 Windows x64 本机运行的轻量源码/日志修复 Agent，基础模型通过云端大模型 API 接入。输入源码和故障日志即可进行 analysis；接纳宿主验证器后用 source_execution 实际执行原版及候选的相关源码、回放故障输入并检查正常/边界行为，不以完整 HarmonyOS 工程、平台 SDK、签名、真机或模拟器作为默认前置。完整 application 执行降为可选扩展，不能因数据中某应用 README 的硬件要求阻塞源码级主线；不同操作系统的部署仍未验收。具体提供方和型号待定；本地权重部署与小模型微调不列入当前实施路线。本阶段只修正设计、实现及合成软件自检，不自行启动真实模型、真实数据修复实验或安装新依赖/平台 SDK。后续实验须核定数据调用与资源边界；此次无硬件路线调整不自动解锁运行开关。
+当前默认产品是 Windows x64 本机运行的轻量源码/日志修复 Agent，基础模型通过云端大模型 API 接入。输入源码和故障日志即可进行 analysis；接纳宿主验证器后用 source_execution 实际执行原版及候选的相关源码、回放故障输入并检查正常/边界行为，不以完整 HarmonyOS 工程、平台 SDK、签名、真机或模拟器作为默认前置。完整 application 执行降为可选扩展，不能因数据中某应用 README 的硬件要求阻塞源码级主线；不同操作系统的部署仍未验收。本地权重部署与小模型微调不列入当前实施路线。
+
+用户于 2026-10-17 明确已在 configs/model.local.json 配置 Key，并授权在限定账户总预算内开展真实 DeepSeek 接入、数据修复和结果整理。当前模型为 deepseek-flash，thinking 为 enabled；不得擅自关闭思考模式，工具续轮须回传提供方要求的完整 reasoning 历史。实际兼容性仍须小额核验，不能因配置存在宣称已通过。金额上限、保留额、保守费率和停止规则唯一维护在 docs/preparation/metrics-and-gates.md，私有批次清单为 configs/evaluation.local.json；competition 在新 run 前核对累计调用账本并预留该 run 的最坏 Token 成本，未知发送或缺失 usage 停止后续付费运行，不盲重试或新开 run 重置预算。此次授权只允许受管模型与宿主源码主线，按授权开启 allow_model_experiments；application 实验、平台 SDK 安装和新依赖安装不随之解锁。
 
 准确区分 analysis、synthetic 软件自检、source_execution 宿主真实源码验证与 application 完整应用验证。源码回放须绑定实际被检查的原版/候选，披露抽取、转译、平台 mock、覆盖范围及语义差异；用 Python 重写算法、重读历史日志或仅检查文本不能冒充候选源码执行。宿主协议通过不自动等于 HarmonyOS 应用成功或官方评分认可；栈映射、静态推演不能冒充根因准确率或修复成功率，缺证据保持未知。
 

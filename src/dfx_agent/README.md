@@ -1,9 +1,9 @@
 # 竞赛与离线修复 Agent 使用说明
 
-状态：当前使用说明。最后维护：2026-10-15。
+状态：当前使用说明。最后维护：2026-10-17。
 职责：维护现有命令、输入格式和行为限制；项目进度见 [STATUS](../../docs/STATUS.md)。
 
-当前产品在普通 Windows x64 本机分析应用源码和故障日志，调用云端模型定位、编辑并输出补丁；不要求完整 HarmonyOS 工程、平台 SDK、签名、真机或模拟器。默认 analysis 无执行配置，可选 --validation 接纳宿主真实源码回放及失败修订，--application 保留完整应用扩展。现有 Deep Agents 循环、上下文、Skills、预算、停止/恢复共用；repair/resume、旧离线聚合与 Export/Verify 保留其原模拟语义。实际软件证据见 [STATUS](../../docs/STATUS.md)；本阶段只做 MockTransport/短时软件自检，不启动真实模型或 data_B 修复实验，不把 synthetic 当成源码或应用成绩。
+当前产品在普通 Windows x64 本机分析应用源码和故障日志，调用云端模型定位、编辑并输出补丁；不要求完整 HarmonyOS 工程、平台 SDK、签名、真机或模拟器。默认 analysis 无执行配置，可选 --validation 接纳宿主真实源码回放及失败修订，--application 保留完整应用扩展。现有 Deep Agents 循环、上下文、Skills、预算、停止/恢复共用；repair/resume、旧离线聚合与 Export/Verify 保留其原模拟语义。用户已授权有限总预算内的真实 DeepSeek 测试，实际运行与结果只见 [STATUS](../../docs/STATUS.md)；不把 synthetic、源码回放或静态定位混称完整应用成绩。
 
 ### 标准用户命令与部署
 
@@ -50,9 +50,9 @@ dfx.cmd configure --validation configs/my-source.json --save configs/my-source-r
 dfx.cmd --target reviewed/task01 --config configs/my-source-run.json --name source01
 ```
 
---validation 与 --application 互斥；后者只在另选完整 HarmonyOS 验证时使用 configs/harmonyos-app.template.json。缺设备/SDK 不阻塞默认分析或已接纳的宿主源码检查。本轮尚未授权真实调用/数据修复，上述真实运行示例须等待相应开关与数据边界接纳，不由 configure 自动放行。
+--validation 与 --application 互斥；后者只在另选完整 HarmonyOS 验证时使用 configs/harmonyos-app.template.json。缺设备/SDK 不阻塞默认分析或已接纳的宿主源码检查。真实调用仍须相应开关、数据边界和批次预算接纳，不由 configure 自动放行；本次授权不包含完整应用设备实验。
 
-示例 budget 的含义：`max_calls` 模型调用次数、`max_known_tokens` Token 预算、`max_output_tokens` 单次输出上限、`max_seconds` Agent 时间上限、`max_candidates` 补丁候选数、`max_tool_calls` 工具调用次数，均按单个任务限制。发送前保守预留输入和完整输出；缺 usage/结果不伪造费用。最新候选已完成所选层级必要检查、定位完整且无未知调用/其他错误，之后仅因 model_budget/wall_time/action_budget 无法生成结束语，不撤销可信结果，停止原因/成本保留。缺检查、新候选失败或未知仍阻断；analysis 不因有补丁获得验证接受。这不是全数据集累计或金额限额，批测另按总预算分批停止；准备数值实测前调整。
+示例 budget 的含义：`max_calls` 模型调用次数、`max_known_tokens` Token 预算、`max_output_tokens` 单次输出上限、`max_seconds` Agent 时间上限、`max_candidates` 补丁候选数、`max_tool_calls` 工具调用次数，均按单个任务限制。发送前保守预留输入和完整输出；缺 usage/结果不伪造费用。最新候选已完成所选层级必要检查、定位完整且无未知调用/其他错误，之后仅因 model_budget/wall_time/action_budget 无法生成结束语，不撤销可信结果，停止原因/成本保留。缺检查、新候选失败或未知仍阻断；analysis 不因有补丁获得验证接受。单任务限额不等于全数据集金额限额，本次真实批测还须配置下述 batch_budget_file，不能仅凭单任务配置连续启动。
 
 同一私有文件的 `network` 管理网络容错：`max_retries` 是首次请求之后的重试上限，允许 0–5；`request_timeout_seconds` 是一次逻辑模型调用的总时限，包含所有尝试和退避等待；`connect_timeout_seconds` 是每次连接的上限。准备值见 `configs/model.example.json`，设 5 次重试意味着最多 6 次网络尝试。生成运行配置时同时固定这些参数；调整后为新任务重新 configure，恢复不增加原额度。
 
@@ -64,13 +64,54 @@ doctor 默认只检查私有模型字段/Key 格式和占位型号；--validatio
 
 环境变量仍是兼容选项：显式使用 `configure --provider deepseek --model MODEL_ID --key-env DEEPSEEK_API_KEY --save ...`，按需另加 --validation 或 --application，该路径不读私有文件。文件模式缺 Key 报错，不静默回退环境变量。
 
-DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文件设 `thinking_mode: "enabled"` 时保持完整历史并关闭裁剪（旧环境模式可用 `--thinking enabled`）。通用 compatible 预设不推测厂商思考模式；首次接入按官方协议核对，再固定模式与上下文策略。厂商特殊参数不能当成所有兼容服务的通用字段。模型通信测试使用官方 SDK 的 MockTransport；真实服务测试尚未开展。
+DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文件设 `thinking_mode: "enabled"` 时保持完整历史并关闭裁剪（旧环境模式可用 `--thinking enabled`）。本次用户配置为 enabled，不能静默改成关闭或裁剪历史。通用 compatible 预设不推测厂商思考模式；首次接入按官方协议核对，再固定模式与上下文策略。厂商特殊参数不能当成所有兼容服务的通用字段。MockTransport 属软件测试；真实服务观察见 STATUS。
 
 宿主源码验证由 Agent 在独立原版/候选副本运行固定检查；可选 preparation 只做批准的项目依赖准备，未知不重复执行，不安装全局运行时或平台。build 在 source 模式指局部语法/装载，target 回放故障输入，behavior/regression 检查独立预期和原有行为。实际装载当次相关源码，披露抽取/转译、平台 mock 和未覆盖语义；不以 Python 重写正确算法、旧日志重读或固定结果替代。只有另选 application 时，才需要 SDK/签名/设备和应用场景接纳。
 
---target 是审核过的任务快照，含 task.json、source、crash.log 和清单，不直接执行任意原工程指令。输入位于部署项目中，不直接传原始 data_B、archive 或指令目录；原始数据只读，任务另行准备。analysis 只绑定模型/预算；source/application 通过 --config 绑定相应执行源码和固定判据。真实条件未接纳时仅做受管合成自检。省略 --name 自动命名，工作根/批准路径自动派生。--resume 沿原输入/profile/预算，不替换配置；旧位置文件缺失用兼容显式参数，源码/依赖变化仍可能拒绝恢复。
+--target 是审核过的任务快照，含 task.json、source、crash.log 和清单，不直接执行任意原工程指令。输入位于部署项目中，不直接传原始 data_B、archive 或指令目录；原始数据只读，任务另行准备。analysis 只绑定模型/预算；source/application 通过 --config 绑定相应执行源码和固定判据。未经宿主协议接纳时仍可在授权和预算内进行 analysis，但结果不计源码执行成功。省略 --name 自动命名，工作根/批准路径自动派生；本次批测应显式使用事前登记的 run ID。--resume 沿原输入/profile/预算，不替换配置；旧位置文件缺失用兼容显式参数，源码/依赖变化仍可能拒绝恢复。
 
 --workspace 可指定完整部署目录，否则向上寻找或读取 DFX_PROJECT_ROOT。--config 保存不含 Key 的模型/预算及可选检查；凭据按私有文件位置或兼容环境名读取。普通命令不改变真实实验开关。
+
+### 本次受管接入、准备与批次控费
+
+先从项目根执行只读 provider 预检：
+
+```text
+.dfx-local\env\Scripts\python.exe -B -m dfx_agent.managed_runtime --workspace . Run -Task provider
+```
+
+它只对 DeepSeek 官方地址通过官方 SDK 发 GET 模型列表和余额查询，不调用推理、不产生推理 Token 费用；另检查本机普通 Node 是否有 stripTypeScriptTypes。不回显 Key，观察写入 `.dfx-local/state/provider-admission.json`。model_available、余额及 Node 能力属于当时观察，不证明工具续轮、usage 或修复已经通过；余额查询也不替代逐调用账本。接口失败按类别停止，不用生成请求试探连通性。
+
+022 的受管 prepare 只准备审核过的任务与原版回放。将配置放在 `.dfx-local/state/022-preparation.json`，顶层恰有以下七个字段，不加 Key 或模型参数：
+
+| 字段 | 内容 |
+|---|---|
+| case | 已审阅的 CaseSelection 对象；字段见下文 catalog 中的单个 cases 条目，日志摘要须对应实际原字节 |
+| data_root | 固定为 data_B，原数据只读 |
+| output | 新任务目录，位于 .dfx-local/tmp 内，例如 .dfx-local/tmp/022-task |
+| validation_profile | 新 source profile，位于 .dfx-local/state 内，例如 .dfx-local/state/022-validation.json |
+| node | 已存在的普通 node.exe 绝对路径，不使用 Codex 运行时或 shell 包装器 |
+| oracle | 固定为 resources/source-validation/household-checksum/oracle.cjs |
+| record | 新准备记录 JSON，位于 .dfx-local/state 内，与配置和 profile 分开 |
+
+```text
+.dfx-local\env\Scripts\python.exe -B -m dfx_agent.managed_runtime --workspace . Run -Task prepare -PreparationConfigPath .dfx-local/state/022-preparation.json
+dfx.cmd doctor --validation .dfx-local/state/022-validation.json
+dfx.cmd configure --validation .dfx-local/state/022-validation.json --save configs/022-run.json
+```
+
+prepare 校验源码/日志、生成快照、实际加载原版校验逻辑并要求复现已登记故障；只执行原版 build/target，不生成候选、不调用模型，也不把原版准入写成修复通过。成功记录为 source_baseline_admitted，source_verification/application_verification 仍为 not_run；失败保留 blocked 记录，已有输出不覆盖。运行器保留实际被检查源码的身份，有限抽取/类型剥离、覆盖与平台排除见其同目录 README.txt，不能据此声称整应用可运行。
+
+付费前在被 Git 忽略的 `configs/evaluation.local.json` 冻结批次配置。它是独立批次费用门，不是前文旧 offline_synthetic 评测清单，不能混用 schema。字段为 schema_version=1、budget_id、model_id、credential_file、max_cny、ceiling_cny_per_million_tokens、run_ids；credential_file 只保存 configs/model.local.json 等私有位置，文件本身不含 Key。金额字符串、费率与保留规则依 [评测口径](../../docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界) 填写，run_ids 预先列出全部允许运行的唯一 ID。
+
+在 configure 生成的 cloud 运行配置顶层增加 `"batch_budget_file": "configs/evaluation.local.json"`，再以已登记的 ID 启动，例如：
+
+```text
+dfx.cmd --target .dfx-local/tmp/022-task --config configs/022-run.json --name pilot022
+dfx.cmd --resume pilot022
+```
+
+示例 pilot022 必须已经在 run_ids 内。准入只读核验既有 run 的真实模型账本、终态报告、模型和凭据位置，新 run 按其完整 Token 上限预留最坏费用；超额、其他 run 未结束、请求结果未知或 usage 缺失/无效时阻止继续付费，不能补零或另开运行重置额度。批次原字节摘要随 competition 配置冻结，启动后不能改 run_ids、金额、费率、模型或凭据位置；换名单会使已有证据身份不一致，不能作为增加预算或抹去失败的方法。恢复使用原配置、账本和剩余额度，不重新获得任务预算。真实兼容性与逐例效果仍以 STATUS 中实际证据为准。
 
 ### 无设备的真实源码回放示例
 
@@ -86,7 +127,7 @@ DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文�
 
 frontier 可显式设置 `context_layout: "decision_layers"`，以阶段问题、假设/未知、事实/推断、运行条件/业务义务、候选检查和失败修订组织原语义记录，替换默认 `record_panel`。竞赛演示与云端模板选择 `decision_frontier`，进一步读取当前范围匹配的已保存决策，并展示原待证问题、区分问题和反证引用；检查和草稿状态优先，提示不要求每个未知都追加调查。各布局冻结到 profile，旧布局/历史不变。编译回组须完整还原原投影，不能只发送摘要却认证原文可见；建议不代替执行权限或最终接受。新发送计划另外给被移出原版/冻结候选读取提供有界回读导航，跨诊断找回旧探索；导航可因窗口不足省略，不挤掉已选原文，历史草稿不冒充可复原版本。必要未表达工具正文只发送一份，实际完整组保持；SDK 自动摘要仍关闭，竞赛入口尚无通用语义摘要开关。软件验收状态见 STATUS。
 
-候选 DeepSeek 协议可在 model 中显式写 `thinking_mode: "disabled"` 以测试有限历史；云端模板明确选择此准备配置，适配器会发送 `thinking: {"type":"disabled"}`，必须先核对实际提供方支持该字段与模式。它不是所有 OpenAI-compatible 服务通用的参数；其他提供方须按实际协议审查后配置，不能凭模板假定兼容。思考模式写 `thinking_mode: "enabled"`，可配 `reasoning_effort: "low"/"high"/"max"`，并使用完整历史（working_context.enabled=false、不启用主机压缩）。enabled 不接 temperature 或强制工具选择，历史 reasoning 缺项/裁剪会在发送前停止。未声明模式仍是旧通用配置语义，不能据此判断提供方的实际默认。协议适配源码和 Mock 用例的软件验收结果见 STATUS；尚未请求真实服务，最终模式由接纳和同模式比较决定，有限历史准备配置不代表已决定比赛最终模式。
+候选 DeepSeek 协议可在 model 中显式写 `thinking_mode: "disabled"` 以测试有限历史；云端模板明确选择此准备配置，适配器会发送 `thinking: {"type":"disabled"}`，必须先核对实际提供方支持该字段与模式。它不是所有 OpenAI-compatible 服务通用的参数；其他提供方须按实际协议审查后配置，不能凭模板假定兼容。思考模式写 `thinking_mode: "enabled"`，可配 `reasoning_effort: "low"/"high"/"max"`，并使用完整历史（working_context.enabled=false、不启用主机压缩）。enabled 不接 temperature 或强制工具选择，历史 reasoning 缺项/裁剪会在发送前停止。未声明模式仍是旧通用配置语义，不能据此判断提供方的实际默认。软件与真实证据分别见 STATUS；本次保留用户 enabled 配置，不以有限历史准备配置冒充其实际发送或方法收益。
 
 运行中显示实际模型派发/回执、工具授权/结果保存、原版和候选的 build/target/behavior/regression 阶段、源码绑定观察以及最终报告。工具结果保存不是业务通过，阶段退出成功不等于修复被接受；定位推断及完整补丁通过 result.md 查看。默认文本逐条反馈；`--output-format json` 只输出一个最终结果/观察，`stream-json` 每个事件一行，可用于其他界面。`logs NAME --after N --follow --output-format stream-json` 接续序号；查看日志时 Ctrl+C 只退出查看，运行时 Ctrl+C 请求停止本次 manager。缺身份或停止未确认保持 unknown，不停止其他任务。
 
@@ -119,7 +160,7 @@ events.jsonl 是容量有限的操作侧录：不输出模型正文、源码、�
 | `events.jsonl` | 新运行的有限实时操作观察；不充作接受、成本或历史时间证据 |
 | `product-config.json`、`product-launch.json` | 新前端恢复时定位原配置和任务；真正准入仍由原固定事实与外部批准决定 |
 
-configs/competition-demo.json 是合成演示；competition-cloud.template.json 默认轻量 analysis 云端准备配置；source-validation.template.json 是可选宿主检查字段模板；harmonyos-app.template.json 仅完整应用扩展。占位值不代表可运行或已接纳。local-runtime.json 的真实模型/应用开关仍 false，本轮不安装新依赖、不自行启动真实云端/数据修复或平台任务；source 模式不要求应用开关，但不能借此绕过实验安排。
+configs/competition-demo.json 是合成演示；competition-cloud.template.json 默认轻量 analysis 云端准备配置；source-validation.template.json 是可选宿主检查字段模板；harmonyos-app.template.json 仅完整应用扩展。占位值不代表可运行或已接纳。本次用户授权仅开放受管真实模型与源码主线，local-runtime.json 的 application/平台 SDK 开关仍关闭，资源数值不变；source 模式不要求应用开关，但仍须遵守数据、单任务和批次预算门，不安装新依赖或平台工具。
 
 analysis 不配置 execution，不构造假检查。需要真实源码验证时，主机审阅任务、宿主装载/转译/mock 语义和独立业务判据，再冻结 project_root、source_mapping、commands、validation_scope/mocked_interfaces。映射空则同路径，非空须覆盖分析基线且原字节一致；不能用漏改候选的替代代码运行。source 四命令检查局部装载、故障输入、业务与回归，原版先装载/故障复现、候选再完整检查。故障标记、非零退出码、各 oracle_sha256/independent_oracles 文件绑定必填，oracle 必须在可写源码工程/任务/run 外；每阶段前后核源码和判据，漂移保留 inconclusive。模型无权改命令/判据，哈希不认证语义。application 扩展另要求完整工程/平台，不能拿分析快照冒充完整应用。
 
@@ -152,7 +193,7 @@ Stop 终止当前受管 Job，Status 查看状态。Clean 默认预览，范围/
 .\scripts\local.ps1 Run -Task test -TestPath tests/test_working_context.py
 ```
 
-`prepare` 必须显式提供经人工核对的 JSON catalog、task ID、数据根目录和新的输出目录。本阶段只筛出 021/022 两项待接入候选，尚未形成可运行的正式 catalog。当前 catalog schema 2 的最小结构如下；这些是字段示例，不是可运行的真实路径或哈希：
+旧通用 `prepare` 入口必须显式提供经人工核对的 JSON catalog、task ID、数据根目录和新的输出目录；本次 022 固定宿主准备使用上文的受管 prepare 任务，两个入口不能混淆。下列 catalog schema 2 说明单个 CaseSelection 的结构，字段示例不是可运行的真实路径或哈希，也不是已接纳的全量案例名单：
 
 ```json
 {
@@ -177,7 +218,7 @@ Stop 终止当前受管 Job，Status 查看状态。Clean 默认预览，范围/
 
 ZIP 内日志还必须给 `log.member`，哈希对应成员解压后的原始字节。路径均相对于 `--data-root` 且使用 `/`；`scenario` 可省略，但存在时只做原字节哈希核验，绝不复制进 Agent 输入。catalog 拒绝重复 task ID、案例键和同字节日志，不能用重复材料抬高样本量；案例键和谱系由准备者核对，字段本身不证明日志、源码与实际构建版本一致。`prepare` 产出的 task schema 2 只暴露案例选择摘要、日志和 `analysis_source_v1` 源码快照；旧 schema 1 合成快照仍可读取，不是正式案例入口。该快照会排除运行资源和测试材料，不是可构建的应用包，也不是操作系统访问隔离机制。
 
-日志原件保持原字节。Agent 分页读取、引用登记与上下文回核共用解码规则，兼容带 BOM 的 UTF-16、UTF-8/BOM 和 GB18030；无法完整解码时 read_log 的 warnings 明确报告替换，encoding 标明实际路径。行号指该解码文本的行，不对应文件字节偏移；原日志 SHA 仍按原字节核对。既有旧解码陈述只读保留，不自动改成新文本。`.ets` 源码使用 UTF-8 文本读取/检索/编辑，真实 ArkTS 类型与平台 API 正确性须本机构建验证。大日志仍受现有输入和工作集限额，超大单行卸载尚未启用。
+日志原件保持原字节。Agent 分页读取、引用登记与上下文回核共用解码规则，兼容带 BOM 的 UTF-16、UTF-8/BOM 和 GB18030；无法完整解码时 read_log 的 warnings 明确报告替换，encoding 标明实际路径。行号指该解码文本的行，不对应文件字节偏移；原日志 SHA 仍按原字节核对。既有旧解码陈述只读保留，不自动改成新文本。`.ets` 源码使用 UTF-8 文本读取/检索/编辑，宿主有限类型剥离不认证完整 ArkTS 类型或平台 API；这些差异在协议范围中披露，完整平台验证只属于可选 application。大日志仍受现有输入和工作集限额，超大单行卸载尚未启用。
 
 `analyze` 接收含 `task.json` 的快照目录，输出目录必须在该快照之外。报告保存栈位置、相关源码和映射歧义；`root_cause` 与 `patch` 为 null，验证状态保持 not_run。输入哈希校验能发现相对清单的改动，不证明清单的来源可信或日志与源码运行版本一致。
 
@@ -236,7 +277,7 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 
 失败后 `link_failed_check` 返回反馈及 feedback_id，再决策时成对传该 feedback_id 与原 candidate_id；主机重新核对已保存失败检查、候选源码哈希和原观察。`decisions/<ID>.json` 保存建议及上下文摘要；`inspect_analysis(decision_id=...)` 可回读，默认列出决策和反馈 ID。`register_candidate` 可选成对传 decision_id/direction_id，核对同诊断、所选提议方向及声明义务；建议不强迫模型采用某一修法。失败与义务的关联仍是推断，只建议重审相关方向。
 
-`agent-report.json` 是 SDK 轨迹与摘要。其无知识 schema 7/completion 4 绑定 session 10 中保存的 execution_provenance；主机明确批准知识时使用 11/8/5，另保存 knowledge_profile 和 knowledge_facts。显式三态启停策略使用 12/9/6，另保存 applicability_profile、applicability_facts 和 solver-inputs 中的实际发送记录；显式静态启停使用 13/10/7，另保存 static_skill_profile/static_skill_facts，分别记录完整读取与后续实际可见性。批准版本程序入口使用 14/11/8 和 version_skill_profile/version_skill_facts，原代保持原形状。记录候选、检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 与 9/6/3 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。working_context_plans 记录可见动作水位、组织视图/实际发送哈希、选择范围与保留成本；context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null。该 SDK 摘要的 accepted 保持 false；competition 的接受状态另由完整应用检查事实生成在 competition-report 中，不能拿 agent-report 的合成摘要作竞赛成功判定。
+`agent-report.json` 是 SDK 轨迹与摘要。其无知识 schema 7/completion 4 绑定 session 10 中保存的 execution_provenance；主机明确批准知识时使用 11/8/5，另保存 knowledge_profile 和 knowledge_facts。显式三态启停策略使用 12/9/6，另保存 applicability_profile、applicability_facts 和 solver-inputs 中的实际发送记录；显式静态启停使用 13/10/7，另保存 static_skill_profile/static_skill_facts，分别记录完整读取与后续实际可见性。批准版本程序入口使用 14/11/8 和 version_skill_profile/version_skill_facts，原代保持原形状。记录候选、检查、已保存决策、condition_results、模型与工具调用、授权/拒绝、结果哈希、策略开关和未知状态。旧 session 8/report 5/completion 2 与 9/6/3 保持原形状只读回读，拒绝跨版本拼接。摘要区分首次允许编辑前的初次定位、最新定位及最新候选关联定位；定位始终是原始源码坐标的模型推断。candidate_artifacts 列出完整候选、相对 patch_path、实际哈希和检查；latest_candidate_check_status 与历史通过列表分开，最新失败/未检查不会被旧通过覆盖。working_context_plans 记录可见动作水位、组织视图/实际发送哈希、选择范围与保留成本；context_compactions 记录摘要来源、响应与实际 solver 视图的核验状态，摘要不能覆盖检查事实。cost 记录完整调用分母及 calls_by_kind，缺失/无效/未知用量不补零；缺少计时依据的定位/修复耗时为 null。该 SDK 摘要的 accepted 保持 false；competition 的接受状态另按所选 source/application 层级的实际检查与完整定位生成在 competition-report 中，不能拿 agent-report 的合成摘要作竞赛成功判定。
 
 `reporting.read_completion(workspace, ledger, model_calls, actions)` 是程序回读接口：重新核对源码、补丁、诊断、模型/工具请求与回执、条件、决策和 session，拒绝与这些事实矛盾的摘要或展示字段；不重新调用模型或执行检查。知识运行必须另传主机实际 `task_directory=task`，不从模型字段取外部路径；build_completion 同样要求它。report_validation 明列核验范围、用于重算的停止原因和无法回读重建的本轮计数/适配诊断，摘要哈希不代替独立来源可信性。报告文件与候选 diff 可直接审阅；批量回读使用下述 aggregate，保留完整核验依据使用受管私有 Export。
 
@@ -264,7 +305,7 @@ schema 5/6 的 `knowledge` 是主机配置，模型不能提交或扩大它：
 
 ### 开发反馈与待审核经验：程序接口
 
-模型调用账本保持分代：求解会话仍用 ModelCallIntent/schema 1；独立学习用 ModelCallIntentV2/schema 2，冻结学习 owner 和来源，experience_extraction 与 learning_format_repair 共享同 operation/run 预算。格式修复须引用同模型/来源的已完成父响应，完整父链和 usage 重核；未知发送不重试，完成只回放。invoke_accounted 的显式 preflight 在 reserve 后、dispatch 前执行，失败保留未发送预约且占额度；实际费用和总 Token 硬限制未接入。它是底层调用状态接口，来源权限仍须由学习工作流核验，不能仅凭哈希准入材料。合成检查入口是 tests/test_learning_model_calls.py，真实实验仍禁止。
+模型调用账本保持分代：求解会话仍用 ModelCallIntent/schema 1；独立学习用 ModelCallIntentV2/schema 2，冻结学习 owner 和来源，experience_extraction 与 learning_format_repair 共享同 operation/run 预算。格式修复须引用同模型/来源的已完成父响应，完整父链和 usage 重核；未知发送不重试，完成只回放。invoke_accounted 的显式 preflight 在 reserve 后、dispatch 前执行，失败保留未发送预约且占额度；该独立学习接口的实际费用和总 Token 硬限制未接入，不等于上文竞赛求解的批次费用门。它是底层调用状态接口，来源权限仍须由学习工作流核验，不能仅凭哈希准入材料。合成检查入口是 tests/test_learning_model_calls.py；本次授权不包含真实独立学习实验。
 
 `feedback.py` 的 FeedbackStore 消费主机明确批准的单开发运行清单，捕获并独立重核反馈；当前只提供程序接口，须在受管工作流或软件自检内调用，尚无用户学习 CLI。预创建的 Store 位于项目受管目录，不从数据包扫描经验或自动启动模型。
 
@@ -347,7 +388,7 @@ store 内 `materials/` 保存原批准字节，`entries/` 保存内容及来源�
 
 普通经验检索已接实际 SDK 程序接口：主机将审核过的 `KnowledgeRetriever` 与精确 `TaskKnowledgeBinding` 包成 `HostKnowledgeInput(retriever, approval)`，首次 `run_fixed_agent` 或 `run_provider_agent` 传 `knowledge=host_input`。入口把该快照/索引的完整原件闭包复制进当前 work 的 `knowledge/`，固定 `knowledge-profile.json` 和批准记录；不复制整库、外部旧查询或未批准内容。模型获得 `search_experience(tags, text, offset, limit)` 与 `read_experience(query_id, entry_id)`，不接收快照、scope 或文件路径参数。搜索返回完整命中页，回读只允许该页实际条目，保留全部前提、未知问题、步骤、保留行为及反例。无批准时原 14 工具及 10/7/4 形状不变，有批准时增加两工具；复用既有能力和调用/工具/Token/时间预算。
 
-知识续跑只传 `resume=True, knowledge_approval=original_approval`，不得再次传入库；主机必须明确提供原批准，不能从已存 profile 自行取得授权。原外部库不可用仍可从 run 原件恢复。来源、全部查询和完整 ToolMessage 回执在可写账本及 Graph 前只读审计；完整运行缺账本拒绝，未保存结果保留未知，已完成搜索/回读回放而不重做。搜索发布前既核原件容量，也核报告中两处完整知识片段的 ASCII 转义容量及共享工具预算下的关联余量，拒绝后不写新查询、不截断指导。报告关联原 solver 请求、动作身份、批准范围和完整原指导，孤立查询不冒充模型使用。私有 Export 保留这些原件、批准、查询及索引，可在迁移后只依赖包内任务/知识重聚合。固定/模拟脚本 schema 5/6 已通过完整外部批准接入受管 repair/resume，启动消费明确库及原件，恢复只用 run 内原件和原批准；程序接口也须在受管任务内调用，不能直接绕过 Job。相关测试为 `test_knowledge_run.py`、`test_knowledge_sdk.py`、`test_knowledge_reporting.py` 及受管知识配置反例。当前无真实模型或应用实验；三态发送另走下述显式 SDK 策略入口，学习收益仍未知。
+知识续跑只传 `resume=True, knowledge_approval=original_approval`，不得再次传入库；主机必须明确提供原批准，不能从已存 profile 自行取得授权。原外部库不可用仍可从 run 原件恢复。来源、全部查询和完整 ToolMessage 回执在可写账本及 Graph 前只读审计；完整运行缺账本拒绝，未保存结果保留未知，已完成搜索/回读回放而不重做。搜索发布前既核原件容量，也核报告中两处完整知识片段的 ASCII 转义容量及共享工具预算下的关联余量，拒绝后不写新查询、不截断指导。报告关联原 solver 请求、动作身份、批准范围和完整原指导，孤立查询不冒充模型使用。私有 Export 保留这些原件、批准、查询及索引，可在迁移后只依赖包内任务/知识重聚合。固定/模拟脚本 schema 5/6 已通过完整外部批准接入受管 repair/resume，启动消费明确库及原件，恢复只用 run 内原件和原批准；程序接口也须在受管任务内调用，不能直接绕过 Job。相关测试为 `test_knowledge_run.py`、`test_knowledge_sdk.py`、`test_knowledge_reporting.py` 及受管知识配置反例。旧入口保持模拟语义，不因本次竞赛求解授权转为真实学习实验；三态发送另走下述显式 SDK 策略入口，学习收益仍未知。
 
 经验前提交接入口为 `ApplicabilityStore(workspace, task_directory, ledger, retriever, approval)`。`approval` 是主机显式提供的 `TaskKnowledgeBinding`，固定实际任务/运行、分析版本、日志、批准知识快照与 scope；构造不创建目录，`bind()` 才固定该 run 批准。`record_query(tags=..., text=..., offset=..., limit=...)` 由主机填入快照和范围，生成绑定查询；`prepare_context(bound_query_id, focus)` 冻结当前诊断、假设、候选和已核验原材料。模型提案只使用该 context 的经验页和登记引用，`review(proposal)` 保存完整前提判断、指导、原未知问题、当前义务及三态建议。这个独立 Store 本身不调度 CLI、SDK、模型或执行；实际 SDK 集成由下述 applicability_handoff 入口承接。
 
