@@ -44,7 +44,9 @@ data_B 中的 README、Prompt、AGENTS 等属于分析材料，不是本项目�
 
 当前默认产品是 Windows x64 本机运行的轻量源码/日志修复 Agent，基础模型通过云端大模型 API 接入。输入源码和故障日志即可进行 analysis；接纳宿主验证器后用 source_execution 实际执行原版及候选的相关源码、回放故障输入并检查正常/边界行为，不以完整 HarmonyOS 工程、平台 SDK、签名、真机或模拟器作为默认前置。完整 application 执行降为可选扩展，不能因数据中某应用 README 的硬件要求阻塞源码级主线；不同操作系统的部署仍未验收。本地权重部署与小模型微调不列入当前实施路线。
 
-用户于 2026-10-17 明确已在 configs/model.local.json 配置 Key，并授权在限定账户总预算内开展真实 DeepSeek 接入、数据修复和结果整理。当前模型为 deepseek-flash，thinking 为 enabled；不得擅自关闭思考模式，工具续轮须回传提供方要求的完整 reasoning 历史。实际兼容性仍须小额核验，不能因配置存在宣称已通过。金额上限、保留额、保守费率和停止规则唯一维护在 docs/preparation/metrics-and-gates.md，私有批次清单为 configs/evaluation.local.json；competition 在新 run 前核对累计调用账本并预留该 run 的最坏 Token 成本，未知发送或缺失 usage 停止后续付费运行，不盲重试或新开 run 重置预算。此次授权只允许受管模型与宿主源码主线，按授权开启 allow_model_experiments；application 实验、平台 SDK 安装和新依赖安装不随之解锁。
+用户于 2026-10-17 明确已在 configs/model.local.json 配置 Key，并授权在限定账户总预算内开展真实 DeepSeek 接入、数据修复和结果整理。当前模型为 deepseek-flash，thinking 为 enabled；不得擅自关闭思考模式，工具续轮须回传提供方要求的完整 reasoning 历史。实际兼容性仍须小额核验，不能因配置存在宣称已通过。金额上限、保留额、保守费率和停止规则唯一维护在 docs/preparation/metrics-and-gates.md，私有批次清单为 configs/evaluation.local.json；competition 在新 run 前核对累计调用账本并预留该 run 的最坏 Token 成本，未知发送或缺失 usage 默认停止后续付费运行，不盲重试或新开 run 重置预算。此次授权只允许受管模型与宿主源码主线，按授权开启 allow_model_experiments；application 实验、平台 SDK 安装和新依赖安装不随之解锁。
+
+用户随后明确要求汲取失败、修复后继续竞赛测试，允许对已结束且原模型账本与终态报告完整的特定未知 run，以其冻结 max_known_tokens 全额占用原批次预算后继续新 run。该例外须由新 CompetitionConfig 的 charge_unknown_run_caps 显式列出已登记的其他 run ID；不修改原 unknown、不补零、不重发原请求，不接受缺账本、缺终态报告或仍在运行的记录。缺字段或空名单保持默认未知即停止，不自动降级；现总预算不增加。完整模型响应即使动作/格式不合法，也应保留响应和已提供 usage 后拒绝执行，不能把已知成本丢成未知或重发模型请求。
 
 准确区分 analysis、synthetic 软件自检、source_execution 宿主真实源码验证与 application 完整应用验证。源码回放须绑定实际被检查的原版/候选，披露抽取、转译、平台 mock、覆盖范围及语义差异；用 Python 重写算法、重读历史日志或仅检查文本不能冒充候选源码执行。宿主协议通过不自动等于 HarmonyOS 应用成功或官方评分认可；栈映射、静态推演不能冒充根因准确率或修复成功率，缺证据保持未知。
 

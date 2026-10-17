@@ -977,23 +977,41 @@ def _response_message(result: Any) -> AIMessage:
         if message["reasoning_content"] is not None and not isinstance(message["reasoning_content"], str):
             raise AdapterResponseError("invalid_response_reasoning")
         kwargs["reasoning_content"] = message["reasoning_content"]
-    wire_calls = message.get("tool_calls")
-    if wire_calls is None:
-        wire_calls = []
-    if not isinstance(wire_calls, list):
-        raise AdapterResponseError("invalid_response_tool_calls")
+    raw_wire_calls = message.get("tool_calls")
+    wire_calls = [] if raw_wire_calls is None else raw_wire_calls
     calls: list[Any] = []
     invalid: list[Any] = []
+
+    def invalid_descriptor(value: Any, reason: str) -> None:
+        function = value.get("function") if isinstance(value, dict) else None
+        function = function if isinstance(function, dict) else {}
+        name = function.get("name")
+        identifier = value.get("id") if isinstance(value, dict) else None
+        arguments = function.get("arguments")
+        invalid.append({"name": name if isinstance(name, str) else None,
+                        "id": identifier if isinstance(identifier, str) else None,
+                        "args": arguments if isinstance(arguments, str) else _canonical(value),
+                        "error": reason})
+
+    if not isinstance(wire_calls, list):
+        invalid_descriptor(wire_calls, "invalid_response_tool_calls")
+        wire_calls = []
     seen_call_ids: set[str] = set()
     incomplete = choice["finish_reason"] in ("length", "content_filter", "insufficient_system_resource", "aborted")
     for call in wire_calls:
         function = call.get("function") if isinstance(call, dict) else None
         if not isinstance(function, dict) or set(function) != {"name", "arguments"} or (
-            not isinstance(call, dict) or set(call) != {"id", "type", "function"} or call["type"] != "function" or
+            not isinstance(call, dict) or set(call) - {"id", "type", "function", "index"} or
+            not {"id", "type", "function"} <= set(call) or call["type"] != "function" or
             not isinstance(call["id"], str) or not call["id"] or not isinstance(function["name"], str) or
-            not function["name"] or not isinstance(function["arguments"], str)
+            not function["name"] or not isinstance(function["arguments"], str) or
+            ("index" in call and (type(call["index"]) is not int or call["index"] < 0))
         ):
-            raise AdapterResponseError("invalid_response_tool_call")
+            # A paid, syntactically valid JSON response with an unusable tool
+            # descriptor still has accountable usage. Preserve it, grant no
+            # tool action, and let the existing model format gate stop the run.
+            invalid_descriptor(call, "invalid_response_tool_call")
+            continue
         try:
             arguments = _decode(function["arguments"])
             if not isinstance(arguments, dict):
@@ -1011,10 +1029,14 @@ def _response_message(result: Any) -> AIMessage:
                             "error": issue})
         else:
             calls.append({"name": function["name"], "args": arguments, "id": call["id"]})
-    if choice["finish_reason"] == "tool_calls" and not wire_calls:
-        raise AdapterResponseError("missing_response_tool_calls")
+    if choice["finish_reason"] == "tool_calls" and not wire_calls and not invalid:
+        invalid_descriptor(raw_wire_calls, "missing_response_tool_calls")
     metadata: dict[str, Any] = {"model_name": result["model"], "finish_reason": choice["finish_reason"],
                                "wire_profile": WIRE_PROFILE}
+    if invalid or any(isinstance(call, dict) and "index" in call for call in wire_calls):
+        # Optional provider/SDK index metadata is not an execution argument.
+        # Retain exact JSON values for offline diagnosis and saved replay.
+        metadata["dfx_provider_tool_calls_raw"] = raw_wire_calls
     if message.get("refusal"):
         metadata["dfx_provider_refusal"] = message["refusal"]
         metadata["dfx_provider_incomplete"] = True

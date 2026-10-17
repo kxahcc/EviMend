@@ -22,6 +22,7 @@ from langchain_core.messages import (
 )
 from pydantic import ValidationError
 
+from dfx_agent.cloud_retries import CloudRetryPolicy
 from dfx_agent.context_compaction import CompactionPolicy, CompactionStore
 from dfx_agent.model_calls import ModelCallStore, ModelCallUncertain, canonical
 from dfx_agent.model_provider import (
@@ -647,6 +648,94 @@ def test_sdk_refusal_is_saved_format_failure_and_no_tool_is_executed(
         model.invoke([HumanMessage(content="request")])
     record = ledger.get("model-1")
     assert record is not None and record.state == "completed" and record.observation is not None
+    assert record.observation.format_status == "format_error" and record.observation.usage_status == "known"
+
+
+@pytest.mark.parametrize("retrying", [False, True])
+@pytest.mark.parametrize("change", [{"index": None}, {"index": True}, {"index": -1}, {"index": "0"},
+    {"id": None}, {"id": ""}, {"id": 7}, {"type": "custom"}, {"function": {}}, {"function": None},
+    {"function": {"name": 7, "arguments": "{}"}}, {"function": {"name": "read_source", "arguments": []}},
+    {"function": {"name": "read_source", "arguments": "{}", "extra": "unsupported"}},
+    {"unknown_extension": {"value": "preserved"}}])
+def test_sdk_malformed_tool_is_completed_known_cost_not_unknown_or_executed(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, retrying: bool, change: dict[str, Any]) -> None:
+    body = response(tool=True)
+    body["choices"][0]["message"]["tool_calls"][0].update(change)
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=body)
+
+    cloud = adapter(monkeypatch, handle)
+    if retrying:
+        cloud.config = cloud.config.model_copy(update={"network": CloudRetryPolicy(max_retries=0)})
+    ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
+    executions: list[dict[str, Any]] = []
+    for _ in range(2):
+        model = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+            max_calls=2, max_known_tokens=100_000, deadline=time.monotonic() + 20.0)
+        model.bind_tools(tools(), tool_choice="auto")
+        with pytest.raises(ModelLimit, match="provider_format_error"):
+            # A ToolNode cannot receive an executable result: the model gate
+            # raises only after the original response and usage are committed.
+            answer = model.invoke([HumanMessage(content="read source")])
+            assert isinstance(answer, AIMessage)
+            executions.extend(answer.tool_calls)
+    assert not executions and len(requests) == 1
+    record = ledger.get("model-1")
+    assert record is not None and record.state == "completed" and record.observation is not None
+    assert record.observation.format_status == "format_error" and record.observation.usage_status == "known"
+    assert record.observation.usage is not None and record.observation.usage.total_tokens == 15
+    assert ledger.usage_summary("task1", "run1")["uncertain_calls"] == 0
+    saved, _ = ledger.replay(record.intent)
+    assert not saved.tool_calls and saved.invalid_tool_calls
+    assert saved.response_metadata["dfx_provider_tool_calls_raw"] == body["choices"][0]["message"]["tool_calls"]
+
+
+@pytest.mark.parametrize("retrying", [False, True])
+@pytest.mark.parametrize("index", [0, 3])
+def test_sdk_nonnegative_tool_index_is_saved_metadata_and_continues_normally(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, retrying: bool, index: int) -> None:
+    body = response(tool=True)
+    body["choices"][0]["message"]["tool_calls"][0]["index"] = index
+    cloud = adapter(monkeypatch, lambda _: httpx.Response(200, json=body))
+    if retrying:
+        cloud.config = cloud.config.model_copy(update={"network": CloudRetryPolicy(max_retries=0)})
+    ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
+    model = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+        max_calls=2, max_known_tokens=100_000, deadline=time.monotonic() + 20.0)
+    model.bind_tools(tools(), tool_choice="auto")
+    message = model.invoke([HumanMessage(content="read source")])
+    assert isinstance(message, AIMessage) and len(message.tool_calls) == 1
+    assert message.tool_calls[0]["args"] == {"path": "src/中文.ets"}
+    assert message.response_metadata["dfx_provider_tool_calls_raw"][0]["index"] == index
+    request = cloud.prepare([HumanMessage(content="read source"), message,
+        ToolMessage(content="source", tool_call_id="cloud-tool-1", name="read_source")], tools())
+    assert "index" not in request.messages[1]["tool_calls"][0]
+    record = ledger.get("model-1")
+    assert record is not None and record.state == "completed" and record.observation is not None
+    assert record.observation.format_status == "tool_calls" and record.observation.usage_status == "known"
+
+
+def test_sdk_valid_tool_in_same_batch_as_malformed_tool_is_not_exposed_to_executor(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    body = response(tool=True)
+    calls = body["choices"][0]["message"]["tool_calls"]
+    calls.append({"id": "bad-call", "type": "function", "index": -1,
+                  "function": {"name": "read_source", "arguments": "{}"}})
+    cloud = adapter(monkeypatch, lambda _: httpx.Response(200, json=body))
+    ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
+    model = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
+        max_calls=2, max_known_tokens=100_000, deadline=time.monotonic() + 20.0)
+    model.bind_tools(tools(), tool_choice="auto")
+    with pytest.raises(ModelLimit, match="provider_format_error"):
+        model.invoke([HumanMessage(content="read source")])
+    record = ledger.get("model-1")
+    assert record is not None and record.state == "completed" and record.observation is not None
+    saved, _ = ledger.replay(record.intent)
+    assert saved.tool_calls and saved.invalid_tool_calls
+    assert saved.response_metadata["dfx_provider_tool_calls_raw"] == calls
     assert record.observation.format_status == "format_error" and record.observation.usage_status == "known"
 
 

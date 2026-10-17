@@ -36,6 +36,15 @@ SCOPE = (
     "erased IRequest interface import and local export binding; fixed ASCII/CJK/emoji "
     "requests, tampering and repeated/frozen inputs; no PRE_ORDER, UI, device or server coverage"
 )
+REVIEWED_ORACLES = {
+    ORACLE: (SOURCE, MARKER, SCOPE),
+    "resources/source-validation/tourist-phone/oracle.cjs": (
+        "components/module_base/src/main/ets/util/CommonUtil.ets",
+        "DFX016_TARGET_REGEX_SYNTAX_ERROR",
+        ("Execute actual module_base CommonUtil after Node stripTypeScriptTypes; "
+         "fixed phone validation, padWithZeros and CardNo cases; no UI or caller-substitution coverage"),
+    ),
+}
 
 
 def _read(path: Path, cap: int) -> bytes:
@@ -118,9 +127,10 @@ def run_preparation(root: Path, config_path: Path | str) -> dict[str, Any]:
         raise ValueError("preparation refuses existing or overlapping outputs")
     if output.is_relative_to(data) or data.is_relative_to(output):
         raise ValueError("preparation output overlaps dataset")
-    if raw["oracle"] != ORACLE:
-        raise ValueError("only the reviewed checksum oracle is admitted")
-    oracle = _checked(root / ORACLE)
+    if raw["oracle"] not in REVIEWED_ORACLES:
+        raise ValueError("only reviewed source oracles are admitted")
+    selected_source, selected_marker, selected_scope = REVIEWED_ORACLES[raw["oracle"]]
+    oracle = _checked(root / raw["oracle"])
     oracle_sha = digest(_read(oracle, MAX_CONFIG_BYTES))
     node = Path(raw["node"])
     if not node.is_absolute():
@@ -133,7 +143,7 @@ def run_preparation(root: Path, config_path: Path | str) -> dict[str, Any]:
         "observed_at": datetime.now(UTC).isoformat(), "case_identity_sha256": case.sha256(),
         "task_id": case.task_id, "task": str(output), "validation_profile": str(profile_path),
         "oracle": str(oracle), "oracle_sha256": oracle_sha, "node": str(node),
-        "validation_scope": SCOPE, "mocked_interfaces": [], "stages": [],
+        "validation_scope": selected_scope, "mocked_interfaces": [], "stages": [],
         "source_verification": "not_run", "application_verification": "not_run",
         "repair_success": None, "candidate_created": False, "model_calls": 0}
     _write_new(record_path, record)
@@ -141,7 +151,7 @@ def run_preparation(root: Path, config_path: Path | str) -> dict[str, Any]:
         snapshot = prepare_task(data, case.model_dump(exclude_none=True), output)
         task = verify_task(output)
         source = output / "source"
-        source_sha = digest(_read(source / SOURCE, MAX_CONFIG_BYTES))
+        source_sha = digest(_read(source / selected_source, MAX_CONFIG_BYTES))
         record.update(source_snapshot_sha256=snapshot["source_snapshot_sha256"],
             source_files=snapshot["source_files"], original_source_sha256=source_sha,
             source_log_alignment=task["source_log_alignment"])
@@ -165,14 +175,14 @@ def run_preparation(root: Path, config_path: Path | str) -> dict[str, Any]:
             if stage == "build" and observed["exit_code"] != 0:
                 raise ValueError("original source could not be loaded")
             if stage == "target" and (observed["exit_code"] != 9 or
-                    MARKER not in observed["stdout"] + observed["stderr"]):
-                raise ValueError("original did not reproduce the reviewed RangeError")
+                    selected_marker not in observed["stdout"] + observed["stderr"]):
+                raise ValueError("original did not reproduce the reviewed fault")
         profile = LocalCheckConfig(mode="source", project_root=str(source),
-            validation_scope=SCOPE, mocked_interfaces=[], commands={stage: LocalCommand(
+            validation_scope=selected_scope, mocked_interfaces=[], commands={stage: LocalCommand(
                 argv=[str(node), str(oracle), stage], oracle_sha256=oracle_sha, timeout_seconds=10)
                 for stage in STAGES}, independent_oracles={stage: IndependentOracle(
                     path=str(oracle), sha256=oracle_sha) for stage in STAGES},
-            baseline_target_exit_codes=[9], baseline_fault_pattern=MARKER, max_check_seconds=90)
+            baseline_target_exit_codes=[9], baseline_fault_pattern=selected_marker, max_check_seconds=90)
         _write_new(profile_path, profile.model_dump(mode="json"))
         record.update(state="done", status="source_baseline_admitted", fault_reproduced=True,
             baseline_verification="reproduced", source_verification="not_run",

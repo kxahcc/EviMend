@@ -82,7 +82,7 @@ DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文�
 
 它只对 DeepSeek 官方地址通过官方 SDK 发 GET 模型列表和余额查询，不调用推理、不产生推理 Token 费用；另检查本机普通 Node 是否有 stripTypeScriptTypes。不回显 Key，观察写入 `.dfx-local/state/provider-admission.json`。model_available、余额及 Node 能力属于当时观察，不证明工具续轮、usage 或修复已经通过；余额查询也不替代逐调用账本。接口失败按类别停止，不用生成请求试探连通性。
 
-022 的受管 prepare 只准备审核过的任务与原版回放。将配置放在 `.dfx-local/state/022-preparation.json`，顶层恰有以下七个字段，不加 Key 或模型参数：
+受管 prepare 只准备已审阅的 022 或 016 任务与原版回放，按案例选择对应固定 oracle。下例使用 `.dfx-local/state/022-preparation.json`；016 使用独立配置/输出路径。顶层恰有以下七个字段，不加 Key 或模型参数：
 
 | 字段 | 内容 |
 |---|---|
@@ -91,7 +91,7 @@ DeepSeek 预设显式关闭 thinking 并启用决策工作上下文；私有文�
 | output | 新任务目录，位于 .dfx-local/tmp 内，例如 .dfx-local/tmp/022-task |
 | validation_profile | 新 source profile，位于 .dfx-local/state 内，例如 .dfx-local/state/022-validation.json |
 | node | 已存在的普通 node.exe 绝对路径，不使用 Codex 运行时或 shell 包装器 |
-| oracle | 固定为 resources/source-validation/household-checksum/oracle.cjs |
+| oracle | 022 使用 resources/source-validation/household-checksum/oracle.cjs；016 使用 resources/source-validation/tourist-phone/oracle.cjs，不接受任意其他脚本 |
 | record | 新准备记录 JSON，位于 .dfx-local/state 内，与配置和 profile 分开 |
 
 ```text
@@ -100,7 +100,7 @@ dfx.cmd doctor --validation .dfx-local/state/022-validation.json
 dfx.cmd configure --validation .dfx-local/state/022-validation.json --save configs/022-run.json
 ```
 
-prepare 校验源码/日志、生成快照、实际加载原版校验逻辑并要求复现已登记故障；只执行原版 build/target，不生成候选、不调用模型，也不把原版准入写成修复通过。成功记录为 source_baseline_admitted，source_verification/application_verification 仍为 not_run；失败保留 blocked 记录，已有输出不覆盖。运行器保留实际被检查源码的身份，有限抽取/类型剥离、覆盖与平台排除见其同目录 README.txt，不能据此声称整应用可运行。
+prepare 校验源码/日志、生成快照、实际加载原版逻辑并要求复现对应已登记故障；只执行原版 build/target，不生成候选、不调用模型，也不把原版准入写成修复通过。成功记录为 source_baseline_admitted，source_verification/application_verification 仍为 not_run；失败保留 blocked 记录，已有输出不覆盖。016 强制验证日志对应 module_base/CommonUtil 方法，正常同名文件或调用端替代不能冒充该方法修复。运行器保留实际被检查源码的身份，有限抽取/类型剥离、覆盖与替代修法边界见各自同目录 README.txt，不能据此声称整应用可运行。
 
 付费前在被 Git 忽略的 `configs/evaluation.local.json` 冻结批次配置。它是独立批次费用门，不是前文旧 offline_synthetic 评测清单，不能混用 schema。字段为 schema_version=1、budget_id、model_id、credential_file、max_cny、ceiling_cny_per_million_tokens、run_ids；credential_file 只保存 configs/model.local.json 等私有位置，文件本身不含 Key。金额字符串、费率与保留规则依 [评测口径](../../docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界) 填写，run_ids 预先列出全部允许运行的唯一 ID。
 
@@ -111,7 +111,9 @@ dfx.cmd --target .dfx-local/tmp/022-task --config configs/022-run.json --name pi
 dfx.cmd --resume pilot022
 ```
 
-示例 pilot022 必须已经在 run_ids 内。准入只读核验既有 run 的真实模型账本、终态报告、模型和凭据位置，新 run 按其完整 Token 上限预留最坏费用；超额、其他 run 未结束、请求结果未知或 usage 缺失/无效时阻止继续付费，不能补零或另开运行重置额度。批次原字节摘要随 competition 配置冻结，启动后不能改 run_ids、金额、费率、模型或凭据位置；换名单会使已有证据身份不一致，不能作为增加预算或抹去失败的方法。恢复使用原配置、账本和剩余额度，不重新获得任务预算。真实兼容性与逐例效果仍以 STATUS 中实际证据为准。
+示例 pilot022 必须已经在 run_ids 内。准入只读核验既有 run 的真实模型账本、终态报告、模型和凭据位置，新 run 按其完整 Token 上限预留最坏费用；超额、其他 run 未结束、请求结果未知或 usage 缺失/无效时默认阻止继续付费，不能补零或另开运行重置额度。批次原字节摘要随 competition 配置冻结，启动后不能改 run_ids、金额、费率、模型或凭据位置；换名单会使已有证据身份不一致，不能作为增加预算或抹去失败的方法。恢复使用原配置、账本和剩余额度，不重新获得任务预算。
+
+用户明确接纳从失败中修复后继续本次测试时，可在新 cloud 运行配置顶层填写 `"charge_unknown_run_caps": ["PREVIOUS_RUN_ID"]`，点名本批其他已结束且原账本、冻结配置与终态报告完整的未知 run。批次门以各旧 run 冻结 max_known_tokens 全额占用原预算后再预留新 run，原 unknown 与原请求不修改、不重发；缺账本/报告、活动运行或未登记 ID 不能放行。不含该字段或空名单仍是未知即停止，不是自动 fallback；总金额和保留规则不变，见 [评测口径](../../docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界)。完整响应即使动作/工具格式失败，也应保存原响应和有效 usage 后拒绝执行，不能把已知用量丢失或把格式失败当作可自动重试的网络失败。真实兼容性与修复效果只依 STATUS 的实际证据，配置例外不产生成功成绩。
 
 ### 无设备的真实源码回放示例
 
@@ -193,7 +195,7 @@ Stop 终止当前受管 Job，Status 查看状态。Clean 默认预览，范围/
 .\scripts\local.ps1 Run -Task test -TestPath tests/test_working_context.py
 ```
 
-旧通用 `prepare` 入口必须显式提供经人工核对的 JSON catalog、task ID、数据根目录和新的输出目录；本次 022 固定宿主准备使用上文的受管 prepare 任务，两个入口不能混淆。下列 catalog schema 2 说明单个 CaseSelection 的结构，字段示例不是可运行的真实路径或哈希，也不是已接纳的全量案例名单：
+旧通用 `prepare` 入口必须显式提供经人工核对的 JSON catalog、task ID、数据根目录和新的输出目录；本次 022/016 固定宿主准备使用上文的受管 prepare 任务，两个入口不能混淆。下列 catalog schema 2 说明单个 CaseSelection 的结构，字段示例不是可运行的真实路径或哈希，也不是已接纳的全量案例名单：
 
 ```json
 {

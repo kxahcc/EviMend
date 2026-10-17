@@ -105,7 +105,8 @@ def _saved_run(work: Path, run_id: str, binding: dict[str, Any], model_id: str,
 
 def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, run_id: str,
                        profile_path: str, model_id: str, credential_file: str | None,
-                       max_known_tokens: int, resume: bool = False) -> dict[str, Any]:
+                       max_known_tokens: int, resume: bool = False,
+                       charge_unknown_run_caps: tuple[str, ...] = ()) -> dict[str, Any]:
     """Check all registered runs before any mutable run initialization.
 
     Reserve the current run's full cap, counting other terminal runs from their
@@ -123,6 +124,10 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
     batch = BatchBudget.model_validate(value)
     if run_id not in batch.run_ids:
         raise ValueError("run is not registered in the batch budget")
+    approved = set(charge_unknown_run_caps)
+    if (len(approved) != len(charge_unknown_run_caps) or run_id in approved or
+            not approved <= set(batch.run_ids)):
+        raise ValueError("unknown-cost acceptance must name unique other registered runs")
     if model_id != batch.model_id or credential_file is None:
         raise ValueError("batch model or credential locator differs")
     private = _credential_location(repo, credential_file)
@@ -143,7 +148,8 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
     elif expected_work.exists():
         raise ValueError("registered run already exists; resume its original budget")
 
-    known_other_tokens = 0
+    charged_other_tokens = 0
+    used_approvals: set[str] = set()
     for identifier in batch.run_ids:
         if identifier == run_id:
             continue
@@ -151,8 +157,9 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
         if not previous_work.exists():
             continue
         previous, usage = _saved_run(previous_work, identifier, binding, model_id, private, repo)
-        if (usage["uncertain_calls"] or usage["missing_usage_calls"] or usage["invalid_usage_calls"] or
-                usage["reserved_calls"] != usage["completed_calls"]):
+        unknown = bool(usage["uncertain_calls"] or usage["missing_usage_calls"] or usage["invalid_usage_calls"] or
+                       usage["reserved_calls"] != usage["completed_calls"])
+        if unknown and identifier not in approved:
             raise ValueError("another registered run has incomplete or unknown model cost")
         report, _ = _read_json(previous_work / "competition-report.json", max_bytes=33_554_432)
         unhashed = {key: item for key, item in report.items() if key != "report_sha256"}
@@ -160,8 +167,16 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
                 report.get("report_sha256") != hashlib.sha256(canonical(unhashed).encode()).hexdigest() or
                 any(report.get("cost", {}).get(key) != count for key, count in usage.items())):
             raise ValueError("another registered run has no current terminal cost report")
-        known_other_tokens += usage["known_total_tokens"]
-    reserved_cny = (Decimal(known_other_tokens + max_known_tokens) *
+        if unknown:
+            # Explicit host acceptance occupies the entire original run cap.
+            # It never repairs a ledger, invents usage or resends its request.
+            charged_other_tokens += previous["config"]["max_known_tokens"]
+            used_approvals.add(identifier)
+        else:
+            charged_other_tokens += usage["known_total_tokens"]
+    if used_approvals != approved:
+        raise ValueError("unknown-cost acceptance has no matching terminal unknown run")
+    reserved_cny = (Decimal(charged_other_tokens + max_known_tokens) *
                     Decimal(batch.ceiling_cny_per_million_tokens) / _MILLION)
     if reserved_cny > Decimal(batch.max_cny):
         raise ValueError("batch monetary ceiling would be exceeded by this run reservation")

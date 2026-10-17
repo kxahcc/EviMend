@@ -422,7 +422,7 @@ def test_non_json_nonfinite_duplicate_and_wrong_response_roots_reject_safely(bod
     ("wrong-role", "invalid_response_message"), ("no-content", "invalid_response_message"),
     ("non-text", "invalid_response_message"), ("wrong-index", "invalid_response_finish"),
     ("no-finish", "invalid_response_finish"), ("attachment", "unsupported_response_message_attachment"),
-    ("reasoning-type", "invalid_response_reasoning"), ("tool-missing", "missing_response_tool_calls"),
+    ("reasoning-type", "invalid_response_reasoning"),
 ])
 def test_response_format_failures_reject(mutation: str, reason: str) -> None:
     body = wire_response()
@@ -449,8 +449,6 @@ def test_response_format_failures_reject(mutation: str, reason: str) -> None:
         message["audio"] = "unsupported"
     elif mutation == "reasoning-type":
         message["reasoning_content"] = 7
-    else:
-        body["choices"][0]["finish_reason"] = "tool_calls"
     model = adapter(lambda _: httpx.Response(200, json=body))
     with pytest.raises(AdapterResponseError, match=reason):
         model.invoke(prepared(model))
@@ -546,13 +544,53 @@ def test_tool_calls_with_inconsistent_finish_or_duplicate_identity_are_format_er
     assert normalize_message(intent(request), message).format_status == "format_error"
 
 
-@pytest.mark.parametrize("change", [{"id": None}, {"type": "custom"}, {"function": {}}, {"extra": "unsupported"}])
+@pytest.mark.parametrize("change", [{"id": None}, {"id": ""}, {"id": 7}, {"type": "custom"},
+    {"function": {}}, {"function": None}, {"function": "invalid"},
+    {"function": {"name": 7, "arguments": "{}"}}, {"function": {"name": "read_source", "arguments": []}},
+    {"function": {"name": "read_source", "arguments": "{}", "extra": "unsupported"}},
+    {"extra": "unsupported"}, {"index": None}, {"index": True}, {"index": -1}, {"index": "0"}])
 def test_malformed_tool_call_descriptors_are_not_sent_to_host_tools(change: dict[str, Any]) -> None:
     body = wire_response(content=None, arguments="{}")
     body["choices"][0]["message"]["tool_calls"][0].update(change)
     model = adapter(lambda _: httpx.Response(200, json=body))
-    with pytest.raises(AdapterResponseError, match="invalid_response_tool_call"):
-        model.invoke(prepared(model))
+    request = prepared(model)
+    message = model.invoke(request)
+    assert not message.tool_calls and message.invalid_tool_calls[0]["error"] == "invalid_response_tool_call"
+    assert message.response_metadata["dfx_provider_tool_calls_raw"] == body["choices"][0]["message"]["tool_calls"]
+    observation = normalize_message(intent(request), message)
+    assert observation.format_status == "format_error" and observation.usage_status == "known"
+    assert observation.usage is not None and observation.usage.total_tokens == 15
+    assert AIMessage.model_validate_json(message.model_dump_json()) == message
+
+
+@pytest.mark.parametrize("index", [0, 1, 1000])
+def test_nonnegative_tool_index_is_metadata_without_execution_parameters(index: int) -> None:
+    body = wire_response(content=None, arguments='{"path":"src/Main.ets"}')
+    body["choices"][0]["message"]["tool_calls"][0]["index"] = index
+    model = adapter(lambda _: httpx.Response(200, json=body))
+    request = prepared(model)
+    message = model.invoke(request)
+    assert message.tool_calls == [{"name": "read_source", "args": {"path": "src/Main.ets"},
+                                   "id": "wire-call-1", "type": "tool_call"}]
+    assert not message.invalid_tool_calls
+    assert message.response_metadata["dfx_provider_tool_calls_raw"][0]["index"] == index
+    assert normalize_message(intent(request), message).format_status == "tool_calls"
+    continuation = model.prepare([HumanMessage(content="task"), message,
+        ToolMessage(content="source", tool_call_id="wire-call-1", name="read_source")], descriptors())
+    assert "index" not in continuation.messages[1]["tool_calls"][0]
+
+
+@pytest.mark.parametrize("wire_calls", [None, [], "not a list", {}, [None], ["not an object"]])
+def test_missing_or_invalid_tool_container_retains_usage_as_format_error(wire_calls: Any) -> None:
+    body = wire_response(content=None, finish="tool_calls")
+    body["choices"][0]["message"]["tool_calls"] = wire_calls
+    model = adapter(lambda _: httpx.Response(200, json=body))
+    request = prepared(model)
+    message = model.invoke(request)
+    assert not message.tool_calls and message.invalid_tool_calls
+    assert message.response_metadata["dfx_provider_tool_calls_raw"] == wire_calls
+    observation = normalize_message(intent(request), message)
+    assert observation.format_status == "format_error" and observation.usage_status == "known"
 
 
 @pytest.mark.parametrize("usage,expected", [

@@ -51,6 +51,7 @@ class CompetitionConfig(BaseModel):
     model: ProviderSettings
     execution: LocalCheckConfig | None = None
     batch_budget_file: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    charge_unknown_run_caps: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
     policy_features: PolicyFeatures = PolicyFeatures(rule_guidance=True, obligation_tracking=True, decision_checks=True)
     working_context: WorkingContextPolicy = WorkingContextPolicy(enabled=True)
     applicability_enabled: bool = True
@@ -67,6 +68,8 @@ class CompetitionConfig(BaseModel):
             raise ValueError("mock_demo uses only its declared synthetic project")
         if self.model_mode == "mock_demo" and self.batch_budget_file is not None:
             raise ValueError("batch monetary budgets apply only to cloud model runs")
+        if self.charge_unknown_run_caps and (self.batch_budget_file is None or self.model_mode != "cloud"):
+            raise ValueError("explicit unknown-cost acceptance requires a cloud batch budget")
         return self
 
 
@@ -545,7 +548,8 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
     if config.batch_budget_file is not None:
         batch_binding = check_batch_budget(project_root=repo, managed_root=managed, work=work, run_id=run_id,
             profile_path=config.batch_budget_file, model_id=config.model.model_id,
-            credential_file=config.provider.credential_file, max_known_tokens=config.max_known_tokens, resume=resume)
+            credential_file=config.provider.credential_file, max_known_tokens=config.max_known_tokens, resume=resume,
+            charge_unknown_run_caps=tuple(config.charge_unknown_run_caps))
     auxiliary = work.parent if test_scope else managed / "tmp"
     library = auxiliary / ("competition-" + run_id + "-library")
     approval_path = ((auxiliary if test_scope else managed / "state") /

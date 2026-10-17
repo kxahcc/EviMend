@@ -113,6 +113,31 @@ def test_written_work_without_original_ledger_blocks_next(batch: dict[str, Any])
         admit(batch, "r2")
 
 
+def test_explicit_unknown_acceptance_charges_full_original_cap_without_rewriting(batch: dict[str, Any]) -> None:
+    work, _ = saved(batch, state="unknown", cap=500000)
+    before = {path.name: path.read_bytes() for path in work.iterdir()}
+    admit(batch, "r2", cap=1750000, charge_unknown_run_caps=("r1",))
+    with pytest.raises(ValueError, match="monetary ceiling"):
+        admit(batch, "r2", cap=1750001, charge_unknown_run_caps=("r1",))
+    assert {path.name: path.read_bytes() for path in work.iterdir()} == before
+    with pytest.raises(ValueError, match="unknown model cost"):
+        admit(batch, "r2")
+
+
+@pytest.mark.parametrize("approved", [("r2",), ("outside",), ("r1", "r1"), ("r3",)])
+def test_unknown_acceptance_cannot_name_current_duplicate_or_missing_runs(
+        batch: dict[str, Any], approved: tuple[str, ...]) -> None:
+    saved(batch, state="unknown")
+    with pytest.raises(ValueError):
+        admit(batch, "r2", charge_unknown_run_caps=approved)
+
+
+def test_unknown_acceptance_cannot_replace_a_missing_terminal_report(batch: dict[str, Any]) -> None:
+    saved(batch, state="unknown", terminal=False)
+    with pytest.raises(ValueError):
+        admit(batch, "r2", charge_unknown_run_caps=("r1",))
+
+
 def test_resume_keeps_original_cap_without_double_charging_current(batch: dict[str, Any]) -> None:
     saved(batch, tokens=2100000, cap=2250000)
     admit(batch, cap=2250000, resume=True)
