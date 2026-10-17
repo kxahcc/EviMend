@@ -44,6 +44,13 @@ REVIEWED_ORACLES = {
         ("Execute actual module_base CommonUtil after Node stripTypeScriptTypes; "
          "fixed phone validation, padWithZeros and CardNo cases; no UI or caller-substitution coverage"),
     ),
+    "resources/source-validation/office-tasks/oracle.cjs": (
+        "scenes/agency/src/main/ets/mock/DataManager.ets",
+        "DFX017_TARGET_REGEX_SYNTAX_ERROR",
+        ("Execute actual DataManager Map/saveTodos/loadTodosByState/queryTasks after Node type erasure; "
+         "unused preferences and TaskItem type imports removed; fixed state/literal-search and stock checks; "
+         "no persistence, UI, device or caller-substitution coverage"),
+    ),
 }
 
 
@@ -95,6 +102,39 @@ def _baseline_stage(node: Path, oracle: Path, project: Path, stage: str) -> dict
         "stdout_sha256": digest(completed.stdout), "stderr_sha256": digest(completed.stderr)}
 
 
+def _prepare_analysis(root: Path, config: Path, raw: dict[str, Any]) -> dict[str, Any]:
+    """Prepare reviewed inputs only; never run a command or invent validation."""
+    if set(raw) != {"mode", "case", "data_root", "output", "record"} or raw["data_root"] != "data_B":
+        raise ValueError("analysis preparation fields or dataset root differ")
+    case = CaseSelection.model_validate(raw["case"])
+    if not isinstance(raw["output"], str) or not isinstance(raw["record"], str):
+        raise ValueError("analysis preparation paths must be strings")
+    data = _checked(root / "data_B")
+    output = _owned(root, raw["output"], ".dfx-local/tmp")
+    record_path = _owned(root, raw["record"], ".dfx-local/state")
+    if (record_path == config or record_path.suffix != ".json" or
+            local_evidence_path(output).exists() or local_evidence_path(record_path).exists()):
+        raise ValueError("analysis preparation refuses existing or overlapping outputs")
+    record: dict[str, Any] = {"schema_version": 1, "state": "pending", "status": "preparing",
+        "observed_at": datetime.now(UTC).isoformat(), "case_identity_sha256": case.sha256(),
+        "task_id": case.task_id, "task": str(output), "model_calls": 0,
+        "source_verification": "not_run", "application_verification": "not_run",
+        "candidate_created": False, "repair_success": None}
+    _write_new(record_path, record)
+    try:
+        snapshot = prepare_task(data, case.model_dump(exclude_none=True), output)
+        task = verify_task(output)
+        record.update(state="done", status="analysis_inputs_prepared",
+            source_snapshot_sha256=snapshot["source_snapshot_sha256"], source_files=snapshot["source_files"],
+            source_log_alignment=task["source_log_alignment"])
+    except Exception as error:
+        record.update(state="done", status="blocked", error_type=type(error).__name__, error_detail=str(error)[:1024])
+        _atomic_json(record_path, record)
+        raise
+    _atomic_json(record_path, record)
+    return record
+
+
 def run_preparation(root: Path, config_path: Path | str) -> dict[str, Any]:
     from .managed_runtime import require_managed_worker
 
@@ -106,6 +146,8 @@ def run_preparation(root: Path, config_path: Path | str) -> dict[str, Any]:
     if not config.is_relative_to(state) or config.suffix != ".json":
         raise ValueError("preparation configuration must be a host state JSON")
     raw = json.loads(_read(config, MAX_CONFIG_BYTES).decode("utf-8-sig"))
+    if isinstance(raw, dict) and raw.get("mode") == "analysis":
+        return _prepare_analysis(root, config, raw)
     expected_fields = {"case", "data_root", "output", "validation_profile", "node", "oracle", "record"}
     if not isinstance(raw, dict) or set(raw) != expected_fields:
         raise ValueError("preparation configuration has unexpected fields")

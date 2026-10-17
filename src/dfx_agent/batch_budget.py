@@ -23,6 +23,8 @@ from .model_calls import ModelCallStore, canonical
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
 _AMOUNT = re.compile(r"[0-9]{1,6}(?:\.[0-9]{1,6})?\Z")
 _MILLION = Decimal(1_000_000)
+_DEEPSEEK_ENDPOINTS = {"https://api.deepseek.com/chat/completions", "https://api.deepseek.com/v1/chat/completions"}
+BatchCostMode = Literal["flat8", "deepseek_flash_peak"]
 
 
 class BatchBudget(BaseModel):
@@ -103,10 +105,77 @@ def _saved_run(work: Path, run_id: str, binding: dict[str, Any], model_id: str,
     return frozen, usage
 
 
+def _require_deepseek_peak_identity(model_id: str, endpoint: str | None) -> None:
+    if model_id != "deepseek-flash" or endpoint not in _DEEPSEEK_ENDPOINTS:
+        raise ValueError("DeepSeek peak pricing requires the official endpoint and deepseek-flash model")
+
+
+def deepseek_flash_peak_cost(work: Path, *, task_id: str, run_id: str,
+                             model_id: str, endpoint: str | None) -> dict[str, Any]:
+    """Reprice complete saved usage read-only; never claim an actual account bill.
+
+    Confirmed peak rates on 2026-10-17 are 0.04/2/8 CNY per million
+    cached-input/uncached-input/output tokens. Missing or conflicting cache
+    details receive no cache discount. Reasoning is already part of output.
+    """
+    _require_deepseek_peak_identity(model_id, endpoint)
+    usage = _ledger_usage(work, {"task": {"task_id": task_id}}, run_id, model_id)
+    if (usage["uncertain_calls"] or usage["missing_usage_calls"] or usage["invalid_usage_calls"] or
+            usage["reserved_calls"] != usage["completed_calls"]):
+        raise ValueError("DeepSeek peak pricing requires a complete known-usage ledger")
+    store = ModelCallStore(_checked(work / "model-calls.sqlite"), read_only=True)
+    hits = misses = fallback_calls = known_reasoning = reasoning_unknown_calls = 0
+    for record in store.records(task_id, run_id):
+        message, observation = store.replay(record.intent)
+        counts = observation.usage
+        if counts is None:
+            raise ValueError("DeepSeek peak pricing requires known normalized usage")
+        raw = message.response_metadata.get("dfx_provider_usage_raw")
+        raw = raw if isinstance(raw, dict) else {}
+        hit, miss = raw.get("prompt_cache_hit_tokens"), raw.get("prompt_cache_miss_tokens")
+        valid_cache = (type(hit) is int and type(miss) is int and hit >= 0 and miss >= 0 and
+                       hit + miss == counts.input_tokens)
+        details = raw.get("prompt_tokens_details")
+        if details is not None:
+            if not isinstance(details, dict):
+                valid_cache = False
+            elif "cached_tokens" in details:
+                cached = details["cached_tokens"]
+                if type(cached) is not int or cached < 0 or cached != hit:
+                    valid_cache = False
+        if valid_cache:
+            hits += hit
+            misses += miss
+        else:
+            misses += counts.input_tokens
+            fallback_calls += 1
+        output_details = raw.get("completion_tokens_details")
+        reasoning = output_details.get("reasoning_tokens") if isinstance(output_details, dict) else None
+        if type(reasoning) is int and 0 <= reasoning <= counts.output_tokens:
+            known_reasoning += reasoning
+        else:
+            reasoning_unknown_calls += 1
+    input_tokens, output_tokens = usage["known_input_tokens"], usage["known_output_tokens"]
+    if hits + misses != input_tokens:
+        raise ValueError("DeepSeek cache accounting differs from normalized input usage")
+    ceiling = (Decimal(hits) * Decimal("0.04") + Decimal(misses) * Decimal(2) +
+               Decimal(output_tokens) * Decimal(8)) / _MILLION
+    return {"cost_mode": "deepseek_flash_peak", "pricing_as_of": "2026-10-17",
+            "logical_calls": usage["completed_calls"], "known_input_tokens": input_tokens,
+            "cache_hit_tokens": hits, "cache_miss_tokens": misses, "known_output_tokens": output_tokens,
+            "known_total_tokens": usage["known_total_tokens"], "cache_fallback_calls": fallback_calls,
+            "cache_usage_complete": fallback_calls == 0, "known_reasoning_tokens": known_reasoning,
+            "reasoning_tokens": known_reasoning if reasoning_unknown_calls == 0 else None,
+            "reasoning_unknown_calls": reasoning_unknown_calls,
+            "rates_cny_per_million_tokens": {"cache_hit": "0.04", "cache_miss": "2", "output": "8"},
+            "estimated_ceiling_cny": format(ceiling, "f")}
+
+
 def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, run_id: str,
                        profile_path: str, model_id: str, credential_file: str | None,
                        max_known_tokens: int, resume: bool = False,
-                       charge_unknown_run_caps: tuple[str, ...] = ()) -> dict[str, Any]:
+                       charge_unknown_run_caps: tuple[str, ...] = (), batch_cost_mode: BatchCostMode = "flat8",
+                       endpoint: str | None = None) -> dict[str, Any]:
     """Check all registered runs before any mutable run initialization.
 
     Reserve the current run's full cap, counting other terminal runs from their
@@ -135,6 +204,10 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
         raise ValueError("batch credential locator differs")
     if type(max_known_tokens) is not int or max_known_tokens < 1:
         raise ValueError("invalid batch run token cap")
+    if batch_cost_mode not in ("flat8", "deepseek_flash_peak"):
+        raise ValueError("unknown batch cost mode")
+    if batch_cost_mode == "deepseek_flash_peak":
+        _require_deepseek_peak_identity(model_id, endpoint)
     expected_work = _checked(managed / "work" / ("competition-" + run_id), exists=False)
     if _checked(work, exists=resume) != expected_work:
         raise ValueError("batch run must use its registered managed work directory")
@@ -148,7 +221,8 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
     elif expected_work.exists():
         raise ValueError("registered run already exists; resume its original budget")
 
-    charged_other_tokens = 0
+    charged_other_cny = Decimal(0)
+    reservation_rate = Decimal(batch.ceiling_cny_per_million_tokens)
     used_approvals: set[str] = set()
     for identifier in batch.run_ids:
         if identifier == run_id:
@@ -157,6 +231,8 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
         if not previous_work.exists():
             continue
         previous, usage = _saved_run(previous_work, identifier, binding, model_id, private, repo)
+        if batch_cost_mode == "deepseek_flash_peak":
+            _require_deepseek_peak_identity(model_id, previous["config"]["provider"].get("endpoint"))
         unknown = bool(usage["uncertain_calls"] or usage["missing_usage_calls"] or usage["invalid_usage_calls"] or
                        usage["reserved_calls"] != usage["completed_calls"])
         if unknown and identifier not in approved:
@@ -170,14 +246,17 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
         if unknown:
             # Explicit host acceptance occupies the entire original run cap.
             # It never repairs a ledger, invents usage or resends its request.
-            charged_other_tokens += previous["config"]["max_known_tokens"]
+            charged_other_cny += Decimal(previous["config"]["max_known_tokens"]) * reservation_rate / _MILLION
             used_approvals.add(identifier)
+        elif batch_cost_mode == "deepseek_flash_peak":
+            priced = deepseek_flash_peak_cost(previous_work, task_id=previous["task"]["task_id"], run_id=identifier,
+                model_id=model_id, endpoint=previous["config"]["provider"]["endpoint"])
+            charged_other_cny += Decimal(priced["estimated_ceiling_cny"])
         else:
-            charged_other_tokens += usage["known_total_tokens"]
+            charged_other_cny += Decimal(usage["known_total_tokens"]) * reservation_rate / _MILLION
     if used_approvals != approved:
         raise ValueError("unknown-cost acceptance has no matching terminal unknown run")
-    reserved_cny = (Decimal(charged_other_tokens + max_known_tokens) *
-                    Decimal(batch.ceiling_cny_per_million_tokens) / _MILLION)
+    reserved_cny = charged_other_cny + Decimal(max_known_tokens) * reservation_rate / _MILLION
     if reserved_cny > Decimal(batch.max_cny):
         raise ValueError("batch monetary ceiling would be exceeded by this run reservation")
     return binding

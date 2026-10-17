@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from dfx_agent import competition
-from dfx_agent.batch_budget import BatchBudget, check_batch_budget
+from dfx_agent.batch_budget import BatchBudget, check_batch_budget, deepseek_flash_peak_cost
 from dfx_agent.competition import CompetitionConfig
 from dfx_agent.model_calls import ModelCallIntent, ModelCallStore, canonical, sha256
 
@@ -44,13 +45,15 @@ def admit(batch: dict[str, Any], run_id: str = "r1", cap: int = 100000, *,
 
 def saved(batch: dict[str, Any], run_id: str = "r1", *, tokens: int = 250000,
           cap: int = 500000, state: str = "completed", usage: bool = True,
-          terminal: bool = True, binding: dict[str, Any] | None = None) -> tuple[Path, ModelCallStore]:
+          terminal: bool = True, binding: dict[str, Any] | None = None,
+          output_tokens: int = 0, raw_usage: dict[str, Any] | None = None,
+          endpoint: str = "https://api.deepseek.com/chat/completions") -> tuple[Path, ModelCallStore]:
     identity = binding if binding is not None else admit(batch, run_id, cap)
     work = batch["managed"] / "work" / ("competition-" + run_id)
     work.mkdir()
     task_id = "task-" + run_id
     config = {"model_mode": "cloud", "model": {"model_id": "deepseek-flash"},
-              "provider": {"credential_file": str(batch["credential"])}, "max_known_tokens": cap}
+              "provider": {"credential_file": str(batch["credential"]), "endpoint": endpoint}, "max_known_tokens": cap}
     (work / "competition-config.json").write_text(canonical({"config": config,
         "task": {"task_id": task_id}, "execution": None, "batch_budget": identity}), encoding="utf-8")
     store = ModelCallStore(work / "model-calls.sqlite")
@@ -62,7 +65,8 @@ def saved(batch: dict[str, Any], run_id: str = "r1", *, tokens: int = 250000,
         store.dispatch("call1")
     if state == "completed":
         store.complete(intent, AIMessage(content="finished", usage_metadata=(
-            {"input_tokens": tokens, "output_tokens": 0, "total_tokens": tokens} if usage else None)))
+            {"input_tokens": tokens, "output_tokens": output_tokens, "total_tokens": tokens + output_tokens}
+            if usage else None), response_metadata={} if raw_usage is None else {"dfx_provider_usage_raw": raw_usage}))
     elif state == "unknown":
         store.mark_unknown("call1", "response_lost")
     if terminal:
@@ -223,6 +227,7 @@ def test_old_competition_dump_keeps_optional_budget_field_absent() -> None:
     root = Path(__file__).resolve().parents[1]
     config = CompetitionConfig.model_validate_json((root / "configs/competition-cloud.template.json").read_bytes())
     assert "batch_budget_file" not in config.model_dump(mode="json")
+    assert "batch_cost_mode" not in config.model_dump(mode="json")
     loaded = CompetitionConfig.model_validate(config.model_dump(mode="json") | {"batch_budget_file": "configs/b.local.json"})
     assert loaded.model_dump(mode="json")["batch_budget_file"] == "configs/b.local.json"
 
@@ -253,3 +258,140 @@ def test_competition_rejects_over_budget_before_creating_run_or_knowledge(
         competition._run_competition(batch["repo"] / "not-yet-needed-task", work, "r1", selected, batch["repo"])
     assert not work.exists()
     assert sorted(path.name for path in (batch["managed"] / "state").iterdir()) == ["active.json"]
+
+
+def peak(work: Path, **changes: Any) -> dict[str, Any]:
+    return deepseek_flash_peak_cost(work, **({"task_id": "task-r1", "run_id": "r1",
+        "model_id": "deepseek-flash", "endpoint": "https://api.deepseek.com/chat/completions"} | changes))
+
+
+def test_existing_evaluation_budget_cannot_be_omitted_from_new_cloud_configuration(
+        batch: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    raw = CompetitionConfig.model_validate_json((repo / "configs/competition-cloud.template.json").read_bytes()).model_dump(mode="json")
+    raw["provider"]["credential_file"] = str(batch["credential"])
+    selected = batch["repo"] / "configs/run.json"
+    selected.write_text(canonical(raw), encoding="utf-8")
+    (batch["repo"] / "configs/evaluation.local.json").write_bytes(Path(batch["profile"]).read_bytes())
+    (batch["repo"] / "configs/local-runtime.json").write_text(canonical({"execution": {
+        "allow_model_experiments": True, "allow_application_experiments": False}}), encoding="utf-8")
+    (batch["managed"] / "state/active.json").write_text(canonical({"task": "competition"}), encoding="utf-8")
+    monkeypatch.setenv("DFX_MANAGED_COMPETITION", "local-v1")
+    work = batch["managed"] / "work/competition-r1"
+    with pytest.raises(ValueError, match="shared batch monetary budget"):
+        competition._run_competition(batch["repo"] / "unused-task", work, "r1", selected, batch["repo"])
+    assert not work.exists()
+
+
+def test_deepseek_peak_helper_reads_original_cache_usage_and_does_not_double_count_reasoning(
+        batch: dict[str, Any]) -> None:
+    raw = {"prompt_tokens": 5602, "completion_tokens": 81, "total_tokens": 5683,
+           "prompt_cache_hit_tokens": 256, "prompt_cache_miss_tokens": 5346,
+           "prompt_tokens_details": {"cached_tokens": 256}, "completion_tokens_details": {"reasoning_tokens": 40}}
+    work, _ = saved(batch, tokens=5602, output_tokens=81, raw_usage=raw)
+    before = (work / "model-calls.sqlite").read_bytes()
+    priced = peak(work)
+    assert priced["known_input_tokens"] == 5602 and priced["known_output_tokens"] == 81
+    assert priced["cache_hit_tokens"] == 256 and priced["cache_miss_tokens"] == 5346
+    assert priced["cache_fallback_calls"] == 0 and priced["cache_usage_complete"] is True
+    assert priced["known_reasoning_tokens"] == 40 and priced["reasoning_tokens"] == 40
+    assert Decimal(priced["estimated_ceiling_cny"]) == Decimal("0.01135024")
+    assert (work / "model-calls.sqlite").read_bytes() == before
+    assert peak(work) == priced  # Reopen does not write or charge a second time.
+
+
+@pytest.mark.parametrize("cache", [{}, {"prompt_cache_hit_tokens": 256}, {"prompt_cache_miss_tokens": 5346},
+    {"prompt_cache_hit_tokens": None, "prompt_cache_miss_tokens": 5346},
+    {"prompt_cache_hit_tokens": True, "prompt_cache_miss_tokens": 5346},
+    {"prompt_cache_hit_tokens": -1, "prompt_cache_miss_tokens": 5603},
+    {"prompt_cache_hit_tokens": "256", "prompt_cache_miss_tokens": 5346},
+    {"prompt_cache_hit_tokens": 256, "prompt_cache_miss_tokens": 5345},
+    {"prompt_cache_hit_tokens": 256, "prompt_cache_miss_tokens": 5346,
+     "prompt_tokens_details": {"cached_tokens": 255}},
+    {"prompt_cache_hit_tokens": 256, "prompt_cache_miss_tokens": 5346,
+     "prompt_tokens_details": {"cached_tokens": True}},
+    {"prompt_cache_hit_tokens": 256, "prompt_cache_miss_tokens": 5346, "prompt_tokens_details": "unsupported"}])
+def test_missing_invalid_or_conflicting_cache_metadata_is_all_input_miss(
+        batch: dict[str, Any], cache: dict[str, Any]) -> None:
+    raw = {"prompt_tokens": 5602, "completion_tokens": 81, "total_tokens": 5683} | cache
+    work, _ = saved(batch, tokens=5602, output_tokens=81, raw_usage=raw)
+    priced = peak(work)
+    assert priced["cache_hit_tokens"] == 0 and priced["cache_miss_tokens"] == 5602
+    assert priced["cache_fallback_calls"] == 1 and priced["cache_usage_complete"] is False
+    assert priced["reasoning_tokens"] is None and priced["reasoning_unknown_calls"] == 1
+    assert Decimal(priced["estimated_ceiling_cny"]) == Decimal("0.011852")
+
+
+def test_new_mode_reprices_old_complete_run_without_changing_original_batch_profile(batch: dict[str, Any]) -> None:
+    raw = {"prompt_tokens": 250000, "completion_tokens": 0, "total_tokens": 250000,
+           "prompt_cache_hit_tokens": 250000, "prompt_cache_miss_tokens": 0,
+           "prompt_tokens_details": {"cached_tokens": 250000}}
+    work, _ = saved(batch, raw_usage=raw)
+    original = batch["profile"].read_bytes()
+    frozen = (work / "competition-config.json").read_bytes()
+    with pytest.raises(ValueError, match="monetary ceiling"):
+        admit(batch, "r2", 2248750)  # Historical flat pricing remains the default.
+    parameters = {"batch_cost_mode": "deepseek_flash_peak", "endpoint": "https://api.deepseek.com/chat/completions"}
+    identity = admit(batch, "r2", 2248750, **parameters)  # 0.01 + 17.99 = exactly 18 CNY.
+    assert identity["profile_sha256"] == hashlib.sha256(original).hexdigest()
+    with pytest.raises(ValueError, match="monetary ceiling"):
+        admit(batch, "r2", 2248751, **parameters)
+    assert batch["profile"].read_bytes() == original
+    assert (work / "competition-config.json").read_bytes() == frozen
+
+
+def test_peak_mode_without_cache_details_charges_input_miss_not_zero(batch: dict[str, Any]) -> None:
+    work, _ = saved(batch)
+    parameters = {"batch_cost_mode": "deepseek_flash_peak", "endpoint": "https://api.deepseek.com/chat/completions"}
+    assert Decimal(peak(work)["estimated_ceiling_cny"]) == Decimal("0.5")
+    admit(batch, "r2", 2187500, **parameters)  # 0.5 + 17.5 = exactly 18 CNY.
+    with pytest.raises(ValueError, match="monetary ceiling"):
+        admit(batch, "r2", 2187501, **parameters)
+
+
+def test_peak_mode_still_reserves_full_current_and_explicitly_approved_unknown_caps(batch: dict[str, Any]) -> None:
+    saved(batch, state="unknown", cap=250000)
+    parameters = {"batch_cost_mode": "deepseek_flash_peak", "endpoint": "https://api.deepseek.com/chat/completions"}
+    with pytest.raises(ValueError, match="unknown model cost"):
+        admit(batch, "r2", 2000000, **parameters)
+    admit(batch, "r2", 2000000, charge_unknown_run_caps=("r1",), **parameters)
+    with pytest.raises(ValueError, match="monetary ceiling"):
+        admit(batch, "r2", 2000001, charge_unknown_run_caps=("r1",), **parameters)
+
+
+@pytest.mark.parametrize("state,has_usage", [("reserved", True), ("dispatched", True), ("unknown", True),
+                                            ("completed", False)])
+def test_peak_helper_rejects_incomplete_or_unknown_ledger(batch: dict[str, Any], state: str, has_usage: bool) -> None:
+    work, _ = saved(batch, state=state, usage=has_usage)
+    with pytest.raises(ValueError, match="complete known-usage ledger"):
+        peak(work)
+
+
+@pytest.mark.parametrize("changes", [{"endpoint": "https://other.invalid/chat/completions"},
+    {"endpoint": "https://api.deepseek.com.attacker.invalid/chat/completions"},
+    {"endpoint": None}, {"model_id": "deepseek-reasoner"}])
+def test_peak_price_is_not_applied_to_unconfirmed_endpoint_or_model(batch: dict[str, Any], changes: dict[str, Any]) -> None:
+    work, _ = saved(batch)
+    with pytest.raises(ValueError, match="official endpoint"):
+        peak(work, **changes)
+    with pytest.raises(ValueError):
+        admit(batch, "r2", batch_cost_mode="deepseek_flash_peak", **changes)
+
+
+def test_peak_mode_rejects_historical_nonofficial_endpoint(batch: dict[str, Any]) -> None:
+    saved(batch, endpoint="https://different-provider.invalid/chat/completions")
+    with pytest.raises(ValueError, match="official endpoint"):
+        admit(batch, "r2", batch_cost_mode="deepseek_flash_peak", endpoint="https://api.deepseek.com/chat/completions")
+
+
+def test_competition_cache_pricing_is_explicit_and_requires_cloud_batch() -> None:
+    root = Path(__file__).resolve().parents[1]
+    original = CompetitionConfig.model_validate_json((root / "configs/competition-cloud.template.json").read_bytes())
+    assert "batch_cost_mode" not in original.model_dump(mode="json")
+    config = original.model_dump(mode="json") | {"batch_budget_file": "configs/b.local.json",
+                                                "batch_cost_mode": "deepseek_flash_peak"}
+    selected = CompetitionConfig.model_validate(config)
+    assert selected.model_dump(mode="json")["batch_cost_mode"] == "deepseek_flash_peak"
+    del config["batch_budget_file"]
+    with pytest.raises(ValueError, match="explicit cloud batch"):
+        CompetitionConfig.model_validate(config)

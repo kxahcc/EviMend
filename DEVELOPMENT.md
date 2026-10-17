@@ -212,6 +212,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_provider_probe.py`、`tests/test_batch_budget.py` | 官方 SDK 只读模型/余额查询的无密钥输出与失败边界；真实账本汇总、未知费用停止及新 run 最坏额度预留的软件反例，实际结果见 STATUS |
 | `tests/test_household_source_replay.py` | 022 校验逻辑的源码加载/类型剥离、原故障及正常/边界判据接线；固定反例或合成候选通过不等于真实模型修复成绩 |
 | `tests/test_tourist_source_replay.py` | 016 module_base 公用方法的原故障、正常/边界与无关方法回归；拒绝恒定返回或修改正常同名文件冒充修复，不是实际模型成绩 |
+| `tests/test_office_source_replay.py` | 017实际DataManager的正则故障、状态/字面查询和库存回归；拒绝恒定输出及忽略查询，尚非真实模型修复结果 |
 | `tests/test_pilot_preparation.py`、`tests/test_workspace_long_paths.py` | 代表任务的受管只读准备、原版复现准入及拒绝反例；Windows 深层源码的快照、SDK 编辑、检索、定位和候选回读 |
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
 | `tests/test_product_cli.py`、`tests/test_progress.py` | 用户参数、输出/分页、停止归属、中断及有界侧录的软件用例；组件与实际产品验收结果见 STATUS |
@@ -227,6 +228,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `resources/source-validation/example/` | 普通 Node 的局部真实 JavaScript 源码回放示例、独立 oracle 与说明；无平台 mock，不是 data_B 或 ArkTS 已适配证明 |
 | `resources/source-validation/household-checksum/oracle.cjs`、`resources/source-validation/household-checksum/README.txt` | 022 可分离校验逻辑的宿主运行器及抽取/类型剥离、覆盖和语义说明；evaluator 独立使用，不能将判据或参考答案混入求解上下文，不代表整应用已可运行 |
 | `resources/source-validation/tourist-phone/oracle.cjs`、`resources/source-validation/tourist-phone/README.txt` | 016 日志对应 module_base CommonUtil 的实际源码宿主运行器及局部方法协议；不把正常同名文件、调用端绕过或 UI 覆盖当成本协议结果 |
+| `resources/source-validation/office-tasks/oracle.cjs`、`resources/source-validation/office-tasks/README.txt` | 017实际DataManager的宿主类型剥离、Map/查询/状态与回归协议；不含持久化、UI或调用端替代 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 唯一 Skill 源库与提交入口；四类标准 SKILL.md 及后续外部 Skill 的 references/scripts/assets 均放在所属包内。它们是产品指导资源，不采用设计文档的状态头；格式由锁定 SDK 解析及软件测试核验 |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
@@ -265,8 +267,8 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `value_sources.py` | 独立核对冻结源码字节、主机 fixture 的参数角色及模拟操作事件，登记绑定、意图与合成凭据；未接入 SDK、真实解析/采样或新来源条件计算 |
 | `model_profile.py` | 有界读取本机私有模型配置，用既有 Pydantic 校验模型/预算，密钥排除序列化；生产 SDK 发送时直接读取 Key |
 | `provider_probe.py` | 受管 provider 任务，经官方 SDK 只读查询模型与余额并核对既有普通 Node 类型剥离能力；不发推理请求、不回显 Key，不替代工具续轮或修复实测 |
-| `pilot_preparation.py` | 受管 prepare 任务，从审核选择准备完整允许源码/日志快照，按 022/016 选择对应固定 oracle，执行原版检查并生成独立宿主验证配置；不创建修复候选、不把 oracle 放入求解上下文 |
-| `batch_budget.py` | 只读汇总真实账本并预留单任务最坏费用；未知默认阻断，仅用户显式点名、原件与终态完整的旧 run 可按其冻结 cap 全额占用，不改原 unknown、不重发，不创建另一套账本 |
+| `pilot_preparation.py` | 受管prepare从审核选择冻结允许源码/日志；analysis只准备输入，source按016/017/022固定运行器复现原版并生成独立验证配置；不创建候选，不把oracle放入求解上下文 |
+| `batch_budget.py` | 只读汇总真实账本，按确认缓存用量估算历史费用并预留新任务最坏费用；未知默认阻断，仅显式接纳的完整终态可按原cap占用；不改原unknown、不建新账本 |
 | `cloud_retries.py` | 复用官方异步 SDK 的退避与标准 asyncio 超时；公共 transport 接口限制安全重试类别，保存有界尝试统计，不实现自有退避循环 |
 | `knowledge_contracts.py` | 不可变经验、求解指导、来源权限与知识快照对象；明确前提、未知问题、保留行为、反例和有限历史范围，不授予应用资格 |
 | `knowledge.py` | 捕获主机批准的原字节、按来源交集保存经验和冻结快照、受容量限制完整回读；为独立检索复用同操作闭包，不接 SDK 或自动学习 |

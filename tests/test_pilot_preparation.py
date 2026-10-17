@@ -54,6 +54,20 @@ def test_prepared_manifest_uses_host_independent_case_order(tmp_path: Path) -> N
     assert workspace.source_snapshot_sha256 == verify_task(task)["source_snapshot_sha256"]
 
 
+def test_analysis_preparation_never_launches_or_creates_an_oracle_profile(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root, config, values = _fixture(tmp_path, monkeypatch)
+    request = {key: values[key] for key in ("case", "data_root", "output", "record")}
+    request["mode"] = "analysis"
+    config.write_text(json.dumps(request), encoding="utf-8")
+    monkeypatch.setattr(pilot_preparation, "_baseline_stage", lambda *_: pytest.fail("analysis must not execute"))
+    record = pilot_preparation.run_preparation(root, config)
+    assert record["status"] == "analysis_inputs_prepared" and record["model_calls"] == 0
+    assert record["source_verification"] == record["application_verification"] == "not_run"
+    assert not (root / values["validation_profile"]).exists()
+    assert verify_task(root / values["output"])["task_id"] == values["case"]["task_id"]
+
+
 def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path, dict[str, Any]]:
     root = tmp_path / "repo"
     for folder in (".dfx-local/state", ".dfx-local/tmp", "data_B/app", "data_B/logs"):
