@@ -118,7 +118,7 @@ from .verification import (
     _atomic_json,
 )
 from .working_context_plan import WorkingContextPolicy, WorkingContextStore
-from .workspace import CandidateWorkspace, TextEdit, _files
+from .workspace import CandidateWorkspace, TextEdit
 
 
 def _safe_file(root: Path, relative: str) -> Path:
@@ -230,9 +230,18 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
             return f"rejected: {exc}"
 
     @tool
-    def list_source(proposal_json: str | None = None) -> str:
-        """List source files in the task snapshot (not the original dataset)."""
-        return json.dumps(sorted(_files(workspace.base)))
+    def list_source(path_prefix: str | None = None, offset: int = 0, limit: int = 50,
+                    proposal_json: str | None = None) -> str:
+        """List baseline source paths in bounded pages, optionally within a relative file/directory prefix.
+
+        Not a glob. Use has_more/next_offset for further pages or search_source to find a named symbol.
+        The input crash stack usually gives a path to read directly; a full tree listing is unnecessary.
+        """
+        try:
+            return json.dumps(SourceSearch(workspace).list_files(
+                path_prefix=path_prefix, offset=offset, limit=limit), ensure_ascii=False)
+        except (OSError, ValueError) as exc:
+            return f"rejected: {exc}"
 
     @tool
     def read_source(path: str, start_line: int = 1, end_line: int = 100, draft: bool = False,

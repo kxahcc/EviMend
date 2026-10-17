@@ -38,6 +38,29 @@ def match_coordinates(result: dict) -> list[tuple[str, int, int]]:
     return [(match["path"], match["line"], match["column"]) for match in result["matches"]]
 
 
+def test_source_listing_pages_are_bounded_and_complete(tmp_path: Path) -> None:
+    files = {f"src/module{i:04d}/file.ets": b"const value = 1;\n" for i in range(250)}
+    search = SourceSearch(workspace_with_files(tmp_path, files))
+    first = search.list_files()
+    assert len(first["files"]) == 50 and first["has_more"] is True
+    assert len(json.dumps(first)) < 5000
+    found, page = list(first["files"]), first
+    while page["has_more"]:
+        page = search.list_files(offset=page["next_offset"])
+        found.extend(page["files"])
+    assert found == sorted([*files, "src/main.ets"])
+    assert page["next_offset"] is None
+    assert search.list_files(path_prefix="src/module0001")["files"] == ["src/module0001/file.ets"]
+    assert search.list_files(path_prefix="src/module000")["files"] == []
+
+
+@pytest.mark.parametrize("options", [{"path_prefix": "../outside"}, {"offset": -1},
+    {"limit": 0}, {"limit": 101}, {"offset": True}])
+def test_source_listing_rejects_unsafe_prefix_and_invalid_page(tmp_path: Path, options: dict) -> None:
+    with pytest.raises(ValueError):
+        SourceSearch(workspace_with_files(tmp_path, {})).list_files(**options)
+
+
 def test_large_match_set_has_a_reachable_next_page(tmp_path: Path) -> None:
     workspace = workspace_with_files(tmp_path, {"src/many.ets": b"a\n" * 100101})
     search = SourceSearch(workspace)

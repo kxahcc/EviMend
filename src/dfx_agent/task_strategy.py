@@ -20,7 +20,8 @@ Task workflow:
    A crash location is a symptom and a starting point, not automatically the root cause.
    Inspect read_log encoding and warnings. Replaced or incomplete text can lose evidence;
    do not infer that an event or failure is absent from damaged log text.
-2. Use list_source, search_source, and bounded read_source calls to trace the relevant code across files.
+2. Start with the stack's source paths; use search_source and bounded read_source calls to trace relevant code.
+   list_source is paginated (has_more/next_offset) and accepts a directory prefix; avoid enumerating the full tree.
    search_source performs literal text matching in the original snapshot or a registered frozen candidate, never the draft.
    Follow definitions, assignments, parameters, callers, branch/callback ordering, async dependencies, and downstream consumers
    as needed to explain how the failing operation receives its inputs. Prefer focused searches and line ranges over whole files.

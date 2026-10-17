@@ -96,7 +96,7 @@ def test_sdk_edit_runs_only_in_temporary_draft_and_preserves_original_and_candid
     monkeypatch.setattr(FilesystemBackend, "edit", capture)
     workspace.apply_text_edits([TextEdit(path="src/main.ets", old="bad", new="second")])
     assert len(observed) == 1 and observed[0][1:] == ("/src/main.ets", False)
-    assert (workspace.draft / "src/main.ets").read_bytes() == b"value=second\n"
+    assert (workspace.draft / "src/main.ets").read_bytes() == baseline_bytes.replace(b"bad", b"second")
     assert (workspace.base / "src/main.ets").read_bytes() == baseline_bytes
     assert (frozen / "src/main.ets").read_bytes() == frozen_bytes
 
@@ -127,11 +127,29 @@ def test_sdk_edit_handles_inspected_crlf_anchor_and_preserves_eof_without_newlin
     workspace.start_draft()
     (workspace.draft / "src/main.ets").write_bytes(b"first\r\nvalue=bad")
     workspace.apply_text_edits([TextEdit(path="src/main.ets", old="first\r\nvalue=bad", new="first\r\nvalue=good")])
-    assert (workspace.draft / "src/main.ets").read_bytes() == b"first\nvalue=good"
+    assert (workspace.draft / "src/main.ets").read_bytes() == b"first\r\nvalue=good"
     before = (workspace.draft / "src/main.ets").read_bytes()
     with pytest.raises(ValueError, match="does not end with a newline"):
         workspace.apply_text_edits([TextEdit(path="src/main.ets", old="value=good\n", new="value=wrong\n")])
     assert (workspace.draft / "src/main.ets").read_bytes() == before
+
+
+@pytest.mark.parametrize(("original", "anchor", "replacement", "expected"), [
+    (b"head\r\nvalue=bad\r\ntail\r\n", "bad", "good", b"head\r\nvalue=good\r\ntail\r\n"),
+    (b"head\r\nvalue=bad\ntail\r\n", "bad", "good", b"head\r\nvalue=good\ntail\r\n"),
+    (b"head\rvalue=bad\rtail", "bad", "good", b"head\rvalue=good\rtail"),
+    (b"head\r\nvalue=bad\r\ntail", "value=bad", "value=good\nextra=1",
+     b"head\r\nvalue=good\r\nextra=1\r\ntail"),
+    ("标题\r\nvalue=bad\r\n末尾".encode(), "bad", "好", "标题\r\nvalue=好\r\n末尾".encode()),
+])
+def test_sdk_edit_preserves_unmodified_line_endings(
+        tmp_path: Path, original: bytes, anchor: str, replacement: str, expected: bytes) -> None:
+    workspace = CandidateWorkspace(task_snapshot(tmp_path), tmp_path / "work", "run1")
+    workspace.start_draft()
+    target = workspace.draft / "src/main.ets"
+    target.write_bytes(original)
+    workspace.apply_text_edits([TextEdit(path="src/main.ets", old=anchor, new=replacement)])
+    assert target.read_bytes() == expected
 
 
 def test_sdk_edit_rejects_ambiguous_anchor_without_replacing_all(tmp_path: Path) -> None:
@@ -150,6 +168,7 @@ def test_sdk_edit_rejects_ambiguous_anchor_without_replacing_all(tmp_path: Path)
     (b"value=bad\n", "bad", "good", 0),
     (b"value=bad\nunchanged tail", "bad", "good", 1),
     (b"value=bad\r\n", "bad", "good", 0),
+    (b"// unchanged\r\n" * 20 + b"value=bad\r\n", "bad", "good", 0),
 ])
 def test_registered_patch_applies_to_exact_baseline_and_preserves_eof(
         tmp_path: Path, original: bytes, anchor: str, replacement: str, markers: int) -> None:
@@ -169,6 +188,10 @@ def test_registered_patch_applies_to_exact_baseline_and_preserves_eof(
     candidate = workspace.register_candidate(1)
     patch = workspace.candidates / candidate.candidate_id / "patch.diff"
     assert patch.read_bytes().count(b"\\ No newline at end of file\n") == markers
+    if original.count(b"\r\n") >= 20:
+        lines = patch.read_bytes().splitlines()
+        assert sum(line.startswith(b"+") and not line.startswith(b"+++") for line in lines) == 1
+        assert sum(line.startswith(b"-") and not line.startswith(b"---") for line in lines) == 1
     applied = tmp_path / "apply-check"
     shutil.copytree(workspace.base, applied)
     # Isolate Git's repository discovery from the surrounding checkout. This
@@ -307,7 +330,8 @@ def test_windows_transient_owned_rename_retries_same_move_without_repeating_edit
     assert len(edits) == 1
     assert len(attempts) == 3 and set(attempts.values()) == {2}
     assert sleeps == [0.025, 0.025, 0.025]
-    assert (workspace.require_registered(candidate.candidate_id) / "src/main.ets").read_bytes() == b"value=good\n"
+    assert (workspace.require_registered(candidate.candidate_id) / "src/main.ets").read_bytes() == original_baseline.replace(
+        b"bad", b"good")
     assert (workspace.base / "src/main.ets").read_bytes() == original_baseline
 
 

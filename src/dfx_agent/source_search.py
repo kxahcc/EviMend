@@ -61,6 +61,22 @@ class SourceSearch:
     def __init__(self, workspace: CandidateWorkspace):
         self.workspace = workspace
 
+    def list_files(self, *, path_prefix: str | None = None, offset: int = 0,
+                   limit: int = 50) -> dict[str, Any]:
+        """Page paths without flooding the model with a complete project inventory."""
+        if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= 100:
+            raise ValueError("invalid source listing page")
+        if path_prefix is not None:
+            require_path(path_prefix)
+        files = sorted(path for path in _files(self.workspace.base)
+                       if path_prefix is None or path == path_prefix or path.startswith(path_prefix + "/"))
+        page = files[offset:offset + limit]
+        has_more = offset + len(page) < len(files)
+        return {"scope": "baseline", "source_snapshot_sha256": self.workspace.source_snapshot_sha256,
+                "path_prefix": path_prefix, "files": page, "total_files": len(files),
+                "offset": offset, "has_more": has_more,
+                "next_offset": offset + len(page) if has_more else None}
+
     def search(self, query: str, *, path_prefix: str | None = None, candidate_id: str | None = None,
                case_sensitive: bool = True, offset: int = 0, limit: int = 30) -> dict[str, Any]:
         if (not isinstance(query, str) or not query.strip() or len(query) > MAX_QUERY_CHARS or

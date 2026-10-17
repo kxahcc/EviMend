@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-15。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。SDK 循环、诊断/义务/决策、候选、账本、上下文/Skills 及停止恢复继续复用。默认产品为 Windows x64 本机源码/日志分析与可选宿主真实源码回放，完整 HarmonyOS/application 降为扩展，无硬件前置；四层语义及旧记录兼容由本规格约束。实际软件证据只见 STATUS，真实模型/数据修复实验仍禁用，提供方兼容性、代表 .ets 宿主语义和方法效果未知。可信采值/自动演进等保持冻结扩展；案例推演不进入未来独立求解上下文。
+状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-18。
+职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。SDK 循环、诊断/义务/决策、候选、账本、上下文/Skills 及停止恢复继续复用。默认产品为 Windows x64 本机源码/日志分析与可选宿主真实源码回放，完整 HarmonyOS/application 降为扩展，无硬件前置；四层语义及旧记录兼容由本规格约束。实际软件和真实模型/数据修复证据见 STATUS；本次预算授权内的云端测试已开放，不推定其他型号、未覆盖 .ets 语义或方法收益已通过。可信采值/自动演进等保持冻结扩展；案例推演不进入未来独立求解上下文。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -132,6 +132,8 @@ context_profile 定义有限上下文和可选主机压缩：默认 disabled 时
 task_strategy 的共享指引接入 SDK system_prompt，启动消息包含核对的 task/run/source、能力/续跑、诊断关联和实际验证声明：analysis 为 not_run，source 为 source_execution，application 为 application_execution，synthetic 为 offline_synthetic。声明不是通过证据，不授接受。基础指引仍是日志→上游/消费者查证→原版行假设→保行为补丁→候选→已配置检查/反馈→修订或诚实结束；analysis 无执行能力时只交付未验证结果。增强仅追加规则/义务/决策指导，不以缺有限条件 ID 禁止基础修复，文本/模型说明不能确认因果或运行值。
 
 `read_source(path, start_line=1, end_line=100, draft=False, proposal_json=None, candidate_id=None)` 默认读取原版，draft=True 读取当前草稿，candidate_id 读取已登记且完整复核的冻结候选；后两者互斥，每次最多 200 行。原版/草稿保留既有回执形状，候选另返回 scope=candidate、candidate_id 和 snapshot_sha256，并在读取后重新核对登记。候选行不能冒充原版根因坐标。参数进入原工具授权和总预算；上下文选择以候选身份/快照与草稿编辑代次区分重复读取。决策面板为当前与最近失败的原候选提供已有工具的回读提示，提示不等于已读取源码。
+
+`list_source(path_prefix=None, offset=0, limit=50)` 按相对路径排序返回原版文件名，每页最多100项。path_prefix 按文件/目录组件匹配，不展开glob；结果含files、total_files、offset、has_more及next_offset，不把第一页误作完整清单。只枚举任务快照，不读取原数据目录或额外注入全文；优先从栈路径直接读取或检索，避免文件清单占满思考模式必须保留的历史。
 
 `search_source(query, path_prefix=None, candidate_id=None, case_sensitive=True, offset=0, limit=30)` 只接受有限单行字面查询；大小写忽略也是转义后的字面匹配，不执行用户正则。path_prefix 是相对文件/目录的组件前缀，不展开 glob；模型不能指定任意 root。原版整树摘要必须匹配任务，候选须已登记且冻结字节、manifest 和 diff 相符；草稿不参与检索。规模、单文件、查询、片段与分页限额由 source_search.py 的固定常量和 search_limits 定义，超限拒绝，不静默放宽。
 

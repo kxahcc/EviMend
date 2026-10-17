@@ -6,6 +6,7 @@ import difflib
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import sys
@@ -21,6 +22,31 @@ from pydantic import BaseModel, ConfigDict, Field
 from .contracts import CandidatePatch, require_hash, require_path
 from .evidence_io import local_evidence_path
 from .task import _resolve_logical, digest, snapshot_digest, verify_task
+
+
+def _retain_edit_line_endings(before: bytes, sdk_after: bytes, old: str, new: str) -> bytes:
+    """Retain untouched bytes around the SDK's one authorized replacement.
+
+    FilesystemBackend normalizes universal newlines. Restore the source's
+    formatting after its edit, so a small CRLF change is not a whole-file diff.
+    """
+    def normalized(text: str) -> str:
+        return text.replace("\r\n", "\n").replace("\r", "\n")
+
+    original = before.decode("utf-8")
+    anchor, replacement = normalized(old), normalized(new)
+    expected = normalized(original).replace(anchor, replacement, 1)
+    if normalized(sdk_after.decode("utf-8")) != expected:
+        raise ValueError("SDK edit changed text outside the authorized replacement")
+    pattern = r"(?:\r\n|\r|\n)".join(re.escape(part) for part in anchor.split("\n"))
+    matches = list(re.finditer(pattern, original))
+    if len(matches) != 1:
+        raise ValueError("SDK edit anchor cannot be mapped to original newline bytes")
+    match = matches[0]
+    newline = re.search(r"\r\n|\r|\n", match.group()) or re.search(r"\r\n|\r|\n", original)
+    replacement = replacement.replace("\n", newline.group() if newline else "\n")
+    return (original[:match.start()] + replacement + original[match.end():]).encode("utf-8")
+
 
 _WINDOWS = sys.platform == "win32"
 _RENAME_DELAYS = (0.025, 0.05, 0.075, 0.1)
@@ -255,11 +281,16 @@ class CandidateWorkspace:
                 path = temp / edit.checked_path()
                 if not local_evidence_path(path).is_file() or local_evidence_path(path).is_symlink():
                     raise ValueError("edit target is missing or linked")
+                before = local_evidence_path(path).read_bytes()
                 result = backend.edit(f"/{edit.path}", edit.old, edit.new, replace_all=False)
                 if result.error is not None:
                     raise ValueError(f"edit anchor must match exactly once; SDK edit failed: {result.error}")
                 if result.path != f"/{edit.path}" or result.occurrences != 1:
                     raise ValueError("SDK edit did not confirm one replacement in the requested file")
+                after = local_evidence_path(path).read_bytes()
+                preserved = _retain_edit_line_endings(before, after, edit.old, edit.new)
+                if preserved != after:
+                    local_evidence_path(path).write_bytes(preserved)
             _rename_owned(self.draft, backup)
             try:
                 _rename_owned(temp, self.draft)
