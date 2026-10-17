@@ -167,8 +167,9 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
     @tool
     def inspect_analysis(diagnosis_id: str | None = None, include_schema: bool = False, decision_id: str | None = None,
                          condition_result_id: str | None = None,
-                         proposal_json: str | None = None) -> str:
-        """Read registered analysis, scoped synthetic condition results, host fixtures and request schemas."""
+                         proposal_json: str | None = None, include_validation: bool = False,
+                         validation_candidate_id: str | None = None) -> str:
+        """Read analysis/schemas, available validation, or a candidate's saved stage failures without running checks."""
         try:
             bundles = analysis.bundles()
             value: dict[str, Any] = {"task_id": workspace.task_id, "run_id": workspace.run_id,
@@ -205,6 +206,8 @@ def _tools(workspace: CandidateWorkspace, ledger: CheckLedger, max_candidates: i
                 if condition_result_id not in records:
                     raise ValueError("condition result is not registered")
                 value["condition_result"] = records[condition_result_id].model_dump(mode="json")
+            if include_validation or validation_candidate_id is not None:
+                value["validation"] = ledger.inspect(validation_candidate_id)
             return json.dumps(value)
         except (OSError, ValueError, ValidationError, KeyError) as exc:
             return f"rejected: {exc}"

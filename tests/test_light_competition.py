@@ -32,6 +32,7 @@ class _RepairWire:
         self.candidate_ids: list[str] = []
         self.feedback_id = ""
         self.seen_feedback: dict[str, Any] | None = None
+        self.seen_inspection: dict[str, Any] | None = None
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -67,6 +68,7 @@ class _RepairWire:
                 ("edit_source", {"path": "calc.py", "old": "return n - 1", "new": "return 3"}),
                 ("register_candidate", {"diagnosis_id": "diagnosis-1", "preserves": ["preserve-increment"]}),
                 ("run_check", {"candidate_id": self.candidate}),
+                ("inspect_analysis", {"validation_candidate_id": self.candidate}),
                 ("link_failed_check", {"candidate_id": self.candidate,
                                        "violated_obligation_ids": ["preserve-increment"]}),
                 ("edit_source", {"path": "calc.py", "old": "return n - 1", "new": "return n + 1"}),
@@ -74,6 +76,13 @@ class _RepairWire:
                 ("run_check", {"candidate_id": self.candidate}),
             ]
             if position == 8:
+                inspection = json.loads(last["content"])["validation"]
+                failure = inspection["saved_check"]["failed_stage"]
+                assert failure["role"] == "candidate" and failure["stage"] == "behavior"
+                assert "normal input behavior changed" in failure["output"]["stderr"]["text"]
+                assert inspection["autonomous_test_generation"] is False
+                self.seen_inspection = inspection
+            if position == 9:
                 # Require the actual next provider request to contain the saved
                 # source failure before supplying the second scripted edit.
                 # The current context panel names required groups by reference;
@@ -278,24 +287,25 @@ def test_source_business_failure_reaches_actual_wire_then_second_candidate_passe
     assert report["metrics"]["application_repair_success"] is None
     feedback = json.loads((work / "feedback" / (wire.feedback_id + ".json")).read_bytes())
     assert wire.seen_feedback is not None
+    assert wire.seen_inspection is not None
     assert {key: value for key, value in wire.seen_feedback.items() if key != "feedback_id"} == feedback
     assert feedback["candidate_id"] == first["candidate"]["candidate_id"]
     assert feedback["execution_id"] == first["check"]["idempotency_key"]
     assert feedback["scope"] == "source" and feedback["evidence_kind"] == "source_execution"
     assert feedback["violated_obligation_ids"] == ["preserve-increment"]
-    assert len(wire.requests) == result["model_calls"] == 12
+    assert len(wire.requests) == result["model_calls"] == 13
     panels = [json.loads(body["messages"][1]["content"].split(WORKING_CONTEXT_PROMPT + "\n", 1)[1])
               for body in wire.requests]
-    failures = [panel["decision_context"]["revision"]["latest_failure"] for panel in panels[8:11]]
+    failures = [panel["decision_context"]["revision"]["latest_failure"] for panel in panels[9:12]]
     assert all(failure is not None and failure["candidate_id"] == first["candidate"]["candidate_id"] and
                failure["check_result"]["status"] == "fail" and
                failure["check_result"]["level"] == "source_execution" for failure in failures)
     assert panels[-1]["decision_context"]["revision"]["latest_failure"] is None
-    assert len(solver["working_context_plans"]) == 12
+    assert len(solver["working_context_plans"]) == 13
     assert solver["rejected_tool_calls"] == solver["uncertain_tool_calls"] == solver["uncertain_model_calls"] == 0
     calls = ModelCallStore(work / "model-calls.sqlite", read_only=True)
     records = calls.records("light-competition-task", run_id)
-    assert len(records) == 12 and all(record.state == "completed" for record in records)
+    assert len(records) == 13 and all(record.state == "completed" for record in records)
     assert all(calls.replay(record.intent)[0].response_metadata["dfx_network"]["network_attempts"] == 1 for record in records)
     assert (work / first["patch_path"]).read_bytes() != (work / final["patch_path"]).read_bytes()
     saved_report = (work / "competition-report.json").read_bytes()
@@ -304,7 +314,7 @@ def test_source_business_failure_reaches_actual_wire_then_second_candidate_passe
     verify_private_delivery(work / "delivery.zip", 268435456)
     resumed = run_competition(task, work, run_id, settings, REPOSITORY, resume=True)
     assert resumed["status"] == "source_verified" and resumed["accepted"] is True
-    assert len(wire.requests) == resumed["model_calls"] == 12
+    assert len(wire.requests) == resumed["model_calls"] == 13
     assert (work / "competition-report.json").read_bytes() == saved_report
     assert {path.name: path.read_bytes() for path in (work / "checks").glob("*.json")} == saved_checks
     assert {path.name: path.read_bytes() for path in (work / "feedback").glob("*.json")} == saved_feedback

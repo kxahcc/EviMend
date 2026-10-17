@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-18",
+  "scope": "Connect validation discovery and saved stage feedback to the existing Agent tools; order three test parts",
+  "base_commit": "7763a2b",
+  "implementation": [
+    "Extend inspect_analysis with include_validation/validation_candidate_id; reuse CheckLedger and LocalApplicationExecutor, with no new tool, scheduler or execution ledger.",
+    "Read actual configured scope/mocks/stages and authenticated saved failures, bounded at 4096 bytes per stream. Original expected target failure is not reported as a new candidate failure.",
+    "No execution on readback; pending remains inconclusive with no relaunch. Unknown candidates reject. The interface explicitly states autonomous_test_generation=false.",
+    "The source prompt directs the model to the actual counterexample before revision; fixed host acceptance remains immutable.",
+    "Plan, metrics and STATUS follow user order: full data/system tests; then anomaly/OOD and layered ablations; finally Windows emulator feasibility and selected full applications. No platform install or later-stage experiment started."
+  ],
+  "checks": [
+    {"suite": "read-only validation inspection", "receipt": "e4a342c0-7763-4b48-96d1-9d54cedddaa5", "passed": 3, "seconds": 9.50},
+    {"suite": "actual SDK/mock transport with source/analysis and failure revision", "receipt": "6066e1e5-146b-4ee8-9482-ddc17b7f7d82", "passed": 3, "seconds": 124.76},
+    {"suite": "ruff", "receipt": "0154b18c-8e3e-4ed9-ab2b-641cf95284c1", "status": "passed"},
+    {"suite": "pyright", "receipt": "3f62de55-9d06-44e4-aec5-1fc97d363515", "status": "passed"},
+    {"suite": "docs", "receipt": "f51271e8-dbbc-4518-8d67-340580fc8ca3", "status": "passed"}
+  ],
+  "evidence_boundary": "The 13-request two-candidate path reads the saved behavior failure in the next actual mock provider request, revises and passes, then resumes with no new calls. This is Python software-fixture execution and simulated model output, not autonomous reasoning, new data_B success or automated test generation.",
+  "environment": "Existing managed environment only; zero real model calls, no installation or resource-limit changes. Real model starts remain disabled while case protocols are completed.",
+  "next": "Actual Calendar and asset-pie original/candidate replay, including negative repairs, then continue phase-one case coverage."
+}

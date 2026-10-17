@@ -51,6 +51,8 @@ Diagnosis 保存 exception_locations、hypotheses、selected_hypothesis_id、unk
 
 `diagnostics.py` 已将上述对象接入两种离线模型共用的工具。`inspect_analysis(include_schema=True)` 按需提供主机任务身份、DiagnosisSubmission 的 JSON schema 和接纳规则；按 diagnosis_id 可回读原记录。`record_diagnosis(diagnosis_json=...)` 接收诊断、源码/日志引用、模型推断、已有证据 ID、失败检查引用及义务；旧的 path/line/reason 简单路径仍保留，不能和结构化路径混用。
 
+`inspect_analysis(include_validation=True)`描述当前实际配置的验证层级、范围、mock和固定阶段；`validation_candidate_id`回读登记候选的已有检查及失败阶段输出，每个通道最多4096字节并标记截断。它复用CheckLedger和LocalApplicationExecutor，只读且不重跑；未运行、pending和inconclusive不补写pass。固定判据代码不交给模型修改，接口明确autonomous_test_generation=false；查询、执行与反馈修订能力不等于自主设计或接纳新测试环境。
+
 源码文本由主机按版本和行范围读取，日志核对原字节哈希后读取。新 read_log 与日志引用登记共用 logs.decode_text，支持 BOM 的 UTF-16、UTF-8/BOM、GB18030 和显式损坏替换告警；read_log 返回 encoding/warnings 及原行段，不改原件或原字节哈希。工作上下文及冻结材料逐行匹配同一解码；既有保存陈述另允许精确匹配旧 UTF-8 replacement 视图，仅作只读历史核验，不改写旧 Evidence/回执或用于新登记。行段和输入大小限制保持，损坏解码不证明缺少异常。模型只能提交推断和引用，不能自填执行事实。执行证据只从已登记候选的已保存失败检查产生，核对候选源码哈希与 execution_id；恢复引用旧执行依据也须明确相同 feedback_candidate_id。所有模型提交的假设保持 unknown、关系保持 model_inference；这不是禁止后续可信检查确认它们，而是防止模型自授确认。引用闭包不得缺项或循环，已有证据 ID 不得改写。诊断、证据和关联义务在同一个不可改写的文件中原子保存；新假设或修订使用新 ID。诊断接纳工具只检查结构、引用和来源，不能证明因果解释正确，尚不自动调用第 3.0 节的条件检查器。
 
 ### 1.2.1 修复义务和动作提案

@@ -920,6 +920,34 @@ class LocalApplicationExecutor:
         _atomic_json(path, record)
         return record["status"], record["detail"]
 
+    def inspection(self, key: str) -> dict[str, Any]:
+        """Return bounded, authenticated stage feedback; never launch a command."""
+        evidence = self.evidence(key)
+        rows = [*(evidence.get("baseline") or {}).get("stages", []), *evidence.get("stages", [])]
+        value: dict[str, Any] = {"state": evidence["state"], "status": evidence["status"],
+            "detail": evidence["detail"], "verification_level": evidence["verification_level"],
+            "baseline_fault_reproduced": (evidence.get("baseline") or {}).get("fault_reproduced"),
+            "stages": [{name: row.get(name) for name in ("role", "stage", "status", "exit_code",
+                "reason", "started_at", "finished_at", "source_binding_verified", "oracle_binding_verified")}
+                for row in rows]}
+        unexpected = [row for row in rows if row.get("status") != "pass" and not (
+            row.get("role") == "baseline" and row.get("stage") == "target" and value["baseline_fault_reproduced"])]
+        if unexpected:
+            failed = unexpected[-1]
+            _, root = self._bound()
+            outputs = {}
+            for channel in ("stdout", "stderr"):
+                reference = failed.get(channel)
+                if reference is None:
+                    continue
+                filename = local_evidence_path(_checked(root / key / reference["path"]))
+                with filename.open("rb") as stream:
+                    raw = stream.read(4097)
+                outputs[channel] = {"text": raw[:4096].decode("utf-8", errors="replace"),
+                    "truncated": len(raw) > 4096, "recorded_bytes": reference["size_bytes"]}
+            value["failed_stage"] = {"role": failed["role"], "stage": failed["stage"], "output": outputs}
+        return value
+
     def evidence(self, key: str) -> dict[str, Any]:
         """Read and validate receipts without creating or executing anything."""
         require_hash(key)

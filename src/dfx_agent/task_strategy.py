@@ -149,6 +149,9 @@ def build_system_prompt(features: PolicyFeatures, *, application_checks: bool = 
             "The host-fixed checks execute the baseline and candidate source within the declared validation_scope, "
             "using only the declared mocked_interfaces. Read the actual source_execution receipts. "
             "A source check pass does not establish full application, device or platform-API correctness. "
+            "Use inspect_analysis(include_validation=True) if the available coverage is unclear. "
+            "After a failed check, inspect_analysis(validation_candidate_id=the_failed_id) reads saved stage outputs "
+            "without rerunning code; use the actual counterexample to revise the patch. "
             "Do not request a device, SDK, signing or emulator unless an explicitly supplied check requires it.")
         prompt = prompt.replace("The observation is real within its synthetic scope",
                                 "The observation is real within its recorded source-execution scope")

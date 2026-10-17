@@ -185,6 +185,35 @@ class CheckLedger:
                             "result": result.model_dump()})
         return result
 
+    def inspect(self, candidate_id: str | None = None) -> dict[str, object]:
+        """Describe available verification and saved counterexamples without execution."""
+        from .local_execution import STAGES, LocalApplicationExecutor
+
+        level = verification_level(self.executor)
+        value: dict[str, object] = {"verification_level": level,
+            "protocol_sha256": self.executor.protocol_sha256, "execution_configured": level != "not_run",
+            "check_origin": "host_configured", "autonomous_test_generation": False}
+        if isinstance(self.executor, LocalApplicationExecutor):
+            value.update(validation_scope=self.executor.config.validation_scope,
+                mocked_interfaces=self.executor.config.mocked_interfaces,
+                available_stages=list(STAGES), independent_acceptance="fixed_host_oracles")
+        if candidate_id is None:
+            return value
+        self.workspace.require_registered(candidate_id)
+        key, path = self._identity(candidate_id, "offline")
+        record = self._record(candidate_id, "offline", key, path)
+        value["candidate_id"] = candidate_id
+        if record is None:
+            value["saved_check"] = {"state": "not_run"}
+        elif record["state"] == "pending":
+            value["saved_check"] = {"state": "pending", "status": "inconclusive", "relaunch": False}
+        elif isinstance(self.executor, LocalApplicationExecutor):
+            value["saved_check"] = self.executor.inspection(key)
+        else:
+            completed = self.completed(candidate_id)
+            value["saved_check"] = (completed.model_dump(mode="json") if completed else {"state": "pending"})
+        return value
+
 
 class FixedTextExecutor:
     """Deterministic test double; never reports a real compiler or device pass."""
