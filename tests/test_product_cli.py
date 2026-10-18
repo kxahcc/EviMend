@@ -545,21 +545,30 @@ def test_environment_deletion_is_rejected_before_invoke_and_points_to_external_s
         " --discard-evidence" if discard else "")
 
 
+@pytest.mark.parametrize("request_cap", [False, True])
 def test_configuration_defaults_to_existing_shared_batch_without_exporting_key(
     workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+    request_cap: bool,
 ) -> None:
     _reject_external_actions(monkeypatch)
     private = _private_profile(workspace)
-    batch = {"schema_version": 1, "budget_id": "self-service", "model_id": "file-chosen-model",
+    model = "deepseek-flash" if request_cap else "file-chosen-model"
+    if request_cap:
+        value = json.loads(private.read_bytes())
+        value["model"] = model
+        private.write_text(json.dumps(value), encoding="utf-8")
+    batch = {"schema_version": 1, "budget_id": "self-service", "model_id": model,
         "credential_file": str(private), "max_cny": "18", "ceiling_cny_per_million_tokens": "8",
         "run_ids": ["old-unknown", "new-test"]}
     (workspace / "configs/evaluation.local.json").write_text(json.dumps(batch), encoding="utf-8")
     assert cli.main(["configure", "--save", "configs/new.local.json",
-                     "--charge-unknown-run-cap", "old-unknown", "--output-format", "json"]) == 0
+                     "--charge-unknown-request-cap" if request_cap else "--charge-unknown-run-cap",
+                     "old-unknown", "--output-format", "json"]) == 0
     saved = (workspace / "configs/new.local.json").read_text(encoding="utf-8")
     configured = json.loads(saved)
     assert configured["batch_budget_file"] == "configs/evaluation.local.json"
-    assert configured["charge_unknown_run_caps"] == ["old-unknown"]
+    field = "charge_unknown_request_caps" if request_cap else "charge_unknown_run_caps"
+    assert configured[field] == ["old-unknown"]
     assert "file-private-key-must-not-be-saved" not in saved + capsys.readouterr().out
 
 

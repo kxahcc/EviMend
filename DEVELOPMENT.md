@@ -83,7 +83,7 @@ flowchart LR
 
 ## 5. 开发框架和资源
 
-**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。云端通信复用锁定的官方 OpenAI Python SDK；同类 Chat Completions 服务默认在 Git 忽略的 `configs/model.local.json` 统一填写地址、模型、Key、单任务预算及网络重试/超时，环境变量保留为兼容选项，不自研供应商通信库。当前接纳对象为 deepseek-flash、thinking enabled，工具续轮保留提供方要求的完整推理历史，不擅自关闭用户模式。连接未建立的故障及明确 429 由 SDK 有限退避，结果不明的请求不重发；重试等待受本次请求与任务剩余时间共同限制，不重跑 Agent 工具。私有批次清单 `configs/evaluation.local.json` 不含 Key，批次预算读取已有真实账本并在新 run 前预留其最坏费用；未知 usage 默认停止，只有用户显式接纳的已结束旧 run 可以全额占用原 cap 后继续新 run。金额、公式和例外条件唯一见 [评测口径](docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界)。初始化、预检和参数说明见 [使用说明](src/dfx_agent/README.md)。真实服务及型号须小额核验，宿主验证器须接纳实际运行时、源码加载方式、输入和独立预期；不预设所有 `.ets` 都能在普通 JavaScript 运行时等价执行。具体选择与实现边界见 [开发设计](docs/development/system-design-draft.md)。
+**Python 3.13 + Deep Agents SDK（底层 LangGraph）+ Pydantic 2 + langchain-core + SQLite** 是首版 Agent 技术底座。云端通信复用锁定的官方 OpenAI Python SDK；同类 Chat Completions 服务默认在 Git 忽略的 `configs/model.local.json` 统一填写地址、模型、Key、单任务预算及网络重试/超时，环境变量保留为兼容选项，不自研供应商通信库。当前接纳对象为 deepseek-flash、thinking enabled，工具续轮保留提供方要求的完整推理历史，不擅自关闭用户模式。连接未建立的故障及明确 429 由 SDK 有限退避，结果不明的请求不重发；重试等待受本次请求与任务剩余时间共同限制，不重跑 Agent 工具。私有批次清单 `configs/evaluation.local.json` 不含 Key，批次预算读取已有真实账本并在新 run 前预留其最坏费用；未知 usage 默认停止，只有用户显式接纳的完整终态run可按获准的全cap或请求级预留占用后继续新run。金额、公式和例外条件唯一见 [评测口径](docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界)。初始化、预检和参数说明见 [使用说明](src/dfx_agent/README.md)。真实服务及型号须小额核验，宿主验证器须接纳实际运行时、源码加载方式、输入和独立预期；不预设所有 `.ets` 都能在普通 JavaScript 运行时等价执行。具体选择与实现边界见 [开发设计](docs/development/system-design-draft.md)。
 
 | 部分 | 用什么 | 为什么 |
 |---|---|---|
@@ -119,7 +119,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 
 ## 6. 怎样一步步把它做出来
 
-竞赛版的交付路线是：在累计费用门下做零推理预检与小额真实接入，022 校验逻辑和 016 公用方法由两个固定宿主协议逐例接纳，021 等其余数据按实际适配继续覆盖；每例有可信宿主检查才计源码级结果，没有 adapter 的案例仍保留 analysis/未验证。先保证真实基础闭环与完整逐例记录，预算允许再成对筛选增强，最后冻结确认并整理竞赛材料。用户明确接纳的未知费用例外仅在 charge_unknown_run_caps 中点名已结束 run，以原冻结 Token 上限全额占预算，原 unknown 和请求保持不变；默认仍是未知即停止，规则见 [评测口径](docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界)。到正式截止及提前内部完成的日期、依赖和退出扩展规则统一见 [实施计划](docs/project-work-plan.md)，不在本导览复制日程或额度表；实际进度只见 [STATUS](docs/STATUS.md)。
+竞赛版的交付路线是：在累计费用门下做零推理预检与小额真实接入，022 校验逻辑和 016 公用方法由两个固定宿主协议逐例接纳，021 等其余数据按实际适配继续覆盖；每例有可信宿主检查才计源码级结果，没有 adapter 的案例仍保留 analysis/未验证。先保证真实基础闭环与完整逐例记录，预算允许再成对筛选增强，最后冻结确认并整理竞赛材料。用户明确接纳的未知费用例外须在对应全cap或请求级名单中点名已结束run，按明确获准的全cap或请求级预留占预算，原unknown和请求保持不变；默认仍是未知即停止，规则见 [评测口径](docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界)。到正式截止及提前内部完成的日期、依赖和退出扩展规则统一见 [实施计划](docs/project-work-plan.md)，不在本导览复制日程或额度表；实际进度只见 [STATUS](docs/STATUS.md)。
 
 竞赛版保留修复义务、工作上下文、有条件经验使用和任务内反馈修订。跨任务模型提炼与自动晋升、完整生命周期科研成本和自动运行采值作为扩展保留，不再阻塞该节点。交付软件后先接通并验证真实基础闭环，再按相同模型、材料、工具和预算比较增强；依据实测决定比赛配置与论文主张。
 
@@ -284,7 +284,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `model_profile.py` | 有界读取本机私有模型配置，用既有 Pydantic 校验模型/预算，密钥排除序列化；生产 SDK 发送时直接读取 Key |
 | `provider_probe.py` | 受管 provider 任务，经官方 SDK 只读查询模型与余额并核对既有普通 Node 类型剥离能力；不发推理请求、不回显 Key，不替代工具续轮或修复实测 |
 | `pilot_preparation.py` | 受管prepare从审核选择冻结允许源码/日志；analysis只准备输入，source按已登记的实际源码运行器复现原版并生成包含范围/mock的验证配置；不创建候选，不把oracle放入求解上下文 |
-| `batch_budget.py` | 只读汇总真实账本，按确认缓存用量估算历史费用并预留新任务最坏费用；未知默认阻断，仅显式接纳的完整终态可按原cap占用；不改原unknown、不建新账本 |
+| `batch_budget.py` | 只读汇总真实账本，按确认缓存用量估算历史费用并预留新任务最坏费用；未知默认阻断，显式接纳的完整终态按批准的全cap或请求预留占用；不改原unknown、不建新账本 |
 | `cloud_retries.py` | 复用官方异步 SDK 的退避与标准 asyncio 超时；公共 transport 接口限制安全重试类别，保存有界尝试统计，不实现自有退避循环 |
 | `knowledge_contracts.py` | 不可变经验、求解指导、来源权限与知识快照对象；明确前提、未知问题、保留行为、反例和有限历史范围，不授予应用资格 |
 | `knowledge.py` | 捕获主机批准的原字节、按来源交集保存经验和冻结快照、受容量限制完整回读；为独立检索复用同操作闭包，不接 SDK 或自动学习 |

@@ -3,21 +3,28 @@
 from __future__ import annotations
 
 import hashlib
-from decimal import Decimal
+import json
+from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from dfx_agent import competition
 from dfx_agent.batch_budget import (
     BatchBudget,
     check_batch_budget,
     deepseek_flash_peak_cost,
+    unknown_request_cap_cost,
 )
 from dfx_agent.competition import CompetitionConfig
 from dfx_agent.model_calls import ModelCallIntent, ModelCallStore, canonical, sha256
+from dfx_agent.model_provider import (
+    CloudChatCompletionsAdapter,
+    CloudProviderConfig,
+    ProviderSettings,
+)
 
 
 @pytest.fixture
@@ -399,3 +406,99 @@ def test_competition_cache_pricing_is_explicit_and_requires_cloud_batch() -> Non
     del config["batch_budget_file"]
     with pytest.raises(ValueError, match="explicit cloud batch"):
         CompetitionConfig.model_validate(config)
+
+def _saved_request_unknown(batch: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    work, store = saved(batch, tokens=1000, output_tokens=10,
+        raw_usage={"prompt_tokens": 1000, "completion_tokens": 10, "total_tokens": 1010,
+                   "prompt_cache_hit_tokens": 100, "prompt_cache_miss_tokens": 900})
+    model = ProviderSettings(provider_id="deepseek", model_id="deepseek-flash", max_output_tokens=4096,
+                             thinking_mode="enabled", timeout_seconds=60.0)
+    provider = CloudProviderConfig(endpoint="https://api.deepseek.com/chat/completions",
+        credential_env="DEEPSEEK_API_KEY", credential_file=str(batch["credential"]))
+    adapter = CloudChatCompletionsAdapter(model, provider, allow_network=False)
+    request = adapter.prepare([HumanMessage(content="Review the supplied source")], [])
+    intent = ModelCallIntent(call_id="call2", task_id="task-r1", run_id="r1", kind="solver",
+        provider_id="deepseek", model_id="deepseek-flash", prompt_sha256=sha256(canonical(request.messages)),
+        tool_schema_sha256=sha256(canonical(request.tools)), parameters_sha256=sha256(canonical({
+            "wire_parameters": request.parameters, "body_sha256": request.body_sha256,
+            "profile_sha256": request.profile_sha256})), tool_names=())
+    store.reserve(intent, max_calls=2)
+    store.dispatch("call2")
+    store.mark_unknown("call2", "response_lost")
+    frozen = json.loads((work / "competition-config.json").read_bytes())
+    frozen["config"]["model"] = model.model_dump(mode="json")
+    frozen["task"]["source_snapshot_sha256"] = sha256("original source")
+    (work / "competition-config.json").write_text(canonical(frozen), encoding="utf-8")
+    inputs = work / "solver-inputs"
+    inputs.mkdir()
+    (inputs / "call2.json").write_text(canonical({"schema_version": 1, "task_id": "task-r1", "run_id": "r1",
+        "source_snapshot_sha256": frozen["task"]["source_snapshot_sha256"], "parent_call_id": "call2",
+        "solver_intent": intent.model_dump(mode="json"), "model_profile_json": canonical(adapter.profile()),
+        "prepared_request": request.model_dump(mode="json")}), encoding="utf-8")
+    report = {"run_id": "r1", "task_id": "task-r1", "cost": store.usage_summary("task-r1", "r1"), "status": "unresolved"}
+    report["report_sha256"] = sha256(canonical(report))
+    (work / "competition-report.json").write_text(canonical(report), encoding="utf-8")
+    (work / "run-state.json").write_text(canonical({"task": "competition", "run_id": "r1", "status": "finished",
+        "finished_at": "2026-10-18T04:22:26+00:00"}), encoding="utf-8")
+    return work, frozen
+
+
+def test_explicit_request_cap_charges_known_usage_and_original_reservation_readonly(batch: dict[str, Any]) -> None:
+    work, frozen = _saved_request_unknown(batch)
+    before = {path.relative_to(work).as_posix(): path.read_bytes() for path in work.rglob("*") if path.is_file()}
+    charge = unknown_request_cap_cost(work, frozen, run_id="r1", reservation_rate=Decimal(8))
+    assert charge["known_cost"]["estimated_ceiling_cny"] == "0.001884"
+    assert charge["usage_complete"] is False
+    assert charge["unknown_request_reservations"][0]["call_id"] == "call2"
+    assert Decimal(charge["charged_cny"]) < Decimal(4)
+    limit = int(((Decimal(18) - Decimal(charge["charged_cny"])) * 1000000 / 8).to_integral_value(rounding=ROUND_FLOOR))
+    flags = {"charge_unknown_request_caps": ("r1",), "batch_cost_mode": "deepseek_flash_peak",
+             "endpoint": "https://api.deepseek.com/chat/completions"}
+    admit(batch, "r2", cap=limit, **flags)
+    with pytest.raises(ValueError, match="monetary ceiling"):
+        admit(batch, "r2", cap=limit + 1, **flags)
+    with pytest.raises(ValueError, match="unknown model cost"):
+        admit(batch, "r2")
+    assert before == {path.relative_to(work).as_posix(): path.read_bytes() for path in work.rglob("*") if path.is_file()}
+
+
+@pytest.mark.parametrize("failure", ["missing_request", "wrong_owner", "wrong_model", "changed_body",
+    "changed_intent", "running", "active", "missing_terminal", "source", "original_cap"])
+def test_request_cap_requires_closed_original_bound_request(batch: dict[str, Any], failure: str) -> None:
+    work, frozen = _saved_request_unknown(batch)
+    assert unknown_request_cap_cost(work, frozen, run_id="r1", reservation_rate=Decimal(8))["usage_complete"] is False
+    path = work / "solver-inputs/call2.json"
+    value = json.loads(path.read_bytes())
+    if failure == "missing_request":
+        path.unlink()
+    elif failure == "wrong_owner":
+        value["run_id"] = "r3"
+    elif failure == "wrong_model":
+        frozen["config"]["model"]["max_output_tokens"] = 8192
+    elif failure == "changed_body":
+        value["prepared_request"]["body"] += " "
+    elif failure == "changed_intent":
+        value["solver_intent"]["prompt_sha256"] = sha256("other prompt")
+    elif failure == "running":
+        (work / "run-state.json").write_text(canonical({"status": "running", "run_id": "r1"}), encoding="utf-8")
+    elif failure == "active":
+        (batch["managed"] / "state/active.json").write_text(canonical({"competition_work_id": "r1"}), encoding="utf-8")
+    elif failure == "missing_terminal":
+        (work / "run-state.json").unlink()
+    elif failure == "source":
+        value["source_snapshot_sha256"] = sha256("other source")
+    else:
+        frozen["config"]["max_known_tokens"] = 1
+    if failure != "missing_request":
+        path.write_text(canonical(value), encoding="utf-8")
+    with pytest.raises((ValueError, OSError)):
+        unknown_request_cap_cost(work, frozen, run_id="r1", reservation_rate=Decimal(8))
+
+
+@pytest.mark.parametrize("request_caps,full_caps,mode", [(("r1",), (), "flat8"), (("r1",), ("r1",), "deepseek_flash_peak"),
+    (("r2",), (), "deepseek_flash_peak"), (("r1", "r1"), (), "deepseek_flash_peak"), (("outside",), (), "deepseek_flash_peak")])
+def test_request_acceptance_scope_and_pricing_are_explicit(batch: dict[str, Any], request_caps, full_caps, mode) -> None:
+    _saved_request_unknown(batch)
+    with pytest.raises(ValueError):
+        admit(batch, "r2", charge_unknown_request_caps=request_caps, charge_unknown_run_caps=full_caps,
+              batch_cost_mode=mode, endpoint="https://api.deepseek.com/chat/completions")

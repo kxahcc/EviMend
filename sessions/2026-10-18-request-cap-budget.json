@@ -1,0 +1,91 @@
+{
+  "date": "2026-10-18",
+  "scope": "Implement the user-approved request-level charge for terminal live1017-case12 and resume repairs",
+  "base_commit": "e4d27ba",
+  "authorization": "Human explicitly approved known usage plus the original unknown-call reservation for live1017-case12 only; no broader unknown acceptance.",
+  "implementation": [
+    "Reuse existing read-only ledger, provider request certification/reservation and peak-rate pricing; no new model transport or account ledger.",
+    "New optional charge_unknown_request_caps is absent from old dumps; default unknown stop and original charge_unknown_run_caps semantics stay unchanged.",
+    "Terminal state, known usage, original solver request intent/source/model/parameters and original run cap are checked before counting the charge.",
+    "Current and duplicate/unregistered/overlapping approvals are rejected; no sending, usage rewriting, credential read or total-budget expansion."
+  ],
+  "budget_tests": {
+    "receipt": "42406374-5ac9-4944-a727-49ee3d4a2e7e",
+    "passed": 77,
+    "seconds": 9.91
+  },
+  "initial_fixture_failure": {
+    "receipt": "168db578-268c-4474-b988-1265fa9536c8",
+    "passed": 76,
+    "failed": 1,
+    "reason": "The new synthetic known-usage fixture omitted standard raw usage fields; corrected the fixture and made every negative control first demonstrate valid acceptance. The missing/invalid-usage gate was retained."
+  },
+  "actual_readonly_charge": {
+    "known_cost": {
+      "cost_mode": "deepseek_flash_peak",
+      "pricing_as_of": "2026-10-17",
+      "logical_calls": 6,
+      "known_input_tokens": 62599,
+      "cache_hit_tokens": 53504,
+      "cache_miss_tokens": 9095,
+      "known_output_tokens": 1253,
+      "known_total_tokens": 63852,
+      "cache_fallback_calls": 0,
+      "cache_usage_complete": true,
+      "known_reasoning_tokens": 486,
+      "reasoning_tokens": 486,
+      "reasoning_unknown_calls": 0,
+      "rates_cny_per_million_tokens": {
+        "cache_hit": "0.04",
+        "cache_miss": "2",
+        "output": "8"
+      },
+      "estimated_ceiling_cny": "0.03035416"
+    },
+    "unknown_request_reservations": [
+      {
+        "call_id": "model-7",
+        "reserved_tokens": 66667,
+        "request_body_sha256": "50fdc5b7f975b1fc08eccc53db5634416da0cb32b1eb64475b469abc3f86ec18",
+        "reserved_cny": "0.533336"
+      }
+    ],
+    "charged_cny": "0.56369016",
+    "usage_complete": false,
+    "authority": "known_usage_plus_original_request_reservations_not_account_bill"
+  },
+  "new_mall_run_id": "live1017-retry16",
+  "old_unknown_records": "unchanged",
+  "quality": [
+    {
+      "suite": "ruff",
+      "receipt": "d201e1a3-679a-450a-bdf3-cdd65f3695c1",
+      "status": "passed"
+    },
+    {
+      "suite": "pyright",
+      "receipt": "88af7e34-fcda-49dc-abbf-fb6507cdbf59",
+      "status": "passed"
+    },
+    {
+      "suite": "docs",
+      "receipt": "ebb8a7f2-a1e1-4373-9af7-6bff4b7049e8",
+      "status": "passed"
+    }
+  ],
+  "model_calls_this_batch": 0,
+  "next": "Run the remaining ten admitted source cases serially with automatic export and the unchanged 20 CNY authorization/18 CNY execution ceiling.",
+  "cli_tests": {
+    "receipt": "df073d82-bfa6-455a-9f1e-5f1686612b82",
+    "passed": 54,
+    "seconds": 6.24
+  },
+  "initial_quality_correction": {
+    "receipt": "b3fc69af-17f7-49c2-ad66-123f7c331fbb",
+    "issue": "Two import blocks required multiline formatting; corrected without changing behavior."
+  },
+  "type_review_correction": {
+    "receipt": "adf32e77-27e0-453b-b3ff-b82ef5409746",
+    "issue": "Readonly adapter factory has a common return type; added an explicit CloudChatCompletionsAdapter guard before using its reservation method."
+  }
+}

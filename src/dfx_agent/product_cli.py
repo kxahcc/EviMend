@@ -511,6 +511,8 @@ def parser() -> argparse.ArgumentParser:
     configure.add_argument("--batch-cost-mode", choices=("flat8", "deepseek_flash_peak"))
     configure.add_argument("--charge-unknown-run-cap", action="append", default=[], type=_name,
                            help="explicitly occupy an old unknown run's full frozen cap; repeat for each accepted run")
+    configure.add_argument("--charge-unknown-request-cap", action="append", default=[], type=_name,
+                           help="explicitly accept a terminal run's known usage plus frozen unknown-request reservations")
     configure.add_argument("--thinking", choices=("enabled", "disabled"))
     configure.add_argument("--max-calls", type=int)
     configure.add_argument("--max-tokens", type=int)
@@ -643,6 +645,7 @@ def _configure_or_doctor(root: Path, args: argparse.Namespace, cli: argparse.Arg
     profile = CompetitionConfig(provider=connection, model=model, model_mode="cloud",
         batch_budget_file=None if batch_path is None else batch_path.as_posix(), batch_cost_mode=cost_mode,
         charge_unknown_run_caps=args.charge_unknown_run_cap,
+        charge_unknown_request_caps=args.charge_unknown_request_cap,
         execution=execution, max_calls=budget.max_calls, max_known_tokens=budget.max_known_tokens,
         max_seconds=budget.max_seconds, max_candidates=budget.max_candidates, max_tool_calls=budget.max_tool_calls,
         working_context=WorkingContextPolicy(enabled=False) if mode == "enabled"

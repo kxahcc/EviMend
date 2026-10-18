@@ -111,7 +111,8 @@ def _require_deepseek_peak_identity(model_id: str, endpoint: str | None) -> None
 
 
 def deepseek_flash_peak_cost(work: Path, *, task_id: str, run_id: str,
-                             model_id: str, endpoint: str | None) -> dict[str, Any]:
+                             model_id: str, endpoint: str | None,
+                             known_usage_only: bool = False) -> dict[str, Any]:
     """Reprice complete saved usage read-only; never claim an actual account bill.
 
     Confirmed peak rates on 2026-10-17 are 0.04/2/8 CNY per million
@@ -120,12 +121,15 @@ def deepseek_flash_peak_cost(work: Path, *, task_id: str, run_id: str,
     """
     _require_deepseek_peak_identity(model_id, endpoint)
     usage = _ledger_usage(work, {"task": {"task_id": task_id}}, run_id, model_id)
-    if (usage["uncertain_calls"] or usage["missing_usage_calls"] or usage["invalid_usage_calls"] or
-            usage["reserved_calls"] != usage["completed_calls"]):
+    if (usage["missing_usage_calls"] or usage["invalid_usage_calls"] or
+            usage["reserved_calls"] != usage["completed_calls"] + usage["uncertain_calls"] or
+            (usage["uncertain_calls"] and not known_usage_only)):
         raise ValueError("DeepSeek peak pricing requires a complete known-usage ledger")
     store = ModelCallStore(_checked(work / "model-calls.sqlite"), read_only=True)
     hits = misses = fallback_calls = known_reasoning = reasoning_unknown_calls = 0
     for record in store.records(task_id, run_id):
+        if known_usage_only and record.state == "unknown":
+            continue
         message, observation = store.replay(record.intent)
         counts = observation.usage
         if counts is None:
@@ -172,10 +176,80 @@ def deepseek_flash_peak_cost(work: Path, *, task_id: str, run_id: str,
             "estimated_ceiling_cny": format(ceiling, "f")}
 
 
+def unknown_request_cap_cost(work: Path, frozen: dict[str, Any], *, run_id: str,
+                             reservation_rate: Decimal) -> dict[str, Any]:
+    """Price known calls plus original request reservations, without resending.
+
+    Used only for an explicitly accepted terminal run. Missing usage on a
+    completed response, unfinished calls and missing/mismatched frozen requests
+    still fail closed. The reservation is an estimate, never observed usage.
+    """
+    from .model_provider import (
+        AdapterError,
+        CloudChatCompletionsAdapter,
+        PreparedRequest,
+        ProviderSettings,
+        adapter_from_profile,
+    )
+
+    config, task = frozen["config"], frozen["task"]
+    terminal, _ = _read_json(work / "run-state.json")
+    if (terminal.get("run_id") != run_id or terminal.get("task") != "competition" or
+            terminal.get("status") not in {"finished", "failed", "canceled"} or not terminal.get("finished_at")):
+        raise ValueError("request-cap acceptance requires a terminal run")
+    active = work.parent.parent / "state/active.json"
+    if active.exists() and _read_json(active)[0].get("competition_work_id") == run_id:
+        raise ValueError("request-cap acceptance cannot consume an active run")
+    priced = deepseek_flash_peak_cost(work, task_id=task["task_id"], run_id=run_id,
+        model_id=config["model"]["model_id"], endpoint=config["provider"]["endpoint"], known_usage_only=True)
+    store = ModelCallStore(_checked(work / "model-calls.sqlite"), read_only=True)
+    reservations: list[dict[str, Any]] = []
+    for record in store.records(task["task_id"], run_id):
+        if record.state == "completed":
+            continue
+        if record.state != "unknown" or record.intent.kind != "solver" or not _NAME.fullmatch(record.intent.call_id):
+            raise ValueError("request-cap acceptance requires closed unknown solver calls")
+        saved, _ = _read_json(work / "solver-inputs" / (record.intent.call_id + ".json"), max_bytes=8_388_608)
+        if (saved.get("schema_version") != 1 or saved.get("task_id") != task["task_id"] or
+                saved.get("run_id") != run_id or saved.get("source_snapshot_sha256") != task["source_snapshot_sha256"] or
+                saved.get("parent_call_id") != record.intent.call_id or
+                saved.get("solver_intent") != record.intent.model_dump(mode="json")):
+            raise ValueError("unknown solver request belongs to another call or source")
+        profile = json.loads(saved["model_profile_json"])
+        try:
+            adapter = adapter_from_profile(profile)
+            if (not isinstance(adapter, CloudChatCompletionsAdapter) or profile.get("transport") != "openai-sdk" or
+                    profile.get("endpoint") != config["provider"]["endpoint"] or
+                    profile.get("credential_file") != config["provider"]["credential_file"] or
+                    adapter.settings != ProviderSettings.model_validate(config["model"])):
+                raise ValueError("unknown solver request model differs from frozen configuration")
+            request = adapter.validate(PreparedRequest.model_validate(saved["prepared_request"]))
+        except AdapterError:
+            raise ValueError("unknown solver request protocol differs") from None
+        intent = record.intent
+        if (intent.prompt_sha256 != hashlib.sha256(canonical(request.messages).encode()).hexdigest() or
+                intent.tool_schema_sha256 != hashlib.sha256(canonical(request.tools).encode()).hexdigest() or
+                intent.parameters_sha256 != hashlib.sha256(canonical({"wire_parameters": request.parameters,
+                    "body_sha256": request.body_sha256, "profile_sha256": request.profile_sha256}).encode()).hexdigest() or
+                intent.tool_names != tuple(item["function"]["name"] for item in request.tools) or
+                intent.provider_id != adapter.settings.provider_id or intent.model_id != adapter.settings.model_id):
+            raise ValueError("unknown solver request differs from the original model ledger")
+        tokens = adapter.reservation_tokens(request)
+        reservations.append({"call_id": intent.call_id, "reserved_tokens": tokens,
+            "request_body_sha256": request.body_sha256,
+            "reserved_cny": format(Decimal(tokens) * reservation_rate / _MILLION, "f")})
+    if not reservations or sum(item["reserved_tokens"] for item in reservations) + priced["known_total_tokens"] > config["max_known_tokens"]:
+        raise ValueError("unknown request reservations do not fit the original run cap")
+    charge = Decimal(priced["estimated_ceiling_cny"]) + sum(Decimal(item["reserved_cny"]) for item in reservations)
+    return {"known_cost": priced, "unknown_request_reservations": reservations, "charged_cny": format(charge, "f"),
+            "usage_complete": False, "authority": "known_usage_plus_original_request_reservations_not_account_bill"}
+
+
 def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, run_id: str,
                        profile_path: str, model_id: str, credential_file: str | None,
                        max_known_tokens: int, resume: bool = False,
                        charge_unknown_run_caps: tuple[str, ...] = (), batch_cost_mode: BatchCostMode = "flat8",
+                       charge_unknown_request_caps: tuple[str, ...] = (),
                        endpoint: str | None = None) -> dict[str, Any]:
     """Check all registered runs before any mutable run initialization.
 
@@ -194,8 +268,10 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
     batch = BatchBudget.model_validate(value)
     if run_id not in batch.run_ids:
         raise ValueError("run is not registered in the batch budget")
-    approved = set(charge_unknown_run_caps)
-    if (len(approved) != len(charge_unknown_run_caps) or run_id in approved or
+    full_caps, request_caps = set(charge_unknown_run_caps), set(charge_unknown_request_caps)
+    approved = full_caps | request_caps
+    if (len(full_caps) != len(charge_unknown_run_caps) or len(request_caps) != len(charge_unknown_request_caps) or
+            full_caps & request_caps or run_id in approved or
             not approved <= set(batch.run_ids)):
         raise ValueError("unknown-cost acceptance must name unique other registered runs")
     if model_id != batch.model_id or credential_file is None:
@@ -207,6 +283,8 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
         raise ValueError("invalid batch run token cap")
     if batch_cost_mode not in ("flat8", "deepseek_flash_peak"):
         raise ValueError("unknown batch cost mode")
+    if request_caps and batch_cost_mode != "deepseek_flash_peak":
+        raise ValueError("request-cap acceptance requires DeepSeek peak pricing")
     if batch_cost_mode == "deepseek_flash_peak":
         _require_deepseek_peak_identity(model_id, endpoint)
     expected_work = _checked(managed / "work" / ("competition-" + run_id), exists=False)
@@ -244,7 +322,12 @@ def check_batch_budget(*, project_root: Path, managed_root: Path, work: Path, ru
                 report.get("report_sha256") != hashlib.sha256(canonical(unhashed).encode()).hexdigest() or
                 any(report.get("cost", {}).get(key) != count for key, count in usage.items())):
             raise ValueError("another registered run has no current terminal cost report")
-        if unknown:
+        if unknown and identifier in request_caps:
+            priced_unknown = unknown_request_cap_cost(previous_work, previous, run_id=identifier,
+                                                       reservation_rate=reservation_rate)
+            charged_other_cny += Decimal(priced_unknown["charged_cny"])
+            used_approvals.add(identifier)
+        elif unknown:
             # Explicit host acceptance occupies the entire original run cap.
             # It never repairs a ledger, invents usage or resends its request.
             charged_other_cny += Decimal(previous["config"]["max_known_tokens"]) * reservation_rate / _MILLION

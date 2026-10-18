@@ -53,6 +53,7 @@ class CompetitionConfig(BaseModel):
     batch_budget_file: str | None = Field(default=None, exclude_if=lambda value: value is None)
     batch_cost_mode: BatchCostMode = Field(default="flat8", exclude_if=lambda value: value == "flat8")
     charge_unknown_run_caps: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
+    charge_unknown_request_caps: list[str] = Field(default_factory=list, exclude_if=lambda value: not value)
     policy_features: PolicyFeatures = PolicyFeatures(rule_guidance=True, obligation_tracking=True, decision_checks=True)
     working_context: WorkingContextPolicy = WorkingContextPolicy(enabled=True)
     applicability_enabled: bool = True
@@ -71,8 +72,10 @@ class CompetitionConfig(BaseModel):
             raise ValueError("batch monetary budgets apply only to cloud model runs")
         if self.batch_cost_mode != "flat8" and (self.batch_budget_file is None or self.model_mode != "cloud"):
             raise ValueError("cache-aware pricing requires an explicit cloud batch budget")
-        if self.charge_unknown_run_caps and (self.batch_budget_file is None or self.model_mode != "cloud"):
+        if (self.charge_unknown_run_caps or self.charge_unknown_request_caps) and (self.batch_budget_file is None or self.model_mode != "cloud"):
             raise ValueError("explicit unknown-cost acceptance requires a cloud batch budget")
+        if self.charge_unknown_request_caps and self.batch_cost_mode != "deepseek_flash_peak":
+            raise ValueError("request-cap acceptance requires DeepSeek peak pricing")
         return self
 
 
@@ -556,6 +559,7 @@ def _run_competition(task: Path, work: Path, run_id: str, config_path: Path,
             profile_path=config.batch_budget_file, model_id=config.model.model_id,
             credential_file=config.provider.credential_file, max_known_tokens=config.max_known_tokens, resume=resume,
             charge_unknown_run_caps=tuple(config.charge_unknown_run_caps),
+            charge_unknown_request_caps=tuple(config.charge_unknown_request_caps),
             batch_cost_mode=config.batch_cost_mode, endpoint=config.provider.endpoint)
     auxiliary = work.parent if test_scope else managed / "tmp"
     library = auxiliary / ("competition-" + run_id + "-library")
