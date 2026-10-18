@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-18",
+  "scope": "Approved single-request unknown reservation followed by actual Mall source repair and News budget stop",
+  "code_base": "77b6dc3",
+  "successful_run": {
+    "case_id": "b2-001-comprehensivemall1",
+    "run_id": "live1017-retry16",
+    "status": "source_verified",
+    "accepted": true,
+    "candidate_count": 1,
+    "model_calls": 14,
+    "tool_calls": 16,
+    "total_tokens": 241090,
+    "agent_wall_ms": 128757.836,
+    "estimated_cny": "0.08332368",
+    "patch": {
+      "added": 1,
+      "removed": 1
+    },
+    "checks": [
+      "build",
+      "target",
+      "behavior",
+      "regression"
+    ],
+    "application_verification": "not_run"
+  },
+  "stopped_run": {
+    "case_id": "b2-002-comprehensivenews1",
+    "run_id": "live1017-case13",
+    "status": "unresolved",
+    "reason": "provider_token_budget",
+    "candidate_count": 0,
+    "model_calls": 18,
+    "tool_calls": 33,
+    "known_tokens": 486960,
+    "usage_complete": true,
+    "estimated_cny": "0.16547576",
+    "agent_wall_ms": 155857.112,
+    "unknown_calls": 0
+  },
+  "observed_issue": "Broad first-candidate exploration left an edited draft without enough remaining request reservation for registration/checking. Shared guidance now prioritizes investigation that can change a repair and checks immediately after editing; model benefit remains unmeasured.",
+  "selected_result_count": 17,
+  "remaining": 9,
+  "failed_ledger_retained": true,
+  "validation": {
+    "strategy_tests": {
+      "run_id": "2c26e835-e024-4818-b33f-04a41ab58e0c",
+      "passed": 19,
+      "seconds": 0.27
+    },
+    "docs": {
+      "run_id": "96720c07-040d-4c41-82ac-6261e0287bd3",
+      "result": "14 documents, 0 errors"
+    }
+  }
+}

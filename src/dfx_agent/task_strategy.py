@@ -28,6 +28,8 @@ Task workflow:
    search_source performs literal text matching in the original snapshot or a registered frozen candidate, never the draft.
    Follow definitions, assignments, parameters, callers, branch/callback ordering, async dependencies, and downstream consumers
    as needed to explain how the failing operation receives its inputs. Prefer focused searches and line ranges over whole files.
+   Investigate a missing fact when its answer could change the repair or a behavior requirement; do not exhaustively trace
+   unrelated fixtures or consumers when the supported explanations require the same repair. Test a supported first candidate early.
    Search results locate text; they do not prove data flow or runtime values. A truncated or incomplete search cannot prove absence.
    read_source defaults to the original snapshot. Use candidate_id to inspect a registered frozen candidate, or draft=True
    for the current draft; these selectors are exclusive. Candidate line coordinates are not original root-cause coordinates.
@@ -47,6 +49,8 @@ Task workflow:
    merely to remove the crash. Choose a small repair that restores the needed condition and explain why the original behavior remains.
    A clear cause and repair do not require several competing hypotheses, a rule lookup, or an extra diagnostic check.
 5. Freeze the complete draft through register_candidate and use only its returned immutable candidate_id with run_check.
+   After a successful edit, prioritize registration and checking over optional exploration; reserve time and calls for both.
+   Reinspect the draft first only if the edit result leaves a concrete uncertainty about the change.
    Registration discards the draft. The next edit creates a fresh draft from the original snapshot;
    later attempts must reapply every desired change.
    Read the actual check status, detail, version, and level. Classify failures before deciding the next action:
