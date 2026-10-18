@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-19",
+  "base_commit": "273950e",
+  "scope": "Centralize optional OfficeAttendance application storage in user-selected DFX-HarmonyOS; retain the Agent managed entry and its limits",
+  "user_authorization": "User supplied the installer and requested all platform storage under DFX-HarmonyOS; subsequently explicitly authorized installation and the original/patched application demonstration after admission",
+  "installer": {
+    "name": "deveco-studio-26.0.0.851.exe",
+    "bytes": 3295943544,
+    "sha256": "56f8f4b874bb7f609a2e1e1aeed24bc746a17776314263b25847d00bb584825e",
+    "signature_read_only_observation": "Get-AuthenticodeSignature: Valid; Huawei Technologies Co., Ltd. This is not a separately published checksum comparison"
+  },
+  "storage": {
+    "root": "DFX-HarmonyOS",
+    "git_ignored": true,
+    "counted_in_native_shared_disk_budget": true,
+    "agent_env_all_cleanup": "preserves this separate root",
+    "app_copies": "400 files each; both original and patched compared with existing frozen manifests before and after moving from .dfx-local/tmp/application-officeattendance",
+    "platform_process_environment": "planned, not applied; SDK/emulator/IDE-specific path configuration remains pending"
+  },
+  "verification": {
+    "storage_tests": {"receipt": "4ffb87af-e9f3-4e11-af93-9d527b485323", "passed": 6, "seconds": 0.58},
+    "manager_regression": {"receipt": "185893c1-1d90-4374-93de-6e47802d414d", "passed": 28, "seconds": 8.84},
+    "actual_preparation": {"receipt": "78af29b0-15b2-4d1d-8ffe-f8045dbe9bbc", "result": "finished/exited_zero", "copies_relocated_and_verified": true},
+    "quality": {"ruff": {"receipt": "47b5a42c-22c9-46e4-a0fd-34f47c798a41", "result": "All checks passed"}, "docs": {"receipt": "f4463514-aa95-4673-9955-5e420559a5d6", "documents": 14, "errors": 0}}
+  },
+  "observations": ["Sandbox Python launcher could not resolve its real executable; the existing managed entry succeeded in an ordinary native process", "Initial Ruff launch overlapped the finishing test manager and was refused; no new worker was started, retry only after active marker release", "First executed Ruff found one unused json import; removed it and the unchanged check passed", "Read-only lookup found pre-existing 7z 22.01 in NVIDIA/AMD directories; no external tool installation in this batch"],
+  "platform_installed": false,
+  "platform_launched": false,
+  "resource_limits_or_experiment_switches_changed": false,
+  "new_model_calls": 0,
+  "original_data_or_submission_templates_modified": false,
+  "next": "Inspect archive footprint and bundled SDK/tool versions, then explicitly admit isolated extraction and platform execution before collecting real application evidence"
+}

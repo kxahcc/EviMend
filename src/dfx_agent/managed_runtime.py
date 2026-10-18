@@ -144,9 +144,12 @@ class Runtime:
         self.exports = self.repo / "runs/exports"
         self.policy = _read(self.repo / "configs/local-runtime.json", self.repo)
         policy = self.policy
+        base_paths = {"managed_root": ".dfx-local", "export_root": "runs/exports"}
         if (policy.get("schema_version") != 1 or policy.get("enforcement_status") != "offline_agent_guarded" or
-                policy.get("paths") != {"managed_root": ".dfx-local", "export_root": "runs/exports"}):
+                policy.get("paths") not in (base_paths, {**base_paths, "harmony_root": "DFX-HarmonyOS"})):
             raise ValueError("unsupported management policy")
+        self.harmony_root = (checked(self.repo / "DFX-HarmonyOS", self.repo)
+                             if "harmony_root" in policy["paths"] else None)
         execution, cleanup = policy["execution"], policy["cleanup"]
         if (execution.get("application_target") != "local" or execution.get("require_windows_job_limits") is not True or
                 any(execution.get(key) is not False for key in ("allow_background_services", "allow_local_model_weights")) or
@@ -216,6 +219,9 @@ class Runtime:
         for name in _CATEGORIES:
             sizes[name], errors = self.inventory(self.root / name)
             inaccessible.extend(errors)
+        if self.harmony_root is not None:
+            sizes["harmonyos"], errors = self.inventory(self.harmony_root, strict_links=True)
+            inaccessible.extend(errors)
         exports, errors = self.inventory(self.exports, strict_links=True)
         inaccessible.extend(errors)
         return sizes, exports, sorted(set(inaccessible))
@@ -253,7 +259,9 @@ class Runtime:
                 "export_bytes": exports, "resource_accounting": "incomplete" if inaccessible else "complete",
                 "inaccessible_paths": inaccessible, "active_marker": self.active.exists(), "active_state": active_state,
                 "remote_jobs_unknown": remote, "resource_enforcement": "native_windows_job",
-                "cleanup_available": owned and active_state == "none" and not inaccessible and not remote}
+                "cleanup_available": owned and active_state == "none" and not inaccessible and not remote,
+                "harmony_storage_root": str(self.harmony_root) if self.harmony_root is not None else None,
+                "harmony_storage_cleanup": "preserved_separately" if self.harmony_root is not None else "not_configured"}
 
     def limits(self, timeout: int) -> dict[str, int]:
         values = self.policy["limits"]
@@ -363,7 +371,7 @@ class Runtime:
             for folder in (self.root / "tmp", self.root / "artifacts"):
                 checked(folder, self.repo).mkdir(parents=True, exist_ok=True)
             task = "bootstrap" if args.action == "Init" else args.Task
-            if task not in {"bootstrap", "competition", "case-export", "provider", "prepare", "test", "docs", "ruff", "pyright"}:
+            if task not in {"bootstrap", "competition", "case-export", "provider", "prepare", "harmony-prepare", "test", "docs", "ruff", "pyright"}:
                 raise ValueError("unsupported native task")
             effective = self.limits(args.TimeoutSeconds)
             run_id = str(uuid.uuid4())
@@ -564,6 +572,9 @@ class Runtime:
     def clean(self, args: argparse.Namespace) -> dict[str, Any]:
         with self.mutex():
             owner = self.owner()
+            preserved = ["data_B", "archive", "runs/exports", "tracked files"]
+            if self.harmony_root is not None:
+                preserved.append("DFX-HarmonyOS")
             self.quiescent(args.Scope, args.DiscardEvidence)
             targets = self.targets(args.Scope)
             # A running owned interpreter cannot be deleted on Windows. Use
@@ -578,7 +589,7 @@ class Runtime:
                         "estimated_bytes": size, "target_count": len(targets), "created_at": _now(), "manager_backend": "python_win32"}
                 _write(path, plan, self.repo)
                 return {"plan_id": plan["plan_id"], "scope": args.Scope, "estimated_bytes": size, "target_count": len(targets),
-                        "dry_run": True, "apply_requires_plan_id": True, "preserved": ["data_B", "archive", "runs/exports", "tracked files"]}
+                        "dry_run": True, "apply_requires_plan_id": True, "preserved": preserved}
             plan = _read(path, self.repo, 16384)
             age = (datetime.now(UTC) - datetime.fromisoformat(plan["created_at"])).total_seconds()
             if (not 0 <= age <= 600 or plan.get("schema_version") != 1 or plan.get("plan_id") != args.PlanId or
@@ -597,7 +608,7 @@ class Runtime:
                 shutil.rmtree(_io_path(target))
                 removed.append(str(target))
             receipt = {"plan_id": args.PlanId, "applied": True, "removed": removed,
-                       "preserved": ["data_B", "archive", "runs/exports", "tracked files"]}
+                       "preserved": preserved}
             if args.Scope == "all":
                 _write(self.exports / ("cleanup-" + args.PlanId + ".json"), {**receipt, "finished_at": _now()}, self.repo, replace=False)
             else:
@@ -634,6 +645,11 @@ def _worker(args: argparse.Namespace, root: Path) -> int:
         from .provider_probe import run_probe
 
         print(json.dumps(run_probe(root), ensure_ascii=True), flush=True)
+        return 0
+    if args.Task == "harmony-prepare":
+        from .harmony_workspace import prepare_workspace
+
+        print(json.dumps(prepare_workspace(root), ensure_ascii=True), flush=True)
         return 0
     if args.Task == "prepare":
         from .pilot_preparation import run_preparation
@@ -705,7 +721,7 @@ def parser() -> argparse.ArgumentParser:
     cli = argparse.ArgumentParser(prog="dfx-managed")
     cli.add_argument("--workspace", type=Path, required=True)
     cli.add_argument("action", choices=("Prepare", "Status", "Stop", "Clean", "Init", "Run", "Worker"))
-    cli.add_argument("-Task", choices=("competition", "case-export", "provider", "prepare", "test", "docs", "ruff", "pyright", "bootstrap"), default="competition")
+    cli.add_argument("-Task", choices=("competition", "case-export", "provider", "prepare", "harmony-prepare", "test", "docs", "ruff", "pyright", "bootstrap"), default="competition")
     for name in ("CompetitionTaskPath", "CompetitionConfigPath", "CompetitionWorkId", "PreparationConfigPath", "ExportProjectPath", "TestPath", "ExpectedRunId", "PlanId"):
         cli.add_argument("-" + name, default="")
     cli.add_argument("-Scope", choices=("cache", "testcache", "tmp", "work", "env", "all"), default="cache")

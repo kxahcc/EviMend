@@ -10,6 +10,7 @@ data_B/
 configs/*.local.json
 configs/generated/
 archive/
+DFX-HarmonyOS/
 
 # Project-owned runtime, caches and disposable workspaces
 .dfx-local/

@@ -1,6 +1,6 @@
 # 项目蓝图与开发导览
 
-状态：当前开发入口。最后维护：2026-10-18。
+状态：当前开发入口。最后维护：2026-10-19。
 职责：先用通俗语言说明要做什么、如何做和重点在哪，再提供文件导航。这里是设计的概览；具体技术决策以开发设计为准，实际进度以 STATUS 为准。
 
 ## 1. 我们最终要做出什么
@@ -105,7 +105,7 @@ CLI 只承担传参、显示活动、停止/恢复与读取结果。后续需要
 
 ### 本机资源怎样集中管理
 
-本机实现采用仓库内 .dfx-local 作为项目环境、缓存、临时副本和运行记录的集中位置；离线证据可通过受管 Export 保留到 runs/exports。日常只启动一个受管任务。宿主验证运行时及临时产物也纳入同一管理范围；新增运行时先检查容量、来源和停止/清理，不改全局环境。可选完整应用扩展再单独接纳 SDK/设备缓存，当前没有本机模型权重占用。停止运行、清缓存、删除环境是不同操作，均只针对本项目归属的资源。
+本机实现采用仓库内 .dfx-local 作为Agent环境、缓存、临时副本和运行记录的集中位置；离线证据通过受管 Export 保留到 runs/exports。可选办公考勤应用演示的工具、SDK、模拟器镜像/实例、构建缓存、工程副本和过程日志统一放在用户指定且Git忽略的DFX-HarmonyOS/，最终核验证据进入runs/exports/robustness/application-demo/。Python管理入口把该平台目录计入共同磁盘预算，普通Agent env/all清理保留它；平台安装、启动与清理仍须另行接纳，实际进度见STATUS。日常只启动一个受管任务，不改全局环境，没有本机模型权重占用。
 
 面向用户的 `dfx` 前端负责启动、配置、进度和会话操作，`env` 管理安装、占用和按计划清理。交付范围是 Windows x64 下的完整项目目录、项目专属环境和标准 console entry。一次 `setup.cmd` 使用普通 Python 3.11+ 引导并创建锁定环境；日常用 `dfx.cmd` 或环境内的 `dfx`，生产运行不依赖 PowerShell、Codex 安装或全局 PATH 修改。Python 管理入口直接调用 Windows Job，保留停止、归属核对和资源限额；历史研究/导出 PS 入口只作开发兼容，不是产品运行前置。项目资源集中在 .dfx-local；删除 env/all 时先退出 Agent，再用外部普通 Python 的 `setup.cmd --clean` 应用预览计划，避免删除正在使用的解释器。独立 wheel 和跨平台不在本轮范围。本次授权仅开放受管模型/源码测试，application 和平台 SDK 仍禁用，资源数值不变；实际配置、验收与命令见 [Agent 说明](src/dfx_agent/README.md) 和 STATUS，限制边界见 [设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
@@ -159,6 +159,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | 位置 | 用途 |
 |---|---|
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
+| `DFX-HarmonyOS/` | Git忽略的可选HarmonyOS应用演示存储；安装包、平台工具、设备数据和工作副本集中存放，最终证据另导出到application-demo |
 | `src/dfx_agent/` | Python 证据与修复 Agent、候选工作区、SDK 闭环、云端请求和本机检查通道、竞赛交付及受控策略；实际验收见 STATUS，模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 competition / repair / resume / aggregate / export / verify-export 入口 |
 | `scripts/bootstrap.py`、`setup.cmd`、`dfx.cmd` | 无 PowerShell 的一次安装/外部环境清理、仓库快捷启动；初始安装需要普通 Python 3.11+，不借用 Codex 路径 |
@@ -334,6 +335,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `backends.py` | 版本绑定的 HTTP 模拟请求/作业对象、客户端意图与查询/取消/产物校验；当前本机执行由 local_execution.py 承担 |
 | `remote_service.py` | SQLite 持久化的 FastAPI 模拟作业服务和显式测试工作者状态；保留作协议反例测试，不是计划中的运行服务 |
 | `runtime.py` | 当前仅观察 PATH/模块/环境变量存在性；不启动 SDK/设备 |
+| `harmony_workspace.py`、`tests/test_harmony_workspace.py` | 单应用存储准备、冻结工程副本迁移和资源/清理边界检查；经现有受管harmony-prepare执行，不另建调度或安装服务 |
 | `cli.py` | 参数与命令分发；competition 消费受管主机配置并只打印安全概要，repair / resume 保持固定响应或模拟协议演示，aggregate / export / verify-export 同样经受管入口 |
 | `__init__.py` | Python 包入口 |
 
