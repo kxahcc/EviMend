@@ -219,6 +219,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
 | `tests/test_product_cli.py`、`tests/test_progress.py` | 用户命令、总预算绑定、自动导出/失败保留、输出/分页、停止归属、中断及有限侧录；实际验收见STATUS |
 | `tests/test_case_results.py` | 冻结候选/原件绑定、工程增删覆盖、拒绝漂移/覆盖/超限、无候选与未知成本保留及阶段时间/缓存费用视图 |
+| `tests/test_exported_case_acceptance.py` | 显式启用的本机结果交付核验：按当前结果索引检查文件清单，在独立临时原版上用Git应用补丁，核对实际字节与冻结候选；不执行应用或新增模型请求 |
 | `tests/test_managed_runtime.py`、`tests/test_managed_bootstrap.py`、`tests/test_application_profile.py` | 原生 Job 身份/停止/清理、锁定安装隔离与只读应用前置检查的软件验收 |
 | `tests/test_context_boundary.py` | 实际 SDK 的有界上下文、隐式摘要/文件卸载关闭、调用前拒绝及原版保护的合成验收 |
 | `tests/test_context_compaction.py`、`tests/test_compaction_loop.py` | 主机压缩的完整工具组、冻结来源、独立费用、格式失败、未知结果、恢复及实际 SDK 交接的合成验收 |

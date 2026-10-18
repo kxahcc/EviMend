@@ -1,0 +1,176 @@
+{
+  "date": "2026-10-18",
+  "scope": "Continue actual source repairs, preserve cloud-interrupted run, and verify all current exported patches",
+  "base_commit": "3ea51a0",
+  "successful_run": {
+    "case": "b2-011-childreneducation1",
+    "run_id": "live1017-case11",
+    "status": "source_verified",
+    "accepted": true,
+    "metrics": {
+      "agent_chain_length": 18,
+      "application_repair_success": null,
+      "candidate_count": 1,
+      "first_attempt_pass": true,
+      "functional_correctness": true,
+      "repair_rounds": 1,
+      "repair_success": true,
+      "root_cause_accuracy": null,
+      "source_repair_success": true,
+      "stability": null
+    },
+    "usage": {
+      "reserved_calls": 14,
+      "completed_calls": 14,
+      "known_input_tokens": 155030,
+      "known_output_tokens": 2783,
+      "known_total_tokens": 157813,
+      "total_tokens": 157813,
+      "uncertain_calls": 0,
+      "missing_usage_calls": 0,
+      "invalid_usage_calls": 0,
+      "usage_complete": true,
+      "cache_hit_tokens": 145920,
+      "cache_miss_tokens": 9110
+    },
+    "timing": {
+      "agent_wall_ms": 96600.401,
+      "authority": "host_report_observation",
+      "finished_at": "2026-10-18T04:19:27.866455+00:00",
+      "reason": null,
+      "scope": "session_start_to_reported_terminal",
+      "terminal_facts_sha256": "7ef9c16c411624ad2185ffcb27e678988a60ce264e18a44c512e22e41bfde58d"
+    },
+    "phase_timing": {
+      "authority": "derived_from_saved_host_timestamps",
+      "unit": "ms",
+      "localization_ms": 37694.84,
+      "repair_ms": 20206.837,
+      "time_to_first_candidate_ms": 57901.677,
+      "verification_ms": 11060.184,
+      "definitions": {
+        "localization_ms": "session start to first saved diagnosis; not proof of correct localization",
+        "repair_ms": "first saved diagnosis to first frozen candidate; excludes later revisions",
+        "verification_ms": "sum of saved execution start-to-finish intervals, including baseline and candidate checks"
+      }
+    },
+    "model_cost": {
+      "status": "estimated",
+      "estimated_ceiling_cny": "0.0463208",
+      "authority": "provider_usage_and_published_peak_rates_estimate_not_account_bill",
+      "reason": null,
+      "original_run_token_cap": 718750,
+      "conservative_reservation_cny": null,
+      "cost_mode": "deepseek_flash_peak",
+      "pricing_as_of": "2026-10-17",
+      "logical_calls": 14,
+      "known_input_tokens": 155030,
+      "cache_hit_tokens": 145920,
+      "cache_miss_tokens": 9110,
+      "known_output_tokens": 2783,
+      "known_total_tokens": 157813,
+      "cache_fallback_calls": 0,
+      "cache_usage_complete": true,
+      "known_reasoning_tokens": 562,
+      "reasoning_tokens": 562,
+      "reasoning_unknown_calls": 0,
+      "rates_cny_per_million_tokens": {
+        "cache_hit": "0.04",
+        "cache_miss": "2",
+        "output": "8"
+      }
+    }
+  },
+  "interrupted_run": {
+    "case": "b2-001-comprehensivemall1",
+    "run_id": "live1017-case12",
+    "status": "unresolved",
+    "stopped_reason": "model_result_unknown",
+    "adapter_error_reason": "provider_transport_error",
+    "cost": {
+      "calls_by_kind": {
+        "context_compaction": 0,
+        "format_repair": 0,
+        "sdk_retry": 0,
+        "solver": 7
+      },
+      "check_requests": 0,
+      "completed_calls": 6,
+      "invalid_usage_calls": 0,
+      "known_input_tokens": 62599,
+      "known_output_tokens": 1253,
+      "known_total_tokens": 63852,
+      "missing_usage_calls": 0,
+      "monetary_cost": null,
+      "rejected_tool_calls": 0,
+      "reserved_calls": 7,
+      "tool_calls": 11,
+      "total_tokens": null,
+      "uncertain_calls": 1,
+      "uncertain_tool_calls": 0,
+      "undispatched_model_calls": 0,
+      "usage_complete": false
+    },
+    "candidates": 0,
+    "observation": "One network attempt, no saved HTTP response; lower-level transport class was not preserved. Do not infer the exact network cause.",
+    "archived_export": "archive/2026-10-18-interrupted-case-results/runs/exports/cases/b2-001-comprehensivemall1/live1017-case12",
+    "original_work_retained": ".dfx-local/work/competition-live1017-case12",
+    "automatic_retry": false,
+    "later_cases_not_started": 9
+  },
+  "proposed_reconciliation_not_active": {
+    "run_id": "live1017-case12",
+    "current_full_run_cap_tokens": 710937,
+    "current_whole_run_unknown_reservation_cny": "5.687496",
+    "completed_call_count": 6,
+    "known_completed_cost_estimate_cny": "0.03035416",
+    "unknown_call": "model-7",
+    "saved_pre_dispatch_reservation_tokens": 66667,
+    "unknown_call_conservative_reservation_cny": "0.533336",
+    "proposed_total_charge_cny": "0.56369016",
+    "authority": "Known usage at frozen peak rates plus the existing UTF-8 body/framing reservation; unknown provider usage stays unknown.",
+    "user_confirmation": "pending",
+    "active_budget_policy": "unchanged; subsequent paid tasks stopped"
+  },
+  "export_acceptance": {
+    "receipt": "60510df2-8492-4c2e-a66e-94c3f86bb5c4",
+    "passed": 16,
+    "seconds": 55.56,
+    "scope": "Manifest bytes and hashes; actual git apply/check on independent original copy; all final bytes match frozen repaired-source. No application source execution or model requests."
+  },
+  "method_observations": {
+    "selected_runs": 16,
+    "saved_obligation_runs": 0,
+    "saved_decision_runs": 0,
+    "working_context_plan_runs": 0,
+    "rule_consultations": 5,
+    "runs_with_skill_actions": 1,
+    "interpretation": "Availability and software tests do not establish actual mechanism use or comparative gains. Original DeepSeek thinking mode and full history remain unchanged."
+  },
+  "coverage_at_close": {
+    "inputs": 26,
+    "exported_results": 16,
+    "in_run_source_pass": 8,
+    "posthoc_source_pass": 8,
+    "pending_repairs": 10,
+    "selected_model_cost_estimate_cny": "1.62070832",
+    "application_verified": 0,
+    "admitted_source_protocol_inputs": 26
+  },
+  "quality": [
+    {
+      "suite": "ruff",
+      "receipt": "009df273-6ed8-41b4-a33a-f8cd6daa72f0",
+      "status": "passed"
+    },
+    {
+      "suite": "docs",
+      "receipt": "19f241f0-8ffc-4593-8ee3-ca1045c1462f",
+      "status": "passed",
+      "documents": 14,
+      "errors": 0
+    }
+  ],
+  "next": "After the requested monetary-rule confirmation, implement and test only the accepted reconciliation change before resuming the remaining ten cases. Complete phase one before OOD/ablations/emulator assessment.",
+  "manual_consistency_review": "Replaced the stale seven-plus-six next-work description with the current ten pending repairs and unresolved monetary-rule decision. No submission templates were changed."
+}
