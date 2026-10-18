@@ -93,6 +93,34 @@ REVIEWED_ORACLES = {
          "empty groups, fund/credit projections, sign/order/resource and state preservation; "
          "no DB loading, observed scheduling, chart UI or device coverage"),
     ),
+    "resources/source-validation/accounting-formatter/oracle.cjs": (
+        "components/bill_chart/src/main/ets/components/BillBarChart.ets",
+        "DFX002_TARGET_CONSTRUCTOR_WITHOUT_NEW",
+        ("Execute actual factory field and complete MyAxisValueFormatter class with Node type erasure; "
+         "construction, distinct instances and dayjs offset/unit/pattern delegation; "
+         "no dayjs calendar arithmetic, chart loading, UI or device coverage"),
+    ),
+    "resources/source-validation/book-lifecycle/oracle.cjs": (
+        "feature/book_home/src/main/ets/views/BookViewListPage.ets",
+        "DFX004_TARGET_UNINITIALIZED_LOAD",
+        ("Execute complete actual aboutToAppear and actual LazyDataSource/LazyDataVM with Node type erasure; "
+         "initialization, route/category, populated/empty/missing parameters and reentry; "
+         "no ArkUI observation, navigation, UI or device coverage"),
+    ),
+    "resources/source-validation/express-template/oracle.cjs": (
+        "features/business_home/src/main/ets/viewModels/ExpressPageVM.ets",
+        "DFX010_TARGET_ARRAYLIST_INDEX",
+        ("Execute complete actual changeTemplate method with Node type erasure; "
+         "empty/partial slots, hour cutoffs, address/goods/payment branches and async geocoding delegation; "
+         "declared ArrayList subset and service recorders; no actual map, pricing, network or UI"),
+    ),
+    "resources/source-validation/notes-serialization/oracle.cjs": (
+        "common/datasource/src/main/ets/NoteService.ets",
+        "DFX006_TARGET_CIRCULAR_JSON",
+        ("Execute complete actual add/update/list/search/recent methods and persistence helper with Node type erasure; "
+         "cycle-free JSON, identity/order/search/category counts, updates and persistence payloads; "
+         "no real rich-text codec, KV/preferences, card UI or device coverage"),
+    ),
 }
 REVIEWED_MOCKS = {
     "resources/source-validation/resource-sort/oracle.cjs": [
@@ -106,6 +134,18 @@ REVIEWED_MOCKS = {
     ],
     "resources/source-validation/asset-pie/oracle.cjs": [
         "AssetChangeType string constants; plain fund/credit groups instead of observed DB-backed state",
+    ],
+    "resources/source-validation/accounting-formatter/oracle.cjs": [
+        "dayjs add/format delegation recorder; plain class hosting actual factory field",
+    ],
+    "resources/source-validation/book-lifecycle/oracle.cjs": [
+        "TCRouter parameter provider and route constant sentinel; no ArkUI observation",
+    ],
+    "resources/source-validation/express-template/oracle.cjs": [
+        "ArrayList checked-index/add/length subset; shipping/payment constants; fixed clock hour; geocoding/price recorders",
+    ],
+    "resources/source-validation/notes-serialization/oracle.cjs": [
+        "Plain notes/category state; hilog sink; deferred rich-text codec and KV recorder; UI context/preferences recorder",
     ],
 }
 

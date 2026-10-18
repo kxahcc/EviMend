@@ -234,6 +234,8 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `resources/source-validation/enterprise-property/`、`resources/source-validation/resource-sort/` | 009实际JavaScript属性检查模块、001完整排序方法的本机执行判据及README.txt；检查保留行为、边界和错误补丁，披露抽取与提供的状态，不含UI/持久化 |
 | `resources/source-validation/music-slider/`、`resources/source-validation/teleprompter-font/` | 025播放进度、026字号设置的完整实际回调与正常/边界判据及README.txt；披露日志/媒体接口和普通状态替代，不执行音频输出或ArkUI渲染 |
 | `resources/source-validation/calendar-days/`、`resources/source-validation/asset-pie/` | B1日期间隔函数和资产饼图完整getter的源码运行器、反例与README.txt；检查日期取整/方向、空状态、资金/负债符号和原状态保持，不含农历、DB或UI |
+| `resources/source-validation/accounting-formatter/`、`resources/source-validation/book-lifecycle/` | 账单工厂字段/格式化类、阅读页完整生命周期及实际LazyDataVM；声明dayjs委托记录、路由参数替代，不含日期库算法、图表或ArkUI运行 |
+| `resources/source-validation/express-template/`、`resources/source-validation/notes-serialization/` | 快递完整模板切换方法、笔记完整增改查与持久化序列化方法；明示容器子集、时钟、网络/平台替代，不含地图计价、实际存储、富文本编解码或UI |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 唯一 Skill 源库与提交入口；四类标准 SKILL.md 及后续外部 Skill 的 references/scripts/assets 均放在所属包内。它们是产品指导资源，不采用设计文档的状态头；格式由锁定 SDK 解析及软件测试核验 |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
