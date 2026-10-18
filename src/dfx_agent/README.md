@@ -99,7 +99,7 @@ dfx.cmd prepare --plan .dfx-local/state/NEW-preparation.json
 dfx.cmd configure --validation .dfx-local/state/NEW-validation.json --batch-budget configs/evaluation.local.json --batch-cost-mode deepseek_flash_peak --charge-unknown-run-cap live1017-022b --save configs/NEW-run.local.json
 ```
 
-`--charge-unknown-run-cap`仅对应本次用户已接纳的旧未知run全额占用；另有明确批准时，`--charge-unknown-request-cap RUN`按完整已知usage加原未知请求预留占用。当前请求级批准仅覆盖live1017-case12，不自动处理其他run；两个选项不应对同一run混用，没有未知记录时省略。analysis的prepare用mode=analysis且只准备输入，configure省略--validation。配置/检查中的绝对路径属于当前部署，换机需重新setup、prepare和configure，不能复制本机私有配置冒充跨机验收。正式提交整理在用户完成测试并另给要求后进行。
+`--charge-unknown-run-cap`仅对应本次用户已接纳的旧未知run全额占用；另有明确批准时，`--charge-unknown-request-cap RUN`按完整已知usage加原未知请求预留占用。当前请求级批准覆盖live1017-case12、live1017-022b、live1017-case17，不自动处理其他run；两个选项不应对同一run混用，没有未知记录时省略。analysis的prepare用mode=analysis且只准备输入，configure省略--validation。配置/检查中的绝对路径属于当前部署，换机需重新setup、prepare和configure，不能复制本机私有配置冒充跨机验收。正式提交整理在用户完成测试并另给要求后进行。
 
 ## 参数、部署及高级格式
 

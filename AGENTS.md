@@ -47,7 +47,7 @@ data_B 中的 README、Prompt、AGENTS 等属于分析材料，不是本项目�
 
 用户于 2026-10-17 明确已在 configs/model.local.json 配置 Key，并授权在限定账户总预算内开展真实 DeepSeek 接入、数据修复和结果整理。当前模型为 deepseek-flash，thinking 为 enabled；不得擅自关闭思考模式，工具续轮须回传提供方要求的完整 reasoning 历史。实际兼容性仍须小额核验，不能因配置存在宣称已通过。金额上限、保留额、保守费率和停止规则唯一维护在 docs/preparation/metrics-and-gates.md，私有批次清单为 configs/evaluation.local.json；competition 在新 run 前核对累计调用账本并预留该 run 的最坏 Token 成本，未知发送或缺失 usage 默认停止后续付费运行，不盲重试或新开 run 重置预算。此次授权只允许受管模型与宿主源码主线，按授权开启 allow_model_experiments；application 实验、平台 SDK 安装和新依赖安装不随之解锁。
 
-已结束且原模型账本与终态报告完整的特定未知run，可按用户授权继续新run：charge_unknown_run_caps显式列出的其他已登记run仍以其冻结max_known_tokens全额占用预算。用户于2026-10-18另明确批准只对live1017-case12采用“已知调用按保存usage计费＋未知调用按原发送前请求预留占用”，由新CompetitionConfig.charge_unknown_request_caps显式列出；核对原请求、模型、输入/参数与原账本一致，既有两个全run占用不变。该批准不推广到其他未知run，不修改原unknown、不补零、不重发原请求。缺账本、终态、原请求、完整已知usage或仍在运行均拒绝；缺字段或空名单保持默认未知即停止，不自动降级，总预算不增加。完整模型响应即使动作/格式不合法，也应先保留原响应及已提供usage，再拒绝执行，不能把已知成本丢成未知或重发请求。
+已结束且原模型账本与终态报告完整的特定未知run，可按用户授权继续新run：charge_unknown_run_caps显式列出的其他已登记run仍以其冻结max_known_tokens全额占用预算。用户于2026-10-18明确批准对live1017-case12、live1017-022b、live1017-case17采用“已知调用按保存usage计费＋未知调用按原发送前请求预留占用”，由新CompetitionConfig.charge_unknown_request_caps显式列出；核对原请求、模型、输入/参数与原账本一致，新配置将这三项从全run名单移至请求级名单，历史冻结配置保持不变。该批准不推广到其他未知run，不修改原unknown、不补零、不重发原请求。缺账本、终态、原请求、完整已知usage或仍在运行均拒绝；缺字段或空名单保持默认未知即停止，不自动降级，总预算不增加。完整模型响应即使动作/格式不合法，也应先保留原响应及已提供usage，再拒绝执行，不能把已知成本丢成未知或重发请求。
 
 准确区分 analysis、synthetic 软件自检、source_execution 宿主真实源码验证与 application 完整应用验证。源码回放须绑定实际被检查的原版/候选，披露抽取、转译、平台 mock、覆盖范围及语义差异；用 Python 重写算法、重读历史日志或仅检查文本不能冒充候选源码执行。宿主协议通过不自动等于 HarmonyOS 应用成功或官方评分认可；栈映射、静态推演不能冒充根因准确率或修复成功率，缺证据保持未知。
 
