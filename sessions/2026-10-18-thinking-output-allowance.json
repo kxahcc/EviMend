@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-18",
+  "scope": "Raise future thinking-output allowance following an observed complete-known truncated reply",
+  "code_base": "21f2839",
+  "observed_run": {
+    "run_id": "live1017-retry19",
+    "completed_calls": 12,
+    "known_tokens": 236092,
+    "usage_complete": true,
+    "candidate_count": 0,
+    "estimated_cny": "0.13962776",
+    "agent_wall_ms": 102000.213,
+    "last_response": {
+      "finish_reason": "length",
+      "completion_tokens": 4096,
+      "reasoning_tokens": 4096,
+      "content_length": 0,
+      "tool_count": 0
+    }
+  },
+  "private_configuration_change": {
+    "max_output_tokens_before": 4096,
+    "max_output_tokens_after": 8192,
+    "thinking_mode": "enabled",
+    "provider_model_unchanged": true,
+    "total_budget_unchanged": true,
+    "affected": "configs/model.local.json and generated future run configs; old frozen runs unchanged"
+  },
+  "validation": "PrivateModelProfile and all generated ProviderSettings validation passed; no extra model request in this configuration change.",
+  "effects": "Unmeasured until actual subsequent runs; no automatic resend or removal of the original response."
+}
