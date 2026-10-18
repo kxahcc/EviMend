@@ -121,6 +121,46 @@ REVIEWED_ORACLES = {
          "cycle-free JSON, identity/order/search/category counts, updates and persistence payloads; "
          "no real rich-text codec, KV/preferences, card UI or device coverage"),
     ),
+    "resources/source-validation/pcm-frames/oracle.cjs": (
+        "components/audio_common/src/main/ets/viewModel/EditViewModel.ets",
+        "DFX021_TARGET_PCM_VIEW_BOUNDS",
+        ("Load complete actual audio_common module with metadata/type erasure; exercise initProps and parsePcmFile; "
+         "complete mono/stereo f32le sampled frames, partial tails, empty data and file-close delegation; "
+         "supplied fileIo bytes, no actual audio, worker, canvas, SDK or UI"),
+    ),
+    "resources/source-validation/learning-order/oracle.cjs": (
+        "components/select_category/src/main/ets/components/MainPage.ets",
+        "DFX019_TARGET_LEARNING_CYCLE",
+        ("Load actual page fields/lifecycle/helpers before UI build plus model classes after metadata/type erasure; "
+         "learning links/fallback, cycles, missing targets, display copies and repeated initialization; "
+         "plain parameters, no ArkUI, navigation or huge-graph scalability coverage"),
+    ),
+    "resources/source-validation/post-images/oracle.cjs": (
+        "components/travel_discovery/src/main/ets/model/Index.ets",
+        "DFX012_TARGET_IMAGE_JSON",
+        ("Load actual model module after reviewed import/metadata/type erasure; exercise PostCardModel; "
+         "raw URI, JSON/array images, empty/invalid input normalization and unrelated fields; "
+         "no image decoding, network, listener, ArkUI or device coverage"),
+    ),
+    "resources/source-validation/share-fingerprint/oracle.cjs": (
+        "components/aggregated_share/src/main/ets/views/ShareView.ets",
+        "DFX_B2_024_TARGET_SHARE_ALIGNMENT",
+        ("Execute complete actual share aboutToAppear after wrapping/type erasure; "
+         "unaligned/Unicode UTF-8, deterministic content-sensitive hash and setup delegation; "
+         "declared encoder/storage/share recorders, no exact hash algorithm or real transport/UI coverage"),
+    ),
+    "resources/source-validation/exam-search/oracle.cjs": (
+        "commons/datasource/src/main/ets/ExamService.ets", "DFX014_TARGET_SEARCH_REGEX",
+        "Actual complete exam search method/helper, literal keywords and selected nonsearch branches; declared enums/questions, no generation, persistence or UI",
+    ),
+    "resources/source-validation/fitness-search/oracle.cjs": (
+        "components/search/src/main/ets/views/ResultPage.ets", "DFX015_TARGET_GROUP_NAME",
+        "Actual complete user-search callback, literal address/city filtering and VM/popup delegation; declared storage/stores, no surrounding ArkUI or network",
+    ),
+    "resources/source-validation/cutlery-count/oracle.cjs": (
+        "features/order/src/main/ets/pages/ConfirmOrderPage.ets", "DFX020_TARGET_CUTLERY_ARRAY_LENGTH",
+        "Actual complete cutlery-confirm callback, none/by-order/fixed counts and labels/reset/close; plain picker/cart and resource sentinel, no UI/order transport",
+    ),
 }
 REVIEWED_MOCKS = {
     "resources/source-validation/resource-sort/oracle.cjs": [
@@ -147,6 +187,21 @@ REVIEWED_MOCKS = {
     "resources/source-validation/notes-serialization/oracle.cjs": [
         "Plain notes/category state; hilog sink; deferred rich-text codec and KV recorder; UI context/preferences recorder",
     ],
+    "resources/source-validation/pcm-frames/oracle.cjs": [
+        "fileIo stat/open/read/close over supplied f32le bytes; no actual SDK file IO",
+    ],
+    "resources/source-validation/learning-order/oracle.cjs": [
+        "Plain secondParamObj replacing ArkUI Param delivery; resource-name sentinel; actual model classes retained",
+    ],
+    "resources/source-validation/post-images/oracle.cjs": [
+        "StatusFLAG NO=N/YES=Y constants; observation metadata removed",
+    ],
+    "resources/source-validation/share-fingerprint/oracle.cjs": [
+        "Kit-shaped TextEncoder backed by native UTF-8; AppStorage/share/WX/window-padding recorders",
+    ],
+    "resources/source-validation/exam-search/oracle.cjs": ["Declared numeric enum values and question records"],
+    "resources/source-validation/fitness-search/oracle.cjs": ["Current-city storage, store records, VM submit/close and SearchSource sentinel"],
+    "resources/source-validation/cutlery-count/oracle.cjs": ["Plain picker/cart state and resource-name sentinel"],
 }
 
 

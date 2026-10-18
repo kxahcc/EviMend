@@ -236,6 +236,9 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `resources/source-validation/calendar-days/`、`resources/source-validation/asset-pie/` | B1日期间隔函数和资产饼图完整getter的源码运行器、反例与README.txt；检查日期取整/方向、空状态、资金/负债符号和原状态保持，不含农历、DB或UI |
 | `resources/source-validation/accounting-formatter/`、`resources/source-validation/book-lifecycle/` | 账单工厂字段/格式化类、阅读页完整生命周期及实际LazyDataVM；声明dayjs委托记录、路由参数替代，不含日期库算法、图表或ArkUI运行 |
 | `resources/source-validation/express-template/`、`resources/source-validation/notes-serialization/` | 快递完整模板切换方法、笔记完整增改查与持久化序列化方法；明示容器子集、时钟、网络/平台替代，不含地图计价、实际存储、富文本编解码或UI |
+| `resources/source-validation/pcm-frames/`、`resources/source-validation/learning-order/` | 音频common实际PCM读取/字段/参数初始化、学习目录实际初始化/递归方法及模型类；检查完整帧和尾部、循环与顺序、数据保持；明示文件字节与参数替代，不执行实际音频或UI |
+| `resources/source-validation/post-images/`、`resources/source-validation/share-fingerprint/` | 实际游记模型图片输入归一化、分享生命周期与指纹性质检查；保留正常内容和初始化委托，明示枚举/编码/平台记录器，不强制某个内部哈希算法，不认证图片渲染或分享传输 |
+| `resources/source-validation/exam-search/`、`resources/source-validation/fitness-search/`、`resources/source-validation/cutlery-count/` | 试题实际查询方法、健身实际搜索回调和点餐实际餐具确认回调；检查关键字/城市/委托与选择数量，披露记录/状态替代及UI省略，不执行完整页面 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 唯一 Skill 源库与提交入口；四类标准 SKILL.md 及后续外部 Skill 的 references/scripts/assets 均放在所属包内。它们是产品指导资源，不采用设计文档的状态头；格式由锁定 SDK 解析及软件测试核验 |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
