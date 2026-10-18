@@ -24,7 +24,8 @@ def _write(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value), encoding="utf-8")
 
 
-def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, candidate: bool = True) -> dict[str, Any]:
+def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, candidate: bool = True,
+             task_id: str = "case-fixture") -> dict[str, Any]:
     repo = tmp_path / "deployment"
     repo.mkdir()
     _write(repo / "configs/local-runtime.json", {"limits": {"max_export_package_bytes": 8_388_608}})
@@ -45,7 +46,7 @@ def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, candidate: bool
     log = repo / "data_B/fault.log"
     log.write_text("FAULT in main.js:1\n", encoding="utf-8")
     task = repo / ".dfx-local/tmp/reviewed-task"
-    prepare_task(repo / "data_B", {"task_id": "case-fixture", "app": "application",
+    prepare_task(repo / "data_B", {"task_id": task_id, "app": "application",
         "log": {"path": "fault.log", "sha256": digest(log.read_bytes())}}, task)
     run_id = "sample-run"
     work = repo / ".dfx-local/work" / ("competition-" + run_id)
@@ -64,7 +65,7 @@ def _fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, candidate: bool
                      "check": None, "execution": None}]
     _write(work / "product-launch.json", {"task": str(task), "run_id": run_id})
     _write(work / "competition-config.json", {"config": {"model_mode": "cloud"}, "task": verify_task(task), "execution": None})
-    report = {"schema_version": 4, "scope": "competition_task", "task_id": "case-fixture", "run_id": run_id,
+    report = {"schema_version": 4, "scope": "competition_task", "task_id": task_id, "run_id": run_id,
         "source_snapshot_sha256": workspace.source_snapshot_sha256, "status": "unresolved",
         "accepted": False, "verification_level": "not_run", "application_verification": "not_run",
         "source_verification": "not_run", "validation_scope": "analysis_only", "mocked_interfaces": [],
@@ -130,6 +131,15 @@ def test_analysis_without_candidate_exports_original_without_patch(tmp_path: Pat
     assert not (output / "patch.diff").exists()
     assert not (output / "repaired-project").exists()
     assert (output / "repaired-source/src/main.js").read_text() == "export const value = 1;\n"
+
+
+@pytest.mark.parametrize("task_id", ["b3-012-homestay1.0.6", "b3-014-driverlicenseexam1.0.7"])
+def test_export_preserves_versioned_task_identity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, task_id: str) -> None:
+    data = _fixture(tmp_path, monkeypatch, task_id=task_id)
+    result = export_case_result(data["root"], data["run_id"])
+    output = Path(result["path"])
+    assert output == data["root"] / "runs/exports/cases" / task_id / data["run_id"]
+    assert json.loads((output / "summary.json").read_bytes())["task_id"] == task_id
 
 
 def test_existing_export_is_never_overwritten(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

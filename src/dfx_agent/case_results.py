@@ -26,6 +26,7 @@ from .task import EXCLUDED_FILES, EXCLUDED_PARTS, digest, include_file, snapshot
 from .workspace import CandidateWorkspace, _files, _rename_owned
 
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\Z")
+_TASK_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
 
 def _read(path: Path, cap: int) -> bytes:
@@ -228,7 +229,7 @@ def export_case_result(root: Path, run_id: str, *, project: Path | None = None) 
         raise ValueError("case result task belongs to another deployment or run")
     workspace = CandidateWorkspace.reopen(task, work, run_id)
     task_id = workspace.task_id
-    if not _NAME.fullmatch(task_id):
+    if not _TASK_NAME.fullmatch(task_id) or task_id.endswith("."):
         raise ValueError("invalid case result task ID")
     frozen, frozen_raw = _json(work / "competition-config.json", cap)
     task_record, task_raw = _json(task / "task.json", cap)

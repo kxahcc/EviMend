@@ -644,7 +644,15 @@ def _worker(args: argparse.Namespace, root: Path) -> int:
         from .case_results import export_case_result
 
         project = Path(args.ExportProjectPath) if args.ExportProjectPath else None
-        print(json.dumps(export_case_result(root, args.CompetitionWorkId, project=project), ensure_ascii=True), flush=True)
+        try:
+            exported = export_case_result(root, args.CompetitionWorkId, project=project)
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            # This is the private managed artifact log, not the public CLI.
+            # Keep the concrete local failure so saved repairs can be exported
+            # without repeating a paid model run.
+            print("case export: " + type(error).__name__ + ": " + str(error), file=sys.stderr, flush=True)
+            raise
+        print(json.dumps(exported, ensure_ascii=True), flush=True)
         return 0
     if args.Task == "competition":
         from .cli import main
