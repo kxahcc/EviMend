@@ -143,14 +143,14 @@ def test_native_input_rejects_unsafe_or_original_material(managed: runtime.Runti
 def test_native_status_preserves_incomplete_accounting(managed: runtime.Runtime, monkeypatch: pytest.MonkeyPatch) -> None:
     blocked = managed.root / "tmp/blocked"
     blocked.mkdir(parents=True)
-    original = Path.iterdir
+    original = runtime.os.scandir
 
     def directories(path: Path):
-        if path == runtime._io_path(blocked):
+        if Path(path) == runtime._io_path(blocked):
             raise PermissionError("not readable")
         return original(path)
 
-    monkeypatch.setattr(Path, "iterdir", directories)
+    monkeypatch.setattr(runtime.os, "scandir", directories)
     observation = managed.status()
     assert observation["resource_accounting"] == "incomplete"
     assert observation["inaccessible_paths"] == [str(blocked)]

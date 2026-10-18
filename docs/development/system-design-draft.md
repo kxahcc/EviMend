@@ -82,7 +82,7 @@ SDK 维护模型消息和工具循环；工具边界转换为我们自己的 Act
 
 只由一层负责语义重试和预算，禁止 SDK、图节点和控制器各重新推理一轮却只记录一次。网络故障恢复是原逻辑调用内的有限尝试，SDK 负责退避，项目限定安全条件并单列网络计数；工具和语义步骤不因此重跑。`ModelCallStore` 已接入固定响应及模拟请求模型，覆盖调用前登记、Graph 落盘前的完整响应回放、未知发送停止、格式错误和 usage 分类。`PreparedRequest` 以唯一规范化 JSON 固定消息、工具、参数及 profile 哈希；官方 SDK 负责发送序列化，每次尝试前 hook 重核实际请求的规范 JSON 与冻结请求一致，不声称 HTTP 原字节与 JSON 排版相同。SDK 的中性 `tool_choice=None` 由模型入口省略，其余不支持字段明确拒绝。
 
-Chat Completions 有独立冻结的 mock 与云端传输 profile。`ChatCompletionsAdapter` 保留 exact HTTPX MockTransport、固定 model.invalid 端点及无凭据的旧路径；`CloudChatCompletionsAdapter` 复用官方 OpenAI SDK 2.30.0，profile 使用 schema 2、transport=openai-sdk，固定 SDK 版本和规范请求身份。主机运行配置保存规范 HTTPS 端点与 credential_file 私有文件位置，旧方式保存 credential_env；可选 network 来自同一私有配置。显式 network 走公开 AsyncOpenAI/AsyncClient，profile 固定 chat.completions.async、重试上限及网络策略；无 network 的旧配置完整保留原 chat.completions/零重试形状与解释，不自动升级旧运行。构造、prepare、validate 和只读 profile 恢复不读取密钥或建立网络客户端，后者不获得发送资格。发送前按剩余时间、输入估计与完整输出额度准入，再直接读取当前文件 Key；每次尝试前重新核对凭据，当前调用中 Key 改变则停止。指定文件时不回退环境变量，也不把文件 Key 注入进程环境。关闭重定向和环境代理，响应读取仍受字节和截止时间限制。Key 只保存在本机私有配置，不进入生成的运行配置、profile、请求/响应原件或错误报告；私有文件必须位于任务、完整工程及运行目录之外，环境凭据仍从应用检查子进程环境排除。历史 cloud-httpx profile 只按原身份回读核验，不迁移为新 SDK 发送资格。软件验收以官方 SDK 通道注入 MockTransport，真实实验仍禁用。
+Chat Completions 有独立冻结的 mock 与云端传输 profile。`ChatCompletionsAdapter` 保留 exact HTTPX MockTransport、固定 model.invalid 端点及无凭据的旧路径；`CloudChatCompletionsAdapter` 复用官方 OpenAI SDK 2.30.0，profile 使用 schema 2、transport=openai-sdk，固定 SDK 版本和规范请求身份。主机运行配置保存规范 HTTPS 端点与 credential_file 私有文件位置，旧方式保存 credential_env；可选 network 来自同一私有配置。显式 network 走公开 AsyncOpenAI/AsyncClient，profile 固定 chat.completions.async、重试上限及网络策略；无 network 的旧配置完整保留原 chat.completions/零重试形状与解释，不自动升级旧运行。构造、prepare、validate 和只读 profile 恢复不读取密钥或建立网络客户端，后者不获得发送资格。发送前按剩余时间、输入估计与完整输出额度准入，再直接读取当前文件 Key；每次尝试前重新核对凭据，当前调用中 Key 改变则停止。指定文件时不回退环境变量，也不把文件 Key 注入进程环境。关闭重定向和环境代理，响应读取仍受字节和截止时间限制。Key 只保存在本机私有配置，不进入生成的运行配置、profile、请求/响应原件或错误报告；私有文件必须位于任务、完整工程及运行目录之外，环境凭据仍从应用检查子进程环境排除。历史 cloud-httpx profile 只按原身份回读核验，不迁移为新 SDK 发送资格。软件验收以官方SDK通道注入MockTransport；真实授权和实际结果见STATUS及评测口径。
 
 网络策略只在原请求中恢复能确认未进入推理的失败：TCP/TLS 连接尚未建立的故障，或服务明确返回 429。证书错误、鉴权/参数错误、408/409/5xx、读写超时和协议中断不自动重发，防止结果不明时重复推理/计费。max_retries 是首次请求之后的上限，取 0–5；退避、抖动和 Retry-After 由 SDK 实现，底层连接重试关闭，项目不再套一层重试循环。request_timeout_seconds 限制全部尝试与等待，connect_timeout_seconds 限制每次连接；实际总截止采用网络配置、模型超时和任务剩余时间的较严值，由 asyncio.timeout 覆盖 SDK 发送与退避。具体准备值只维护在配置示例，运行时冻结到 profile，恢复不增加时限或次数。
 
@@ -678,9 +678,9 @@ Windows 管理器用扩展路径执行深层目录的元数据读取、盘点和
 | runs/exports/ | 显式矩阵的本机私有证据包及清理回执 | 普通清理保留、独立显示大小；单包上限及与 managed 共用的磁盘预算约束累计占用，不视为已脱敏公开材料 |
 | data_B/、archive/、既有 runs/ | 用户数据、历史归档与旧原型产物 | 报告现有占用但不接管、不移动、不默认清理 |
 
-默认Agent管理目录固定在仓库内；可选paths.harmony_root只接纳固定的DFX-HarmonyOS，不接受任意盘根或data_B。harmony-prepare复用原Job入口，核安装包及已冻结工程清单后迁移工作副本，存储owner绑定原项目实例；不安装或启动平台工具，也不声称规划中的环境变量已生效。SDK、镜像、实例、IDE配置和包缓存须逐项配置，子进程环境不改用户PATH/注册表；首次平台运行仍要检查实际外部写入及退出。超预算先核实际包清单和磁盘余量、显式调整配置，不能静默放宽。项目盘点分别列Agent、平台、导出，普通清理不会把平台目录当成Agent临时文件。
+默认Agent目录固定在仓库内；paths.harmony_root只接纳DFX-HarmonyOS，不接受任意盘根或data_B。harmony-prepare复用原Job入口；storage核安装包/冻结工程并迁移副本，不启动平台工具，其余具名步骤在授权后复用现成解包器及SDK官方CLI，只处理选定办公考勤。owner绑定原项目实例。SDK、镜像、实例、IDE及包缓存逐项配置，变量仅传子进程，不改用户PATH；首次运行检查外部写入。软件自身许可标记可能落在用户配置位置，须记录实际例外并在项目结束确认归属后处理，不自研用户配置虚拟化。扩展先核包清单和空间、显式校准配置，不能静默放宽。盘点分列Agent/平台/导出，普通Agent清理保留平台目录。
 
-生产入口由 `managed_runtime.py` 提供 Prepare/Status/Clean/Stop/Init、competition 及有限测试/质量检查的受管 Run，`windows_job.py` 通过 ctypes 调用 Windows Job API，`managed_bootstrap.py` 在保护器内安装项目环境；不编译 PowerShell/.NET 互操作代码。Prepare 不下载依赖；Init 按固定来源与 SHA-256 安装便携 uv/CPython 并同步锁定环境，不安装全局包或后台服务。Run 接受固定任务、仓库测试路径和已审查竞赛快照，不接受任意 shell。历史 `scripts/local.ps1`、`local_job.cs` 与 `local_export.ps1` 继续支持离线研究、聚合及私有 Export 的原契约，仅需在使用这些兼容工具时满足其开发依赖；生产 CLI 不调用它们。competition 保存唯一 job_name，执行器据此核验实际所属限制；真实模型/应用仍禁用，各入口实际验收见 STATUS。
+生产入口由managed_runtime.py提供Prepare/Status/Clean/Stop/Init、competition及有限检查的受管Run，windows_job.py直接调用Windows Job，managed_bootstrap.py在保护器内装项目环境；不依赖PowerShell互操作。Prepare不下载；Init按固定来源安装便携uv/CPython并同步锁，不装全局包/服务。Run只接纳具名任务和审核输入，harmony-prepare另用于单应用官方工具准备，不开放任意shell。历史PS仅保留兼容，生产CLI不调用。执行器保存并核对唯一job_name和实际限制，实验权限取配置，结果见STATUS。
 
 安装时通过显式子进程环境设置 UV_CACHE_DIR、UV_PROJECT_ENVIRONMENT、UV_PYTHON_INSTALL_DIR、UV_PYTHON_BIN_DIR、UV_TOOL_DIR/UV_TOOL_BIN_DIR、TEMP/TMP 与 PYTHONPYCACHEPREFIX；Pyright 后备 Node 目录和 Ruff 缓存也路由到项目根。pytest 使用受管 basetemp，关闭持久 pytest 缓存和字节码写入，并在退出时删除自己的临时目录，避免不同 Windows 账户交替运行时产生不可访问目录。变量只在该子进程树生效，不改用户级 PATH、注册表、Shell profile、Conda base 或全局 pip。uv 固定版本/下载哈希，关闭 Python 注册表安装；环境同步使用 `uv sync --locked` 和项目 Python。正式 Agent 任务也须遵循同样入口，不用普通 `uv run` 绕过限制。
 
@@ -709,7 +709,7 @@ Stop 优先通过当前用户可访问的控制通道请求管理器停止，再
 
 ### 9.4 统一命令与清理协议
 
-下表列出生产产品入口；实际验收以 STATUS 为准。Status 遇到受管目录不可读时保留 inaccessible_paths，并将 resource_accounting 标为 incomplete；新 Run 拒绝启动，直到资源可完整盘点。真实模型/应用开关仍禁用，软件通过不能作为效果证据。开发测试也必须通过 Python 管理入口执行，不直接运行 pytest 绕过资源限制。
+下表列出生产入口，实际验收见STATUS。Status遇不可读目录保留inaccessible_paths并标记resource_accounting=incomplete，新Run拒绝直到可完整盘点。实验权限取配置，软件通过不作为修复效果。开发测试经Python管理入口，不直接pytest绕过限制。大SDK文件树复用os.scandir的DirEntry元数据，保持链接和不可读拒绝，避免每文件另做lstat。
 
 | 目标调用 | 行为 |
 |---|---|

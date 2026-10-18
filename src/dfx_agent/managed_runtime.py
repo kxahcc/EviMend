@@ -189,15 +189,20 @@ class Runtime:
         while pending:
             folder = pending.pop()
             try:
-                entries = [folder / child.name for child in _io_path(folder).iterdir()]
+                # DirEntry reuses Win32 enumeration metadata. Converting every
+                # SDK file to Path.lstat discards that cache and performs tens
+                # of thousands of extra filesystem queries per monitor cycle.
+                with os.scandir(_io_path(folder)) as scan:
+                    entries = list(scan)
             except FileNotFoundError:
                 continue
             except PermissionError:
                 inaccessible.append(str(folder))
                 continue
-            for entry in entries:
+            for child in entries:
+                entry = folder / child.name
                 try:
-                    info = _io_path(entry).lstat()
+                    info = child.stat(follow_symlinks=False)
                     if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
                         if strict_links or not entry.resolve(strict=True).is_relative_to(self.root):
                             raise ValueError("unsafe linked inventory entry")
@@ -420,6 +425,8 @@ class Runtime:
                 if config.parent != self.state:
                     raise ValueError("preparation config must be inside the managed state directory")
                 argv += ["-PreparationConfigPath", str(config)]
+            elif task == "harmony-prepare":
+                argv += ["-HarmonyStep", args.HarmonyStep]
             elif task == "test":
                 test = _input(self.repo, args.TestPath)
                 if not test.is_relative_to(self.repo / "tests") or not re.fullmatch(r"test_[A-Za-z0-9_]+\.py", test.name):
@@ -647,9 +654,14 @@ def _worker(args: argparse.Namespace, root: Path) -> int:
         print(json.dumps(run_probe(root), ensure_ascii=True), flush=True)
         return 0
     if args.Task == "harmony-prepare":
-        from .harmony_workspace import prepare_workspace
-
-        print(json.dumps(prepare_workspace(root), ensure_ascii=True), flush=True)
+        if args.HarmonyStep == "storage":
+            from .harmony_workspace import prepare_workspace
+            result = prepare_workspace(root)
+        else:
+            import runpy
+            script = checked(root / "scripts/preparation/office_application_demo.py", root, exists=True)
+            result = runpy.run_path(str(script))["run"](root, args.HarmonyStep)
+        print(json.dumps(result, ensure_ascii=True), flush=True)
         return 0
     if args.Task == "prepare":
         from .pilot_preparation import run_preparation
@@ -710,7 +722,8 @@ def _worker(args: argparse.Namespace, root: Path) -> int:
         import subprocess
 
         from ruff import find_ruff_bin
-        return subprocess.call([find_ruff_bin(), "check", "--no-cache", "src", "tests", "scripts/check_docs.py", "scripts/dfx.py"])
+        return subprocess.call([find_ruff_bin(), "check", "--no-cache", "src", "tests", "scripts/check_docs.py", "scripts/dfx.py",
+                                "scripts/preparation/office_application_demo.py"])
     if args.Task == "pyright":
         import pyright
         return pyright.run("--pythonpath", sys.executable, "src/dfx_agent", "tests/test_sdk_compat.py").returncode
@@ -722,6 +735,7 @@ def parser() -> argparse.ArgumentParser:
     cli.add_argument("--workspace", type=Path, required=True)
     cli.add_argument("action", choices=("Prepare", "Status", "Stop", "Clean", "Init", "Run", "Worker"))
     cli.add_argument("-Task", choices=("competition", "case-export", "provider", "prepare", "harmony-prepare", "test", "docs", "ruff", "pyright", "bootstrap"), default="competition")
+    cli.add_argument("-HarmonyStep", choices=("storage", "inspect", "extractor", "payload", "extract", "tools", "emulator-info", "emulator-license", "build-original", "build-patched"), default="storage")
     for name in ("CompetitionTaskPath", "CompetitionConfigPath", "CompetitionWorkId", "PreparationConfigPath", "ExportProjectPath", "TestPath", "ExpectedRunId", "PlanId"):
         cli.add_argument("-" + name, default="")
     cli.add_argument("-Scope", choices=("cache", "testcache", "tmp", "work", "env", "all"), default="cache")

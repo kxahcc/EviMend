@@ -107,7 +107,7 @@ CLI 只承担传参、显示活动、停止/恢复与读取结果。后续需要
 
 本机实现采用仓库内 .dfx-local 作为Agent环境、缓存、临时副本和运行记录的集中位置；离线证据通过受管 Export 保留到 runs/exports。可选办公考勤应用演示的工具、SDK、模拟器镜像/实例、构建缓存、工程副本和过程日志统一放在用户指定且Git忽略的DFX-HarmonyOS/，最终核验证据进入runs/exports/robustness/application-demo/。Python管理入口把该平台目录计入共同磁盘预算，普通Agent env/all清理保留它；平台安装、启动与清理仍须另行接纳，实际进度见STATUS。日常只启动一个受管任务，不改全局环境，没有本机模型权重占用。
 
-面向用户的 `dfx` 前端负责启动、配置、进度和会话操作，`env` 管理安装、占用和按计划清理。交付范围是 Windows x64 下的完整项目目录、项目专属环境和标准 console entry。一次 `setup.cmd` 使用普通 Python 3.11+ 引导并创建锁定环境；日常用 `dfx.cmd` 或环境内的 `dfx`，生产运行不依赖 PowerShell、Codex 安装或全局 PATH 修改。Python 管理入口直接调用 Windows Job，保留停止、归属核对和资源限额；历史研究/导出 PS 入口只作开发兼容，不是产品运行前置。项目资源集中在 .dfx-local；删除 env/all 时先退出 Agent，再用外部普通 Python 的 `setup.cmd --clean` 应用预览计划，避免删除正在使用的解释器。独立 wheel 和跨平台不在本轮范围。本次授权仅开放受管模型/源码测试，application 和平台 SDK 仍禁用，资源数值不变；实际配置、验收与命令见 [Agent 说明](src/dfx_agent/README.md) 和 STATUS，限制边界见 [设计第 9 节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+面向用户的dfx前端负责启动、配置、进度和会话操作，env管理安装、占用和按计划清理。交付范围是Windows x64完整项目、专属环境和console entry。一次setup.cmd使用普通Python 3.11+创建锁定环境；日常用dfx.cmd或环境内dfx，不依赖PowerShell、Codex路径或全局PATH修改。Python管理入口复用Windows Job及原停止/归属/限额；历史PS仅作兼容。Agent资源在.dfx-local，可选平台资源在DFX-HarmonyOS。删除Agent env/all先退出，再用外部普通Python的setup.cmd --clean预览/应用；该操作保留平台目录。平台只按用户选定单应用的授权和STATUS继续，资源值唯一取配置。独立wheel及跨平台仍未验收；命令见[Agent说明](src/dfx_agent/README.md)，边界见[设计第9节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
 ### 竞赛版的交付标准从哪里来
 
@@ -247,7 +247,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 唯一 Skill 源库与提交入口；四类标准 SKILL.md 及后续外部 Skill 的 references/scripts/assets 均放在所属包内。它们是产品指导资源，不采用设计文档的状态头；格式由锁定 SDK 解析及软件测试核验 |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
-| `configs/local-runtime.json` | 本机资源/清理策略；各受管入口共用限额与磁盘预算。按本次授权只开放 model 实验，application/平台 SDK 仍禁用，不放宽资源数值，字段语义见设计与契约 |
+| `configs/local-runtime.json` | 本机资源/清理策略和固定平台目录；模型与单应用扩展按各自授权接纳，实际开关/限额只维护在此，实际验收见STATUS |
 | `configs/competition-demo.json`、`configs/competition-cloud.template.json` | mock_demo 软件演示配置与云端轻量入口模板；真实 run 另须核本机私有模型、显式任务及批次费用预留，模板不构成评分成绩 |
 | `configs/harmonyos-app.template.json` | 可选完整应用配置：工程、工具路径、设备/签名、项目依赖准备和独立检查；不属于默认轻量安装前置 |
 | `configs/model.example.json`、`configs/model.local.json` | 无 Key 的模型模板与被 Git 忽略的本机私有配置；统一模型、Key、模式及单任务预算，使用方法见 src/dfx_agent/README.md |
@@ -335,7 +335,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `backends.py` | 版本绑定的 HTTP 模拟请求/作业对象、客户端意图与查询/取消/产物校验；当前本机执行由 local_execution.py 承担 |
 | `remote_service.py` | SQLite 持久化的 FastAPI 模拟作业服务和显式测试工作者状态；保留作协议反例测试，不是计划中的运行服务 |
 | `runtime.py` | 当前仅观察 PATH/模块/环境变量存在性；不启动 SDK/设备 |
-| `harmony_workspace.py`、`tests/test_harmony_workspace.py` | 单应用存储准备、冻结工程副本迁移和资源/清理边界检查；经现有受管harmony-prepare执行，不另建调度或安装服务 |
+| `harmony_workspace.py`、`scripts/preparation/office_application_demo.py`及对应测试 | 单应用存储/冻结副本迁移，以及复用7-Zip、ohpm、Hvigor和Emulator官方CLI的有限准备/构建动作；经现有受管harmony-prepare执行，不另建Agent、调度或安装服务 |
 | `cli.py` | 参数与命令分发；competition 消费受管主机配置并只打印安全概要，repair / resume 保持固定响应或模拟协议演示，aggregate / export / verify-export 同样经受管入口 |
 | `__init__.py` | Python 包入口 |
 

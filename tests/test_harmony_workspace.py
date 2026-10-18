@@ -115,3 +115,22 @@ def test_legacy_policy_is_compatible_and_arbitrary_platform_roots_are_rejected(p
     config.write_text(json.dumps(policy))
     with pytest.raises(ValueError, match="unsupported management policy"):
         managed_runtime.Runtime(project)
+
+
+def test_cleaned_platform_copies_can_be_rebuilt_without_old_tmp(project: Path) -> None:
+    old = project / ".dfx-local/tmp/application-officeattendance"
+    original = project / "data_B/data_B3/benchmarkfordfx-better/App/OfficeAttendance1"
+    original.parent.mkdir(parents=True)
+    (old / "original").rename(original)
+    repaired = project / "runs/exports/cases/b3-017-officeattendance1/frozen/repaired-source"
+    repaired.parent.mkdir(parents=True)
+    (old / "patched").rename(repaired)
+    report_path = project / "runs/exports/robustness/application-demo/preparation.json"
+    report = json.loads(report_path.read_text())
+    report.update({"patch_run": "frozen", "changed_files": ["DataManager.ets"]})
+    report_path.write_text(json.dumps(report))
+    assert prepare_workspace(project)["copies_relocated_and_verified"] is True
+    copies = project / "DFX-HarmonyOS/projects/officeattendance"
+    assert (copies / "original/DataManager.ets").read_bytes() == b"faulty source"
+    assert (copies / "patched/DataManager.ets").read_bytes() == b"fixed source"
+    assert (original / "DataManager.ets").read_bytes() == b"faulty source"

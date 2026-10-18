@@ -7,6 +7,7 @@ only assigns paths and relocates the already frozen original/candidate copies.
 from __future__ import annotations
 
 import hashlib
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,20 @@ def prepare_workspace(repo: Path) -> dict[str, Any]:
         new = checked(storage / "projects/officeattendance" / variant, repo)
         if old.exists() and new.exists():
             raise ValueError("both old and new app copies exist; manual review required")
+        if not old.exists() and not new.exists():
+            # A cleaned SDK workspace must be reconstructible from retained
+            # inputs/results, without depending on an old temporary directory.
+            original = checked(repo / "data_B/data_B3/benchmarkfordfx-better/App/OfficeAttendance1", repo, exists=True)
+            if _manifest(original, repo) != report["original_manifest"]:
+                raise ValueError("original dataset differs from the frozen application input")
+            shutil.copytree(original, new)
+            if variant == "patched":
+                case = repo / "runs/exports/cases/b3-017-officeattendance1"
+                repaired = checked(case / report["patch_run"] / "repaired-source", case, exists=True)
+                for relative in report["changed_files"]:
+                    source = checked(repaired / relative, repaired, exists=True)
+                    destination = checked(new / relative, new, exists=True)
+                    shutil.copyfile(source, destination)
         current = old if old.exists() else new
         if _manifest(current, repo) != report.get(variant + "_manifest"):
             raise ValueError("prepared application copy differs from its frozen manifest")

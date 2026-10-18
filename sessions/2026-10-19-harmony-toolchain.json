@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-19",
+  "base_commit": "ef7004b",
+  "scope": "Provision and probe the one authorized OfficeAttendance toolchain inside DFX-HarmonyOS; attempt original dependency installation without changing the original application or existing Agent patch",
+  "implementation": [
+    "Reuse the native Windows Job worker through fixed harmony-prepare steps; no second process/session framework",
+    "Use official portable 7-Zip parser mode to identify all 25 segments covering the supplied executable, then unpack its 12 embedded archives with CRC checks",
+    "Scope Node/Java/tool caches and IDE paths to the platform root; use official ohpm config commands for cache, strict SSL and finite retries",
+    "Use separate original/patched frozen inputs and separate build copies; reconstruct cleaned copies from retained raw data and the selected repaired-source",
+    "Use cached os.scandir metadata for SDK inventory while preserving link and inaccessible-directory rejection"
+  ],
+  "installation": {
+    "original_installer_executed": false,
+    "root": "DFX-HarmonyOS",
+    "archive_expanded_bytes": 12137575633,
+    "derived_archive_bytes_released": 3294381840,
+    "user_installer_preserved": true,
+    "versions_observed": {
+      "deveco_studio": "26.0.0.851",
+      "node": "v24.14.1",
+      "java": "25.0.2",
+      "hvigor": "6.26.8",
+      "ohpm": "26.0.0.630",
+      "hdc": "3.2.0f",
+      "emulator": "26.0.0.402",
+      "hms_and_openharmony_ets_api": "26"
+    },
+    "declared_application_sdk": "5.0.3(15)",
+    "application_compile_compatibility": "not tested: dependency download failed before compiler invocation",
+    "outside_root_observation": "Official Emulator wrote a 75-byte license-consent .emu_config under the user's AppData/Local/Huawei/Emulator26.0. It is recorded in the platform README and must be ownership-checked for cleanup; no image or instance has been downloaded/created there"
+  },
+  "resource_admission": {
+    "canonical_values": "configs/local-runtime.json",
+    "changes": "32 GiB shared disk cap, 6 GiB job RAM cap, 32 processes, 32 MiB per-file log cap; CPU, free-space/free-RAM reserves, one active job and concurrency limits retained",
+    "reason": "The complete archive inspection showed 12.14 GB expanded contents plus the retained installer and intermediate compressed archives; SDK listing itself exceeded the prior log cap",
+    "rejected_before_launch": "An 8 GiB job cap could not preserve the existing 2 GiB RAM reserve under observed free memory; admitted 6 GiB instead",
+    "final_status": "complete accounting; no inaccessible paths; no active marker; harmonyos category 15558487538 bytes; Agent env/all cleanup preserves the separate platform root"
+  },
+  "verification": {
+    "manager_regression": {"receipt": "900edcb0-217e-4ad7-bb3c-1f3c99a19c82", "passed": 28, "seconds": 8.02},
+    "storage_and_reconstruction": {"receipt": "458527ca-11cb-47f5-a14f-b9a9e2e0a1a6", "passed": 7, "seconds": 0.58},
+    "archive_and_setup_boundaries": {"receipt": "9133a30e-db43-498c-803c-a94361a0219b", "passed": 9, "seconds": 0.19},
+    "full_unpack": "3ad65875-248f-47ad-9dad-979f81210464",
+    "sdk_probe_and_configuration": "84a05b7a-31f9-4c7e-ae45-8286c99b269f",
+    "license_and_derived_archive_cleanup": "6b6064a3-bcef-4d1e-be1c-01d84081674d",
+    "ruff": {"receipt": "33310480-f375-41c1-927c-b491c9431800", "result": "All checks passed"},
+    "docs": {"receipt": "b65e3df3-bb3f-4182-97a5-dc3ba3f2f52b", "documents": 14, "errors": 0}
+  },
+  "observations": [
+    "Initial default 7-Zip auto-detection saw only the first component; the partial result was rejected, and parser mode subsequently covered the whole supplied executable",
+    "First SDK archive listing hit the prior per-file log cap; no partial installation was accepted",
+    "The first inventory regression run had 27 passing tests and one outdated Path.iterdir mock; changing the mock seam to os.scandir retained the same incomplete-accounting assertions and all 28 passed",
+    "Initial Ruff found import ordering in the new helper; corrected before the final passing check"
+  ],
+  "application_attempt": {
+    "receipt": "e32031d3-3bda-4e22-851b-36425b8a3046",
+    "result": "ohpm metadata fetched, but axios HAR download redirected to contentcenter-drcn.dbankcdn.cn and failed TLS before compilation",
+    "independent_probe": "Native curl reproduced the TLS failure; the alternate official repo.harmonyos.com endpoint redirected to the same CDN and also failed. TLS verification was not disabled",
+    "host_network_observation": "Clash/Mihomo Meta TUN active; CDN DNS returned 28.0.0.43. This suggests checking routing but does not by itself prove the reset's cause",
+    "user_input_pending": "Requested DIRECT routing for ohpm.openharmony.cn and contentcenter-drcn.dbankcdn.cn; no global proxy, firewall or certificate setting changed",
+    "emulator_image_list": "CLI returned no usable manifest; no successful image availability or download claimed",
+    "application_built": false,
+    "emulator_created_or_started": false,
+    "fault_reproduced_in_full_app": false,
+    "new_application_screenshots": false
+  },
+  "new_model_calls": 0,
+  "original_data_or_submission_templates_modified": false,
+  "published_evidence": "runs/exports/robustness/application-demo/environment.json contains only actual toolchain probe facts; preparation.json retains frozen source manifests, neither is application success evidence",
+  "next": "Resolve public dependency/image download, compile both copies with recorded equivalent build configuration, then admit one emulator instance and collect fresh original fault, patched behavior/regression, logs and screenshots"
+}
