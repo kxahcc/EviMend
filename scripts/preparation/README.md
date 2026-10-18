@@ -2,7 +2,7 @@
 
 状态：当前工具说明。最后维护：2026-10-18。
 
-`report_phase2.py` 用标准库读取 `runs/exports/phase2/index.json` 和各个终态导出的 `evidence.zip`，生成该目录的 README、evaluation.json、results.csv 及逐次 RESULT.md。它只做报告整理，不启动模型、检查或恢复任务。冻结SQLite从ZIP精确读取到项目临时目录并以只读immutable方式打开，不读取活动数据库；思考历史、Key和账户秘密不输出。统计分别保留缓存命中/未命中输入、输出、费用、停止原因、源码验证和真实机制消费，并核对三组比较的共同配置、知识、工具与输入一致。命令：`python scripts/preparation/report_phase2.py`，需已有本机终态导出；不依赖旧work或archive。
+`report_evaluation.py` 用标准库读取 `runs/exports/evaluation-runs.json` 和各个有效终态导出的 `evidence.zip`，分别生成robustness与ablations的README、统计JSON/CSV及逐次RESULT.md，总统计为evaluation-summary.json。它只整理报告，不启动模型、检查或恢复任务。冻结SQLite从ZIP精确读取到项目临时目录并以只读immutable方式打开，不读取活动数据库；思考历史和Key不输出。统计分开保留缓存命中/未命中输入、输出、费用、源码验证和实际机制消费，核对比较的模型、知识、工具、输入及其他限额；Token上限有差异时明确保留，不能称为严格同额度通过率比较。命令：`python scripts/preparation/report_evaluation.py`，需已有本机有效导出；不依赖旧work或archive。
 
 `inspect_dfx_data.py` 只读检查本地 data_B 的应用、日志、ZIP 内容和源码映射，输出 resources/preparation/data-b-inventory.json；不联网，不执行数据中的脚本，不修改应用源码，结果不是根因标签或修复成绩。现有全量清单采集于 2026-09-15；重新盘点前须先为该脚本接入受管 `Run` 任务，目前不使用直接 Python 命令绕过本机资源入口。
 

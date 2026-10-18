@@ -255,10 +255,10 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
 | `.dfx-local/` | 本机环境、缓存、当前任务快照、真实运行原件及管理回执；Git 忽略，所有当前运行入口受管。真实失败账本也保留，不通过归档重置消费 |
 | `runs/exports/cases/` | 面向用户的正常案例最终修复结果，逐例入口和统计；Git忽略，普通清理保留导出包 |
-| `runs/exports/robustness/`、`runs/exports/phase2/` | 缺材料/解析矩阵，以及预登记的模型OOD与分层消融原件和统计；与正常案例分母分开，保留比较中的全部预定结果 |
+| `runs/exports/README.md`、`runs/exports/robustness/`、`runs/exports/ablations/` | 测试总入口；异常材料/解析/证据矩阵与模型OOD；必要消融。各自统计最后有效完成结果，技术或配置中断导出归档，不混入能力指标 |
 | `tests/test_input_robustness.py`、`tests/test_evidence_robustness.py`、`tests/test_phase2_protocol.py`、`tests/test_phase2_ood_extension.py` | 异常解析、输入到源码证据映射、付费前冻结小规模同预算比较及模型OOD扩展；私有产物操作须显式开启 |
 | `tests/test_news_final_export.py`、`tests/test_pilot_export_acceptance.py` | 最后新闻冻结补丁的零模型复验；全部预定OOD/消融产物的原清单、原件包及实际Git应用检查，失败和无补丁结果也核验 |
-| `scripts/preparation/report_phase2.py` | 只读终态导出和冻结模型账本，生成OOD/必要消融的逐次统计及可比性检查；不发模型请求，不修改原报告 |
+| `scripts/preparation/report_evaluation.py` | 只读有效终态导出和冻结模型账本，生成robustness/ablations统计及共同条件检查；不发模型请求，不修改原报告 |
 | `archive/` | 失效文档、旧配置、历史合成运行/自检导出及一次性脚本；按主题保留原相对目录和本地说明，Git 忽略。当前命令及配置不依赖这里；归档不释放磁盘空间 |
 | `pyproject.toml`、`uv.lock`、`.python-version` | Python 3.13 基线、SDK 与质量工具的已解析依赖锁 |
 | `.gitignore` | 排除本地数据、归档、运行产物、缓存、虚拟环境和凭据文件 |

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,15 +18,36 @@ from dfx_agent.task import verify_task
 from dfx_agent.workspace import _copy_tree
 
 ROOT = Path(__file__).resolve().parents[1]
-INDEX = ROOT / "runs/exports/phase2/index.json"
+INDEX = ROOT / "runs/exports/evaluation-runs.json"
 ENABLED = os.environ.get("DFX_PILOT_EXPORT_ACCEPTANCE") == "1"
 ENTRIES = json.loads(INDEX.read_bytes())["results"] if ENABLED and INDEX.exists() else []
 
 
 @pytest.mark.skipif(not ENABLED, reason="local pilot artifact acceptance not requested")
+def test_current_navigation_and_valid_population() -> None:
+    exports = ROOT / "runs/exports"
+    assert not (exports / "phase2").exists()
+    expected = {row["run_id"] for row in ENTRIES}
+    assert len(expected) == len(ENTRIES)
+    model = json.loads((exports / "robustness/model-index.json").read_bytes())["results"]
+    comparisons = json.loads((exports / "ablations/index.json").read_bytes())["results"]
+    assert {row["run_id"] for row in model + comparisons} == expected
+    for entry in ENTRIES:
+        assert entry["usage"]["usage_complete"] and not entry["stopped_reason"]
+    pages = [exports / "README.md", exports / "cases/README.md",
+             exports / "robustness/README.md", exports / "ablations/README.md"]
+    pages.extend(exports / row["result"] / "RESULT.md" for row in ENTRIES)
+    for page in pages:
+        for relative in re.findall(r"\]\(([^)]+)\)", page.read_text(encoding="utf-8")):
+            if "://" in relative or relative.startswith("#"):
+                continue
+            assert (page.parent / relative.split("#")[0]).exists(), (page, relative)
+
+
+@pytest.mark.skipif(not ENABLED, reason="local pilot artifact acceptance not requested")
 @pytest.mark.parametrize("entry", ENTRIES or [{}], ids=lambda row: row.get("run_id", "unavailable"))
 def test_pilot_manifest_verification_and_actual_patch_application(tmp_path: Path, entry: dict) -> None:
-    folder = ROOT / "runs/exports/phase2" / entry["result"]
+    folder = ROOT / "runs/exports" / entry["result"]
     summary = json.loads((folder / "summary.json").read_bytes())
     assert summary["run_id"] == entry["run_id"] and summary["report_sha256"] == entry["report_sha256"]
     assert summary["usage"]["usage_complete"] is True
