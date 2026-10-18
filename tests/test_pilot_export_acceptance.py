@@ -36,12 +36,41 @@ def test_current_navigation_and_valid_population() -> None:
         assert entry["usage"]["usage_complete"] and not entry["stopped_reason"]
     pages = [exports / "README.md", exports / "cases/README.md",
              exports / "robustness/README.md", exports / "ablations/README.md"]
+    application_page = exports / "robustness/application-demo/README.md"
+    if application_page.exists():
+        pages.append(application_page)
     pages.extend(exports / row["result"] / "RESULT.md" for row in ENTRIES)
     for page in pages:
         for relative in re.findall(r"\]\(([^)]+)\)", page.read_text(encoding="utf-8")):
             if "://" in relative or relative.startswith("#"):
                 continue
             assert (page.parent / relative.split("#")[0]).exists(), (page, relative)
+
+
+@pytest.mark.skipif(not ENABLED, reason="local pilot artifact acceptance not requested")
+def test_real_project_transforms_preserve_source_and_fault_anchors() -> None:
+    from dfx_agent.logs import Crash, parse_crash
+
+    def anchors(crash: Crash) -> list[tuple[str, str, int, int]]:
+        return [(f.symbol, f.path, f.line, f.column) for f in crash.frames]
+
+    exports = ROOT / "runs/exports"
+    protocol = json.loads((exports / "robustness/protocol.json").read_bytes())
+    normal = json.loads((exports / "cases/index.json").read_bytes())["cases"]
+    for entry in protocol["runs"]:
+        if not entry["run_id"].startswith("live1018-ood-"):
+            continue
+        original = next(row for row in normal if row["run_id"] == entry["original_run"])
+        baseline = exports / "cases" / original["result_path"] / "input-task"
+        actual = next(row for row in ENTRIES if row["run_id"] == entry["run_id"])
+        transformed = exports / actual["result"] / "input-task"
+        assert verify_task(baseline)["source_snapshot_sha256"] == verify_task(transformed)["source_snapshot_sha256"]
+        assert _hashes(baseline / "source") == _hashes(transformed / "source")
+        before = parse_crash((baseline / "crash.log").read_bytes())
+        after = parse_crash((transformed / "crash.log").read_bytes())
+        assert before.error_name == after.error_name and before.headers == after.headers
+        assert before.frames and anchors(after)[:len(before.frames)] == anchors(before)
+        assert before.sha256 != after.sha256
 
 
 @pytest.mark.skipif(not ENABLED, reason="local pilot artifact acceptance not requested")

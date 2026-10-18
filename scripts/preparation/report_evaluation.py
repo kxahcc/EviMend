@@ -151,7 +151,10 @@ def main() -> None:
                 "软件测试覆盖23种解析输入和17种源码证据场景；这些是软件处理证据，与下面的真实模型OOD分别统计。", "",
                 f"模型证据不足场景：{ood_stats['complete_correct_abstentions']}/{len(negative)}符合预期。",
                 f"真实故障日志变形对照：{ood_stats['positive_source_passes']}/{len(positive)}源码验证通过。" if positive else "真实故障日志变形对照待完成。", "",
+                "日志变形保持原工程源码与故障不变，检验表示变化下的修复稳定性；这些不是新增独立故障。证据不足的7个场景主要采用受控小程序，不作广泛跨应用拒修泛化声明。", "",
                 "[模型统计](model-index.json) · [模型CSV](model-results.csv)", ""]
+            if (folder / "application-demo/README.md").is_file():
+                lines += ["[办公考勤单应用演示准备](application-demo/README.md)：准备状态与实际运行证据分别标注。", ""]
         else:
             lines += ["[逐次统计与共同条件](index.json) · [CSV](results.csv)", "",
                 "只比较已完成的过程结果；实际Token上限逐组保留。少量案例不构成显著性或泛化证明，未启用working_context，不报告上下文剪枝或自动学习收益。", ""]
