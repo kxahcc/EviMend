@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-18",
+  "base_commit": "51f901a",
+  "scope": "User-authorized three real-project log transformations and one selected application demonstration",
+  "prepared_runs": ["live1018-ood-attendance", "live1018-ood-recursion", "live1018-ood-service"],
+  "input_checks": "Actual original exported input sources copied without changes; source snapshot identities equal; original function/path/line/column frame sequence retained; only encoding, line endings, noise and HybridStack representation transformed",
+  "verification": "Reuse original accepted source execution profiles and independent four-stage oracles without changing assertions",
+  "budget": "Original 56 terminal runs remain immutable and charged; separate bounded allocation within original execution ceiling; check every prior config/report/ledger/terminal hash before every new send; no production budget code or original profile edits",
+  "ablation_scope": "Frozen by user; no new mechanism comparisons",
+  "application": "Only B3-017 OfficeAttendance1; fresh full application evidence pending platform resource admission and actual execution",
+  "new_model_calls_at_preparation": 0,
+  "global_environment_changes": false,
+  "submission_templates_changed": false
+}
