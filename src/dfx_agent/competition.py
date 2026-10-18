@@ -384,7 +384,7 @@ def _report(work: Path, solver: dict[str, Any], executor: OfflineExecutor,
     # Budget exhaustion after a completed check does not invalidate that check
     # or require one more paid model call just to say goodbye. Unknown sends,
     # actions and other failures still prevent product acceptance.
-    blocking_stop = solver["stopped_reason"] not in (None, "model_budget", "action_budget", "wall_time")
+    blocking_stop = solver["stopped_reason"] not in (None, "model_budget", "request_token_budget", "action_budget", "wall_time")
     if blocking_stop or solver["uncertain_model_calls"] or solver["uncertain_tool_calls"]:
         accepted = False
         outcome = "unresolved"

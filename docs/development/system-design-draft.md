@@ -1,6 +1,6 @@
 # 应用软件代码故障精准定位与自修复：开发设计草案
 
-状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-15。
+状态：当前设计草案，尚未全部实现或实测。最后维护：2026-10-18。
 职责：维护架构、核心算法及后端抽象。实现状态见 [STATUS](../STATUS.md)，字段与规则见 [模块规格](../design-contracts.md)，阶段见 [实施计划](../project-work-plan.md)。
 
 ## 1. 核心决策
@@ -394,7 +394,7 @@ CheckResult 区分 offline_synthetic、source_execution、application_execution�
 
 competition-report.json schema 4 的 accepted 表示“当前声明验证层级接受”：source_verified 只表示 source_verification=pass、verification_level=source_execution，application_verification 仍 not_run；application_verified 才是完整应用通过。底层执行器的 application_success/accepted 在 source 模式仍为 false，不重定义成应用成功。analysis_completed/patch_proposed 与 synthetic_checked 均 accepted=false；analysis 正常产出可 exit 0，不等于验证通过。旧报告 schema 1–3 按原 application 限定义回读，不重新解释或改写旧原件。
 
-最新候选已通过所选层级全部必要检查、定位完整且无未知调用时，随后仅因 model_budget/wall_time/action_budget 无法生成结束语，不撤销可信结果；原停止原因/成本保留。其他错误、缺检查或新候选失败继续阻断。result.md 和私有 delivery.zip 保留定位、补丁、范围/mock、实际检查、未知与全部尝试。根因准确率仍须独立标签，source 验证不证明完整平台语义，官方是否认可其评分口径尚待核对。
+最新候选已通过所选层级全部必要检查、定位完整且无未知调用时，随后仅因 model_budget/request_token_budget/wall_time/action_budget 无法生成结束语，不撤销可信结果；原停止原因/成本保留。request_token_budget专指发送前请求Token预留不足，保留provider_token_budget细因，尚未登记或发送新请求；不能把凭据、协议或未知响应错误归入此类。其他错误、缺检查或新候选失败继续阻断。result.md 和私有 delivery.zip 保留定位、补丁、范围/mock、实际检查、未知与全部尝试。根因准确率仍须独立标签，source 验证不证明完整平台语义，官方是否认可其评分口径尚待核对。
 
 可选 application 继续使用 ApplicationProfile、固定完整工程、工具/设备/签名与四阶段独立 oracle；doctor 只读预检不证明设备连接、版本/签名可用。SDK/设备/签名、Hypium/hdc 场景与复位须另外接纳，进程停止不代替设备动作已停。资源不足或缺条件时只影响该扩展，不阻塞默认 analysis/source_execution。旧 HTTPX/FastAPI 的 describe/submit/poll/cancel/fetch_artifact 模拟原型保留版本绑定、幂等和未知语义，不产生源码或应用实测证据，也不作为新运行服务前置。
 

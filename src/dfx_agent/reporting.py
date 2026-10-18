@@ -402,7 +402,7 @@ def build_completion(workspace: CandidateWorkspace, ledger: CheckLedger, model_c
             usage["reserved_calls"] < session["max_calls"] and
             usage["known_total_tokens"] < session["max_known_tokens"]):
         raise ValueError("report claims an exhausted model budget without ledger evidence")
-    budget_exhausted = budget_rejected or stopped_reason in ("model_budget", "action_budget", "wall_time")
+    budget_exhausted = budget_rejected or stopped_reason in ("model_budget", "request_token_budget", "action_budget", "wall_time")
     unknown = bool(usage["uncertain_calls"] or unknown_tools or pending_checks or undispatched_models)
     provider_failure = stopped_reason in ("provider_format_error", "provider_request_unsupported",
                                          "context_limit", "context_format_unsupported", "context_summary_invalid",

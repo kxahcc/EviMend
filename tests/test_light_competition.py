@@ -14,7 +14,7 @@ from test_source_execution import source_config as _source_config
 from dfx_agent import competition
 from dfx_agent.competition import run_competition, verify_private_delivery
 from dfx_agent.model_calls import ModelCallStore, canonical
-from dfx_agent.model_provider import CloudChatCompletionsAdapter
+from dfx_agent.model_provider import AdapterRequestError, CloudChatCompletionsAdapter
 from dfx_agent.task import PROFILE, digest, snapshot_digest
 from dfx_agent.working_context_plan import WORKING_CONTEXT_PROMPT
 
@@ -319,3 +319,39 @@ def test_source_business_failure_reaches_actual_wire_then_second_candidate_passe
     assert {path.name: path.read_bytes() for path in (work / "checks").glob("*.json")} == saved_checks
     assert {path.name: path.read_bytes() for path in (work / "feedback").glob("*.json")} == saved_feedback
     assert original_read(policy_path) == original_policy
+
+
+@pytest.mark.parametrize("reason", ["provider_token_budget", "provider_credential_missing"])
+def test_source_receipt_survives_only_a_local_request_budget_stop(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, managed: Path, reason: str) -> None:
+    """Real SDK and toy source execution; no live requests or inferred checks."""
+    task, settings = _prepare(tmp_path, source_checks=True)
+    wire = _RepairWire()
+    _mock_cloud(monkeypatch, wire)
+    original_admission = CloudChatCompletionsAdapter.admission
+
+    def admission(adapter: CloudChatCompletionsAdapter, request: Any, **remaining: Any) -> Any:
+        if len(wire.requests) == 6:
+            raise AdapterRequestError(reason)
+        return original_admission(adapter, request, **remaining)
+
+    monkeypatch.setattr(CloudChatCompletionsAdapter, "admission", admission)
+    work = tmp_path / "run"
+    result = run_competition(task, work, "source-final-budget", settings, REPOSITORY)
+    report_path = work / "competition-report.json"
+    report = json.loads(report_path.read_bytes())
+    assert len(wire.requests) == result["model_calls"] == 6
+    assert report["source_verification"] == "pass" and report["application_verification"] == "not_run"
+    assert all(stage["status"] == "pass" for stage in report["attempts"][0]["execution"]["stages"])
+    assert report["adapter_error_reason"] == reason and report["cost"]["usage_complete"] is True
+    expected = reason == "provider_token_budget"
+    assert result["accepted"] is expected
+    assert result["status"] == ("source_verified" if expected else "unresolved")
+    assert report["stopped_reason"] == ("request_token_budget" if expected else "provider_admission_rejected")
+    store = ModelCallStore(work / "model-calls.sqlite", read_only=True)
+    assert store.get("model-7") is None
+    assert all(record.state == "completed" for record in store.records("light-competition-task", "source-final-budget"))
+    saved = report_path.read_bytes()
+    resumed = run_competition(task, work, "source-final-budget", settings, REPOSITORY, resume=True)
+    assert resumed == result and report_path.read_bytes() == saved
+    assert len(wire.requests) == 6

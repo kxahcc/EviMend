@@ -12,7 +12,7 @@ from dfx_agent.competition import _report, run_competition
 from dfx_agent.model_calls import ModelCallStore
 
 
-@pytest.mark.parametrize("stop", ["model_budget", "action_budget", "wall_time"])
+@pytest.mark.parametrize("stop", ["model_budget", "request_token_budget", "action_budget", "wall_time"])
 def test_completed_application_receipt_needs_no_final_model_message(tmp_path: Path, stop: str) -> None:
     work, solver, executor, settings = report_fixture(tmp_path, stopped=stop)
     report = _report(work, solver, executor, settings)
@@ -21,10 +21,11 @@ def test_completed_application_receipt_needs_no_final_model_message(tmp_path: Pa
     assert report["metrics"]["repair_success"] is True
 
 
+@pytest.mark.parametrize("stop", ["model_budget", "request_token_budget"])
 @pytest.mark.parametrize("blocker", ["unknown_model", "unknown_tool", "missing_localization", "failed_latest"])
-def test_budget_stop_cannot_accept_missing_or_unknown_work(tmp_path: Path, blocker: str) -> None:
+def test_budget_stop_cannot_accept_missing_or_unknown_work(tmp_path: Path, blocker: str, stop: str) -> None:
     work, solver, executor, settings = report_fixture(
-        tmp_path, stopped="model_budget", linked=blocker != "missing_localization",
+        tmp_path, stopped=stop, linked=blocker != "missing_localization",
         status="fail" if blocker == "failed_latest" else "pass")
     if blocker == "unknown_model":
         solver["uncertain_model_calls"] = 1

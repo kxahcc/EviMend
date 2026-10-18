@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-18",
+  "scope": "Correct predispatch request Token-budget classification after completed source verification",
+  "trigger_run": "live1017-retry18",
+  "original_result": {
+    "status": "unresolved",
+    "accepted": false,
+    "source_verification": "pass",
+    "candidate_count": 1,
+    "model_calls": 23,
+    "known_tokens": 821781,
+    "usage_complete": true,
+    "estimated_cny": "0.20726440",
+    "agent_wall_ms": 231979.964,
+    "stopped_reason": "provider_admission_rejected",
+    "adapter_error_reason": "provider_token_budget"
+  },
+  "original_report_changed": false,
+  "change": "Cloud admission Token refusal becomes request_token_budget before reservation/dispatch. Existing completed-check budget-stop rule covers this specific reason. Credentials, protocol failures and uncertain calls remain blocking. No new API client or changes to model mode, request retry, financial ceiling, or source oracle.",
+  "validation": {
+    "sdk_actual_toy_source": {
+      "run_id": "8606cb61-670e-412f-91d8-b6a79fba8d06",
+      "passed": 5,
+      "seconds": 250.58,
+      "live_requests": 0,
+      "new_cases": [
+        "completed source pass plus predispatch Token stop accepted without a seventh request; resume unchanged",
+        "completed source pass plus missing credential still rejected; resume unchanged"
+      ]
+    },
+    "provider_and_terminal_regression": {
+      "terminal": {
+        "run_id": "1cc8c34e-9e23-43a7-9af7-a20d13f8e05d",
+        "passed": 13,
+        "seconds": 116.68
+      },
+      "cloud_provider": {
+        "run_id": "cd924154-6efd-4d19-af68-89bbca187c5b",
+        "passed": 85,
+        "warnings": 6,
+        "seconds": 9.18,
+        "warning_scope": "Expected malformed-tool SDK serialization fixtures; no live traffic"
+      }
+    },
+    "quality": {
+      "ruff": {
+        "run_id": "d6bd38c5-78ca-466f-bf19-82b46ce3d4fb",
+        "result": "pass"
+      },
+      "pyright": {
+        "run_id": "8d286ea0-3a1d-4e72-a136-27abf43a405d",
+        "errors": 0,
+        "warnings": 0
+      },
+      "docs": {
+        "run_id": "ffc1967b-5e04-41de-b94e-e79966ae2587",
+        "documents": 14,
+        "errors": 0
+      }
+    }
+  },
+  "next": "Freeze corrected code, run News with a fresh registered ID and continue remaining source cases; no rewrite of historical solver facts.",
+  "base_commit": "100eec6"
+}

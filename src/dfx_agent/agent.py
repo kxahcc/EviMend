@@ -933,7 +933,7 @@ def _run_agent(task: Path, work: Path, run_id: str, responses: list[AIMessage],
                     require_candidate_diagnosis=require_candidate_diagnosis)}]}, config)
         except ModelLimit as exc:
             error = str(exc)
-            status = "budget_exhausted" if error in ("model_budget", "wall_time") else "unresolved"
+            status = "budget_exhausted" if error in ("model_budget", "request_token_budget", "wall_time") else "unresolved"
         except ModelCallUncertain:
             error = "model_result_unknown"
             status = "unresolved"

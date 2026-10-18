@@ -306,6 +306,10 @@ class AccountedProviderModel(FixedResponseModel):
                                           remaining_seconds=self.deadline - time.monotonic())
         except AdapterError as exc:
             self.request_error_reason = exc.reason
+            if exc.reason == "provider_token_budget":
+                # No request was reserved or sent. This is a local budget stop,
+                # not a failure of a completed candidate check.
+                raise ModelLimit("request_token_budget") from exc
             raise ModelLimit("provider_admission_rejected") from exc
 
     def _provider_invoke(self, request: PreparedRequest, admission: Any) -> AIMessage:

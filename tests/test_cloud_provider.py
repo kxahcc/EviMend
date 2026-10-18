@@ -420,7 +420,7 @@ def test_sdk_budget_refusal_precedes_ledger_reservation_and_wire_send(
     ledger = ModelCallStore(tmp_path / "model-calls.sqlite")
     sdk = AccountedProviderModel(responses=[], adapter=cloud, call_store=ledger, task_id="task1", run_id="run1",
                                 max_calls=2, max_known_tokens=1, deadline=time.monotonic() + 10.0)
-    with pytest.raises(ModelLimit):
+    with pytest.raises(ModelLimit, match="^request_token_budget$"):
         sdk.invoke([HumanMessage(content="read source")])
     assert sdk.request_error_reason == "provider_token_budget"
     assert ledger.get("model-1") is None and sdk.calls == 0
