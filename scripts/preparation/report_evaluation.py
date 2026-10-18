@@ -146,7 +146,7 @@ def main() -> None:
         folder = EXPORTS / folder_name
         lines = ["# " + title, "", "按最后一次有效完成的测试汇总，原件与统计分别保留。", ""]
         if folder_name == "robustness":
-            lines += ["[解析矩阵](parser-matrix.json) · [源码证据矩阵](evidence-matrix.json) · [材料异常](material-gaps.json)", "",
+            lines += ["[解析矩阵](parser-matrix.json) · [源码证据矩阵](evidence-matrix.json) · [原始数据材料异常与系统处理](material-gaps.md)", "",
                 "[可选完整应用环境评估](application-feasibility.json)", "",
                 "软件测试覆盖23种解析输入和17种源码证据场景；这些是软件处理证据，与下面的真实模型OOD分别统计。", "",
                 f"模型证据不足场景：{ood_stats['complete_correct_abstentions']}/{len(negative)}符合预期。",

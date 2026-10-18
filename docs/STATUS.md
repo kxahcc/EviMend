@@ -1,11 +1,11 @@
 # 当前状态
 
-状态：当前进度。最后维护：2026-10-18。
+状态：当前进度。最后维护：2026-10-19。
 职责：唯一维护已完成工作、当前任务、阻塞及下一步；项目蓝图与目录见 [开发导览](../DEVELOPMENT.md)，阶段定义见 [实施计划](project-work-plan.md)。
 
 ## 当前阶段
 
-**正常26例、异常/OOD和必要消融均已完成；新增三个真实工程日志变形补测全部源码通过，结果包验收通过。** 消融范围按用户决定冻结；完整应用只选B3-017办公考勤，用户确认暂无线下工具包，先完成OOD，平台安装与运行暂缓。之后等待用户具体提交要求，不提前改写竞赛模板、精简session或重写Git历史。总结果入口为`runs/exports/README.md`，当前仅有cases、robustness、ablations三类目录。
+**正常26例、异常/OOD和必要消融均已完成；新增三个真实工程日志变形补测全部源码通过，结果包验收通过。** 三项原始材料异常按用户决定单列为本轮已完成的材料OOD，不补造或修复。消融范围冻结；完整应用只选B3-017办公考勤，待用户提供下载工具包路径后先完成平台资源接纳再执行。正式材料等待用户具体提交要求，不提前改写竞赛模板、精简session或重写Git历史。总结果入口为`runs/exports/README.md`，当前仅有cases、robustness、ablations三类目录。
 
 产品是Windows x64独立dfx CLI，复用Deep Agents/LangGraph与官方SDK；云端deepseek-flash保持thinking enabled和完整推理历史。输入源码/日志后定位与修改，有已接纳宿主验证器时执行原版/候选相关源码并根据检查反馈修订。无需HarmonyOS SDK、签名、设备或模拟器；本轮未新增依赖、SDK、模拟器或模型权重，未改全局环境或放宽本机资源限制。
 
@@ -14,6 +14,7 @@
 | 全量正常案例 | B1/B2/B3分别10/6/10例，26例最终补丁全部通过各自声明范围的源码协议，26例均有根因位置输出；没有独立可靠行级真值，不报定位准确率 | `runs/exports/cases/README.md`、index.json、case-results.csv及逐例RESULT.md |
 | 异常解析软件测试 | 23种输入全部符合预期；加超大日志拒绝/导出共25项通过，0.10秒 | `runs/exports/robustness/parser-matrix.json` |
 | 输入到源码证据 | 17个场景：9种等价表示、6种不匹配/歧义、重复栈和位置截断；加导出共18项通过，1.28秒 | `runs/exports/robustness/evidence-matrix.json` |
+| 原始数据材料异常 | SchoolLife1无对应jscrash；B3-013缺对应日志/脚本/基线且README模块名仍为占位符，全部23个ZIP成员也无013；B3-018故障ZIP仅含MainEntry.ets。三项本轮均作为材料异常/OOD记录完成，不补造输入、不调用模型或生成补丁，可修复性保持未知，不混入正常或模型OOD通过率 | `runs/exports/robustness/material-gaps.md`及material-gaps.json |
 | 真实模型OOD | 7类证据不足场景正常解释且不编辑、不造根因/候选/验证；PCM、办公考勤、递归、家政服务4个真实工程的日志变形均生成1候选并通过既有四项源码检查。后3例源码字节与原栈函数/文件/行列保持一致，分别覆盖UTF-16BE、UTF-8 BOM、GB18030及换行/噪声/HybridStack；不是新增独立故障 | `runs/exports/robustness/README.md`、model-index.json、model-results.csv |
 | 必要消融 | 递归与PCM两个案例各general/guided/skill三组，6次有效运行全部通过；各组原Token上限显式保留，只作小规模完成态过程观察 | `runs/exports/ablations/README.md`、index.json、results.csv |
 | 结果包验收 | 正常26份已核清单且实际Git应用后等于冻结候选；本批17份OOD/消融有效包、导航及三个工程日志变形一致性共19项通过，28.91秒；覆盖ZIP/清单、真实Git应用、原版复现与候选四阶段检查绑定 | 既有正常案例验收及[本批记录](../sessions/2026-10-18-real-project-ood-complete.json) |
