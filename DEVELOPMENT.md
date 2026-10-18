@@ -256,7 +256,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `.dfx-local/` | 本机环境、缓存、当前任务快照、真实运行原件及管理回执；Git 忽略，所有当前运行入口受管。真实失败账本也保留，不通过归档重置消费 |
 | `runs/exports/cases/` | 面向用户的正常案例最终修复结果，逐例入口和统计；Git忽略，普通清理保留导出包 |
 | `runs/exports/robustness/`、`runs/exports/phase2/` | 缺材料/解析矩阵，以及预登记的模型OOD与分层消融原件和统计；与正常案例分母分开，保留比较中的全部预定结果 |
-| `tests/test_input_robustness.py`、`tests/test_phase2_protocol.py`、`tests/test_news_final_export.py` | 异常解析与耗时导出、付费前冻结小规模同预算实验、最后新闻冻结补丁的零模型复验；私有产物操作均须显式开启 |
+| `tests/test_input_robustness.py`、`tests/test_evidence_robustness.py`、`tests/test_phase2_protocol.py`、`tests/test_news_final_export.py` | 异常解析、完整输入到源码证据的等价/歧义/大栈检查及耗时导出、付费前冻结小规模同预算实验、最后新闻冻结补丁的零模型复验；私有产物操作均须显式开启 |
 | `archive/` | 失效文档、旧配置、历史合成运行/自检导出及一次性脚本；按主题保留原相对目录和本地说明，Git 忽略。当前命令及配置不依赖这里；归档不释放磁盘空间 |
 | `pyproject.toml`、`uv.lock`、`.python-version` | Python 3.13 基线、SDK 与质量工具的已解析依赖锁 |
 | `.gitignore` | 排除本地数据、归档、运行产物、缓存、虚拟环境和凭据文件 |

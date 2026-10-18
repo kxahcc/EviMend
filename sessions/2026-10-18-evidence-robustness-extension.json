@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-18",
+  "scope": "User-requested realistic evidence robustness, without new model expense or changing scientific configurations",
+  "base_commit": "0d3ac1e",
+  "checks": {
+    "receipt": "029bb46f-53a9-4bbe-99ea-983133685556",
+    "passed": 18,
+    "seconds": 1.28,
+    "distinct_scenarios": 17,
+    "equivalent_representations": 9,
+    "source_log_mismatches": 6,
+    "size_scenarios": ["Mixed framework frame and 10000 identical business frames", "13 distinct locations bounded to 8 with explicit truncation"],
+    "export": "runs/exports/robustness/evidence-matrix.json",
+    "scope": "Actual prepare/verify/parse/map pipeline over synthetic material; preserves input bytes, snapshots, unresolved cases and no-root/no-repair/no-execution semantics"
+  },
+  "first_model_ood": {"run_id": "live1017-021a", "expectation_met": true, "model_calls": 5, "tokens": 35868, "estimated_cny": "0.0355996", "candidate_count": 0, "selected_root": null, "verification_level": "not_run"},
+  "scheduling_correction": {
+    "original_run": "live1017-022a",
+    "problem": "No work directory existed, but an earlier B3-022 knowledge approval/library occupied the same ID; normal admission rejected before creating a run or sending a model request",
+    "receipt": "a2b7ec73-d6cb-4440-9937-fdf0e8170f5c",
+    "replacement": "live1017-retry25",
+    "configuration_effect": "Run ID/config filename only; bytes of model/task/budget/oracle/expectation unchanged. Preserve original protocol and amendment, old approval/library untouched.",
+    "preparation_fix": "New experimental slots check work, approval and library occupancy; completed empty-log run is verified and skipped without resend"
+  },
+  "contribution_semantics": "Implemented method design/system capabilities remain describable as implementation contributions. Actual consumption and causal effect evidence are distinct; no unused mechanism is claimed as measured benefit.",
+  "quality": {"ruff_receipt": "9fa84fd6-0acf-4f28-bd5f-15eaa5f541f1", "status": "passed", "earlier_correction": "Ruff requested dictionary .items() iteration in the exporter; corrected without changing expected outcomes"},
+  "environment": "Existing managed environment only, no installations or resource-limit changes",
+  "next": "Continue frozen native-only OOD task and six predeclared guidance comparisons; no new main-case reruns"
+}

@@ -30,6 +30,8 @@ def test_freeze_small_model_protocol_before_outcomes() -> None:
 
     def save(config: dict, task: Path, name: str, category: str, variant: str, expectation: str) -> None:
         assert not (ROOT / ".dfx-local/work" / ("competition-" + name)).exists()
+        assert not (ROOT / ".dfx-local/state" / ("competition-" + name + "-approval.json")).exists()
+        assert not (ROOT / ".dfx-local/tmp" / ("competition-" + name + "-library")).exists()
         config["charge_unknown_run_caps"] = []
         config["charge_unknown_request_caps"] = UNKNOWN
         config["model"]["max_output_tokens"] = 8192
@@ -50,7 +52,7 @@ def test_freeze_small_model_protocol_before_outcomes() -> None:
 
     template = json.loads((ROOT / cases[-1]["config"]).read_bytes())
     for label, name, log in [("empty-log", "live1017-021a", b""),
-                             ("native-only", "live1017-022a", b"Error name:SIGSEGV\n#00 pc 0x123 libnative.so\n")]:
+                             ("native-only", "live1017-retry25", b"Error name:SIGSEGV\n#00 pc 0x123 libnative.so\n")]:
         data = ROOT / ".dfx-local/tmp/evaluation-ood" / label
         (data / "app/src").mkdir(parents=True, exist_ok=True)
         (data / "app/src/main.ets").write_text(
