@@ -122,7 +122,7 @@ def test_checks_reproduce_and_reject_semantic_loss(
 @pytest.mark.skipif(os.environ.get("DFX_REAL_EXPORT_ACCEPTANCE") != "1", reason="local exported candidates not requested")
 @pytest.mark.parametrize("oracle,relative,protocol", [
     (FACTORY, "b1-002-accountingapp1/live1017-case01", "accounting-formatter"),
-    (BOOK, "b1-004-bookread2/live1017-case02", "book-lifecycle"),
+    (BOOK, "b1-004-bookread2/live1017-retry12", "book-lifecycle"),
 ])
 def test_existing_real_candidates(
         tmp_path: Path, ordinary_node: Path, managed: Path, oracle: str, relative: str, protocol: str) -> None:

@@ -1,0 +1,73 @@
+{
+  "date": "2026-10-18",
+  "scope": "Actual source-mode BookRead2 retest and replacement of newline-expanded export",
+  "base_commit": "3702bcc",
+  "run_id": "live1017-retry12",
+  "result": "source_verified",
+  "accepted": true,
+  "candidate_count": 1,
+  "checks": {
+    "baseline_fault_reproduced": true,
+    "build": "pass",
+    "target": "pass",
+    "behavior": "pass",
+    "regression": "pass",
+    "application": "not_run"
+  },
+  "scope_detail": "Actual complete aboutToAppear plus actual LazyDataSource/LazyDataVM; declared route-parameter provider, no ArkUI observation/navigation/device execution.",
+  "usage": {
+    "model_calls": 15,
+    "tool_calls": 19,
+    "input_tokens": 206616,
+    "cache_hit_tokens": 196480,
+    "cache_miss_tokens": 10136,
+    "output_tokens": 6928,
+    "reasoning_tokens_subset_of_output": 4554,
+    "total_tokens": 213544,
+    "complete": true,
+    "estimated_cny": "0.08355520",
+    "authority": "provider_usage_at_frozen_peak_rates_not_account_bill"
+  },
+  "timing": {
+    "agent_wall_ms": 122094.067,
+    "localization_ms": 63581.54,
+    "repair_ms": 19038.247,
+    "verification_ms": 10694.274
+  },
+  "patch": {
+    "added": 1,
+    "removed": 1,
+    "byte_check": "Only constructor relocation and removal of its now-unnecessary initial data argument changed; all other raw bytes and line endings match input."
+  },
+  "export": "runs/exports/cases/b1-004-bookread2/live1017-retry12",
+  "archived": "archive/2026-10-18-superseded-case-results/runs/exports/cases/b1-004-bookread2/live1017-case02",
+  "archive_reason": "Old SDK edit expanded whole-file newlines (53 added/53 removed). Its posthoc source proof remains historical; underlying work/budget accounting is preserved.",
+  "evidence": {
+    "competition_receipt": "795a8b6d-e8bb-4c79-b314-288f7e967389",
+    "export_receipt": "8e44d208-a82c-4c3b-bae2-24b5dc7d442f",
+    "candidate_snapshot_sha256": "548c0930111741f76f0184325ccaa92a813233d680c4e8763c2b3bc11a9d3de9",
+    "report_sha256": "399f18a2edd0afb3cd6fc330e368f20249ba2b0058833362bf1c1fbc690e3976"
+  },
+  "coverage_at_close": {
+    "inputs": 26,
+    "outputs": 13,
+    "in_run_source_pass": 5,
+    "posthoc_source_pass": 8,
+    "unchecked_outputs": 0,
+    "pending": 13
+  },
+  "environment": "Existing managed Python and ordinary Node; no installs, new permission scope, resource-limit changes or platform runtime.",
+  "next": "Admit and solve the 13 pending inputs before anomaly/OOD, layered ablations and optional emulator evaluation.",
+  "quality": [
+    {
+      "suite": "ruff",
+      "receipt": "ce515810-7e87-4aa9-ac0c-f664f0976008",
+      "status": "passed"
+    },
+    {
+      "suite": "docs",
+      "receipt": "be78f1d6-3781-4410-9ed7-f9612374a4d3",
+      "status": "passed"
+    }
+  ]
+}

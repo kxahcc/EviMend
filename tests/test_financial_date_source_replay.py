@@ -107,7 +107,7 @@ def test_protocol_reproduces_original_and_rejects_semantic_loss(
 
 @pytest.mark.skipif(os.environ.get("DFX_REAL_EXPORT_ACCEPTANCE") != "1", reason="local exported candidates not requested")
 @pytest.mark.parametrize("oracle,relative,protocol", [
-    (DATE, "b1-007-calendar1/live1017-case03", "calendar-days"),
+    (DATE, "b1-007-calendar1/live1017-retry10", "calendar-days"),
     (ASSET, "b1-005-moneytrack1_2/live1017-case07", "asset-pie"),
 ])
 def test_existing_real_candidates(
