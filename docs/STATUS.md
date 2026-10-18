@@ -5,7 +5,7 @@
 
 ## 当前阶段
 
-**正常26例、异常/OOD和必要消融均已完成；单个办公考勤应用的工具链已展开并通过真实CLI探查，完整应用尚未验证。** 三项原材料OOD完成、消融冻结。用户已授权安装与运行B3-017，工具/过程文件在DFX-HarmonyOS。原版首次准备停在官方axios包下载的TLS重置，尚未进入编译；模拟器镜像清单也未取得，不把空输出算成功。本机Clash/Mihomo Meta TUN生效，已请求用户处理官方CDN直连后继续。正式材料仍待用户具体要求，结果目录保持cases、robustness、ablations。
+**正常26例、异常/OOD和必要消融均已完成；单个办公考勤应用的工具链已展开并通过真实CLI探查，完整应用尚未验证。** 三项原材料OOD完成、消融冻结。用户已授权安装与运行B3-017，工具/过程文件在DFX-HarmonyOS。原版停在官方axios包下载的TLS重置，普通连接、TLS1.2兼容、本机现有HTTP代理及直接CDN四种下载尝试均失败；原生入口中ohpm首次请求及5次重试也全部TLS失败。一次启动曾因可用RAM不足拒绝，随后资源恢复即在不改限额下完成上述包安装重试。手动浏览器下载、代理/热点和内存检查步骤见本机DFX-HarmonyOS/README.md。尚未进入编译；模拟器镜像清单也未取得，不把空输出算成功。正式材料仍待用户具体要求，结果目录保持cases、robustness、ablations。
 
 产品仍是Windows x64独立dfx CLI，复用Deep Agents/LangGraph及官方SDK；deepseek-flash保持thinking和完整推理历史。默认源码/日志诊断及宿主源码验证不要求平台SDK或设备。本轮仅为用户额外选定的应用准备独立工具链，资源配置按实际包清单显式校准；不改全局Python/pip/PATH，不运行模型或部署模型权重。
 
@@ -20,7 +20,7 @@
 | 结果包验收 | 正常26份已核清单且实际Git应用后等于冻结候选；本批17份OOD/消融有效包、导航及三个工程日志变形一致性共19项通过，28.91秒；覆盖ZIP/清单、真实Git应用、原版复现与候选四阶段检查绑定 | 既有正常案例验收及[本批记录](../sessions/2026-10-18-real-project-ood-complete.json) |
 | 可选工具链 | 原exe华为签名有效，使用现成7-Zip识别25分段、12个组件档案并完整展开，组件CRC检查通过，未执行系统安装器。真实读取DevEco 26.0.0.851、Node24.14.1、JBR25.0.2、Hvigor6.26.8、ohpm26.0.0.630、hdc3.2.0f、Emulator26.0.0.402；hms/openharmony ETS均API26。它们可运行不证明原API15工程可编译 | application-demo/preparation.json及environment.json；DFX-HarmonyOS/logs |
 | 平台存储与资源 | 固定DFX-HarmonyOS已计共同磁盘预算，Agent env/all保留它；400文件原版/候选已迁移且符合冻结清单。SDK实际展开12,137,575,633字节，成功后已释放3,294,381,840字节派生压缩包、保留用户exe。按实测体积显式调整配置，盘点改用DirEntry缓存元数据；相关28项回归通过。官方SDK另写75字节用户许可标记，记录在本机README，结束后按归属清理 | configs/local-runtime.json；SDK本机workspace.json；[本批记录](../sessions/2026-10-19-harmony-toolchain.json) |
-| 应用执行现状 | 独立build-original副本已准备，ohpm元数据可取但HAR重定向至contentcenter-drcn.dbankcdn.cn后TLS握手重置，curl亦复现。配置保留SSL校验并复用SDK重试；没有HAP、未创建/启动模拟器，故障复现、应用回归和新截图均未完成 | DFX-HarmonyOS/logs/ohpm-install-original.txt、config/build-original.json；application-demo/README.md |
+| 应用执行现状 | 独立build-original副本已准备，ohpm元数据可取但HAR重定向至contentcenter-drcn.dbankcdn.cn后TLS握手重置，四种新下载重试仍失败。按真实工程声明修正辅助脚本的构建模块及产物位置为phone和product/phone；尚未实际编译。保留SSL校验并复用SDK重试；没有HAP、未创建/启动模拟器，故障复现、应用回归和新截图均未完成 | DFX-HarmonyOS/logs/ohpm-install-original.txt、config/build-original.json；[重试记录](../sessions/2026-10-19-harmony-network-retry.json)；application-demo/README.md |
 
 正常26例选定运行共381次模型调用，命中输入7222016、未命中输入486469、输出182444 Token；费用估算2.72137064元，平均Agent耗时120503.422ms、平均首次诊断耗时58981.962ms。模型OOD11次有效运行费用估算0.73084888元，消融6次0.61575544元；三类选定结果合计4.06797496元，均非账户账单。新增3例共38次模型调用，命中输入549760、未命中输入33196、输出16937 Token，估算0.22387840元，平均Agent耗时137946.188ms。缓存、阶段时间及逐例覆盖均在CSV/JSON中，定位有输出不等于定位准确。
 

@@ -435,10 +435,10 @@ def build_application(repo: Path, variant: str) -> dict[str, Any]:
         execute(repo, storage, [str(node), str(ohpm), "install", "--all"],
                 "ohpm-install-" + variant + ".txt", timeout=600, cwd=work)
         execute(repo, storage, [str(node), str(hvigor), "--mode", "module", "-p", "product=default",
-                                "-p", "module=entry@default", "assembleHap", "--no-daemon", "--no-parallel",
+                                "-p", "module=phone@default", "assembleHap", "--no-daemon", "--no-parallel",
                                 "--no-analyze", "--max-old-space-size", "2048", "--Xmx", "1024"],
                 "build-" + variant + ".txt", timeout=900, cwd=work)
-        packages = sorted(work.glob("entry/build/default/outputs/default/*.hap"))
+        packages = sorted(work.glob("product/phone/build/default/outputs/default/*.hap"))
         if not packages:
             raise ValueError("build returned success without a HAP")
         record["haps"] = []

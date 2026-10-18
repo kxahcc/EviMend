@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-19",
+  "base_commit": "2755451",
+  "scope": "Bounded retries of the official application dependency download and concrete manual recovery instructions",
+  "user_request": "Retry dependency network failures several times; if still unsuccessful, provide a manual procedure",
+  "download_attempts": [
+    {"transport": "normal HTTPS with redirect", "curl_exit": 35, "last_http_status": 302, "body_bytes": 0},
+    {"transport": "TLS1.2 and HTTP1.1 with redirect", "curl_exit": 35, "last_http_status": 302, "body_bytes": 0},
+    {"transport": "existing local HTTP proxy 127.0.0.1:7897", "curl_exit": 35, "last_http_status": 0, "body_bytes": 0},
+    {"transport": "direct official CDN URL, IPv4 and no process proxy", "curl_exit": 35, "last_http_status": 0, "body_bytes": 0}
+  ],
+  "error": "schannel: failed to receive handshake, SSL/TLS connection failed",
+  "dependency": "@ohos/axios 2.2.15; official ohpm URL redirects to contentcenter-drcn.dbankcdn.cn",
+  "initial_managed_admission": {
+    "launched": false,
+    "reason": "insufficient physical memory reserve",
+    "total_ram_bytes": 33518600192,
+    "available_ram_observed_bytes": 8426500096,
+    "required_job_cap_plus_reserve_bytes": 8589934592,
+    "policy_changed": false
+  },
+  "managed_build_retry": {
+    "receipt": "17385581-3230-4ecb-845a-f89937dea1c2",
+    "launched": true,
+    "result": "Metadata succeeded; initial HAR request plus all five official SDK retries failed with ECONNRESET before TLS connection was established",
+    "compiler_launched": false,
+    "policy_changed": false
+  },
+  "implementation_correction": "Read the actual build-profile.json5 and product/phone/src/main/module.json5: entry module is named phone. Correct the optional demo helper's hardcoded module=entry@default and entry output directory to module=phone@default and product/phone. No application business code changed; compilation remains untested",
+  "manual_steps": "Updated ignored DFX-HarmonyOS/README.md: browser-download the public HAR into downloads, retry with TUN/system proxy disabled or explicit DIRECT rules, try a phone hotspot if necessary, and ensure sufficient available RAM before the managed build",
+  "security_and_scope": "TLS certificate verification retained; no global network/proxy/firewall/certificate changes; no model calls; no new dependencies installed; raw dataset and submission templates unchanged",
+  "application_built_or_run": false,
+  "new_screenshots": false,
+  "validation": {
+    "scope": "Actual download and official SDK retry failures observed. Two build target/path strings corrected by inspecting the real application configuration; not compilation evidence; no new pytest run for this local literal correction",
+    "ruff": {"receipt": "da2b2c8f-1927-4be4-98be-4e484a61027b", "result": "All checks passed"},
+    "docs": {"receipt": "1b91fa3a-8ec6-4d45-8804-5b060ef58f41", "documents": 14, "errors": 0}
+  }
+}
