@@ -161,6 +161,26 @@ REVIEWED_ORACLES = {
         "features/order/src/main/ets/pages/ConfirmOrderPage.ets", "DFX020_TARGET_CUTLERY_ARRAY_LENGTH",
         "Actual complete cutlery-confirm callback, none/by-order/fixed counts and labels/reset/close; plain picker/cart and resource sentinel, no UI/order transport",
     ),
+    "resources/source-validation/video-share/oracle.cjs": (
+        "commons/utils/src/main/ets/player/VideoPlayPage.ets", "DFX011_TARGET_SHARE_CONSTRUCTION",
+        "Actual complete shareEvent field with class wrapper/type erasure; native class-shaped constructor/show recorder and payload preservation; no real sharing SDK, transport or UI",
+    ),
+    "resources/source-validation/news-author/oracle.cjs": (
+        "commons/lib_news_feed_details/src/main/ets/views/ArticleFeedDetails.ets", "DFX_NEWS_TARGET_MISSING_AUTHOR",
+        "Actual complete readNewsBuilder after bounded inert Row lowering/type erasure; optional author, loading guard and reader payload; declared reader/body/cover recorders, no actual ArkUI or playback",
+    ),
+    "resources/source-validation/order-logistics/oracle.cjs": (
+        "features/order/src/main/ets/views/OrderInfoPage.ets", "DFX_MALL_TARGET_LOGISTICS_UNDEFINED",
+        "Actual complete buildAddressCard after bounded container/Row/style lowering/type erasure; missing/normal logistics, address/edit/express and pickup/refund delegation; no ArkUI hierarchy, rendering or asynchronous refresh",
+    ),
+    "resources/source-validation/calendar-selection/oracle.cjs": (
+        "features/statistics/src/main/ets/components/CalendarSummary.ets", "DFX_B2_005_TARGET_EMPTY_DATE",
+        "Actual complete date-click callback with lexical this/type erasure; populated/empty/missing date selection and refresh delegation; ISO dayjs recorder, no date algorithm, DB or UI",
+    ),
+    "resources/source-validation/cache-read/oracle.cjs": (
+        "components/feedback/src/main/ets/utils/FileUtils.ets", "DFX_B3_024_TARGET_CACHE_ALIGNMENT",
+        "Actual complete verifyCacheFile/safeClose region with class wrapper/type erasure; alignment, read/close and unavailable/denied/read-error branches; declared in-memory fs/context, discarded checksum correctness and real SDK filesystem not certified",
+    ),
 }
 REVIEWED_MOCKS = {
     "resources/source-validation/resource-sort/oracle.cjs": [
@@ -202,6 +222,11 @@ REVIEWED_MOCKS = {
     "resources/source-validation/exam-search/oracle.cjs": ["Declared numeric enum values and question records"],
     "resources/source-validation/fitness-search/oracle.cjs": ["Current-city storage, store records, VM submit/close and SearchSource sentinel"],
     "resources/source-validation/cutlery-count/oracle.cjs": ["Plain picker/cart state and resource-name sentinel"],
+    "resources/source-validation/video-share/oracle.cjs": ["Native class-shaped SharePicker constructor/show recorder; plain video state"],
+    "resources/source-validation/news-author/oracle.cjs": ["Inert Row/TextRead recorders; split/body/cover helpers and plain article state"],
+    "resources/source-validation/order-logistics/oracle.cjs": ["Inert UI primitives/styles/events, resource/order-label helper, address/pickup delegates and plain view-model state"],
+    "resources/source-validation/calendar-selection/oracle.cjs": ["Already-ISO dayjs format delegation; plain bill list and getSelectedDateData recorder"],
+    "resources/source-validation/cache-read/oracle.cjs": ["Context/area values and in-memory fs access/open/stat/read/close recorders"],
 }
 
 

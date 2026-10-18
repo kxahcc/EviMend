@@ -1,0 +1,122 @@
+{
+  "date": "2026-10-18",
+  "scope": "Admit final six inputs to actual source checks before model solving",
+  "base_commit": "1855377",
+  "design": [
+    "Reuse existing source executor and four fixed stages; do not build another runtime or an ArkUI compiler.",
+    "Bounded UI lowering retains real conditionals, payload construction and callbacks; framework and IO recorders are declared.",
+    "Controls reject unrepaired exceptions, omitted normal reader/logistics content, lost show/refresh delegation and omitted file close.",
+    "Date scope certifies selection refresh delegation only; discarded cache checksum correctness, actual SDK/ArkUI rendering and full applications remain unverified.",
+    "Evaluator controls and reference mutations stay outside solver snapshots; no claim of autonomous oracle generation."
+  ],
+  "tests": {
+    "receipt": "c596ddf7-f91c-4214-9f0c-9d5cbd1a457b",
+    "passed": 18,
+    "seconds": 43.44
+  },
+  "admissions": [
+    {
+      "case": "b2-011-childreneducation1",
+      "record": ".dfx-local/state/b2-011-childreneducation1-admission.json",
+      "oracle": "resources/source-validation/video-share/oracle.cjs",
+      "oracle_sha256": "2d361587b595f4b4de8d94ee0288ebf7c91438e2fbb1c6cb0c3c35fcdc97cd1c",
+      "source_snapshot_sha256": "5de3a5e2f6a9c309f108d73bf4672284b3f6dde4af9ba9dedcc3c2a783f42c0a",
+      "scope": "Actual complete shareEvent field with class wrapper/type erasure; native class-shaped constructor/show recorder and payload preservation; no real sharing SDK, transport or UI",
+      "mocks": [
+        "Native class-shaped SharePicker constructor/show recorder; plain video state"
+      ],
+      "source_verification": "not_run",
+      "model_calls": 0
+    },
+    {
+      "case": "b2-001-comprehensivemall1",
+      "record": ".dfx-local/state/b2-001-comprehensivemall1-admission.json",
+      "oracle": "resources/source-validation/order-logistics/oracle.cjs",
+      "oracle_sha256": "4c849b692f4810019e3646cddf0faf58d9373339b218f10452e219e2b1e943d6",
+      "source_snapshot_sha256": "66ac00e3fd076466d5b58374ad4d2885c9e380c9c34ee2ffb3b0d40783b63c06",
+      "scope": "Actual complete buildAddressCard after bounded container/Row/style lowering/type erasure; missing/normal logistics, address/edit/express and pickup/refund delegation; no ArkUI hierarchy, rendering or asynchronous refresh",
+      "mocks": [
+        "Inert UI primitives/styles/events, resource/order-label helper, address/pickup delegates and plain view-model state"
+      ],
+      "source_verification": "not_run",
+      "model_calls": 0
+    },
+    {
+      "case": "b2-002-comprehensivenews1",
+      "record": ".dfx-local/state/b2-002-comprehensivenews1-admission.json",
+      "oracle": "resources/source-validation/news-author/oracle.cjs",
+      "oracle_sha256": "05d980a4fcf1d3fd970b3cba394acf41396148c32c14bd2af655c5919e9c3111",
+      "source_snapshot_sha256": "577796bc74d1a057deb9df3cb4b012dbd9d652cc53fdffba22c2c93ae3e878d3",
+      "scope": "Actual complete readNewsBuilder after bounded inert Row lowering/type erasure; optional author, loading guard and reader payload; declared reader/body/cover recorders, no actual ArkUI or playback",
+      "mocks": [
+        "Inert Row/TextRead recorders; split/body/cover helpers and plain article state"
+      ],
+      "source_verification": "not_run",
+      "model_calls": 0
+    },
+    {
+      "case": "b2-003-comprehensivenews1",
+      "record": ".dfx-local/state/b2-003-comprehensivenews1-admission.json",
+      "oracle": "resources/source-validation/news-author/oracle.cjs",
+      "oracle_sha256": "05d980a4fcf1d3fd970b3cba394acf41396148c32c14bd2af655c5919e9c3111",
+      "source_snapshot_sha256": "577796bc74d1a057deb9df3cb4b012dbd9d652cc53fdffba22c2c93ae3e878d3",
+      "scope": "Actual complete readNewsBuilder after bounded inert Row lowering/type erasure; optional author, loading guard and reader payload; declared reader/body/cover recorders, no actual ArkUI or playback",
+      "mocks": [
+        "Inert Row/TextRead recorders; split/body/cover helpers and plain article state"
+      ],
+      "source_verification": "not_run",
+      "model_calls": 0
+    },
+    {
+      "case": "b2-005-moneytrack1",
+      "record": ".dfx-local/state/b2-005-moneytrack1-admission.json",
+      "oracle": "resources/source-validation/calendar-selection/oracle.cjs",
+      "oracle_sha256": "0e136b847bd049c542a504d9e2fabaa16e0585751b7b05232afa3b29f3027873",
+      "source_snapshot_sha256": "503a88282b0425dd6a7b7d5ce5ffbb53480ed9740a2eb7a54221bd4f9cd4c6d2",
+      "scope": "Actual complete date-click callback with lexical this/type erasure; populated/empty/missing date selection and refresh delegation; ISO dayjs recorder, no date algorithm, DB or UI",
+      "mocks": [
+        "Already-ISO dayjs format delegation; plain bill list and getSelectedDateData recorder"
+      ],
+      "source_verification": "not_run",
+      "model_calls": 0
+    },
+    {
+      "case": "b3-024-webshortdrama1",
+      "record": ".dfx-local/state/b3-024-webshortdrama1-admission.json",
+      "oracle": "resources/source-validation/cache-read/oracle.cjs",
+      "oracle_sha256": "c3ae3c1763f15f7aa8a3f5721e2748f2703e95fa3d5c0e5e29f54f1bfd367ca2",
+      "source_snapshot_sha256": "6525b42607f1e63d83dfab173db31540b7b4b67ba68d86613e8ecb2490685330",
+      "scope": "Actual complete verifyCacheFile/safeClose region with class wrapper/type erasure; alignment, read/close and unavailable/denied/read-error branches; declared in-memory fs/context, discarded checksum correctness and real SDK filesystem not certified",
+      "mocks": [
+        "Context/area values and in-memory fs access/open/stat/read/close recorders"
+      ],
+      "source_verification": "not_run",
+      "model_calls": 0
+    }
+  ],
+  "model_calls": 0,
+  "coverage_at_close": {
+    "admitted_source_protocol_inputs": 26,
+    "results": 15,
+    "pending_model_solutions": 11
+  },
+  "quality": [
+    {
+      "suite": "ruff",
+      "receipt": "5ee275de-0182-4549-9b0f-53c9dacf553d",
+      "status": "passed"
+    },
+    {
+      "suite": "pyright",
+      "receipt": "62e2d8ed-d69c-48c8-9c43-c37cef055a3d",
+      "status": "passed"
+    },
+    {
+      "suite": "docs",
+      "receipt": "0fcb8e24-f7b5-47c9-aa83-3437831b39ba",
+      "status": "passed"
+    }
+  ],
+  "environment": "Existing managed Python and ordinary Node; no installation, limit change, global mutation or new experiment permissions.",
+  "next": "Solve the remaining 11 source-mode inputs serially under the unchanged shared monetary gate, then verify all exported artifacts before OOD/ablations."
+}

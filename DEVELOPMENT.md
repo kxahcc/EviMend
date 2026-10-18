@@ -214,6 +214,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_household_source_replay.py` | 022 校验逻辑的源码加载/类型剥离、原故障及正常/边界判据接线；固定反例或合成候选通过不等于真实模型修复成绩 |
 | `tests/test_tourist_source_replay.py` | 016 module_base 公用方法的原故障、正常/边界与无关方法回归；拒绝恒定返回或修改正常同名文件冒充修复，不是实际模型成绩 |
 | `tests/test_office_source_replay.py` | 017实际DataManager的正则故障、状态/字面查询和库存回归；拒绝恒定输出及忽略查询，尚非真实模型修复结果 |
+| `tests/test_remaining_six_source_replay.py` | 最后六个审核输入的分享构造、新闻作者、订单物流、日期选择与缓存读取协议；执行原版/候选，拒绝未修复、丢正文/委托或关闭资源的退化补丁，固定控制不算模型成绩 |
 | `tests/test_pilot_preparation.py`、`tests/test_workspace_long_paths.py` | 代表任务的受管只读准备、原版复现准入及拒绝反例；Windows 深层源码的快照、SDK 编辑、检索、定位和候选回读 |
 | `tests/test_local_process.py`、`scripts/test_local_process.ps1` | 在受管 pytest 中验挂起启动、活动凭据延迟/发布失败、恢复前 Stop 和既有进程保护回归；隔离副本/临时树位于 .dfx-local/tmp，实际证据见 STATUS |
 | `tests/test_product_cli.py`、`tests/test_progress.py` | 用户命令、总预算绑定、自动导出/失败保留、输出/分页、停止归属、中断及有限侧录；实际验收见STATUS |
@@ -239,6 +240,8 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `resources/source-validation/pcm-frames/`、`resources/source-validation/learning-order/` | 音频common实际PCM读取/字段/参数初始化、学习目录实际初始化/递归方法及模型类；检查完整帧和尾部、循环与顺序、数据保持；明示文件字节与参数替代，不执行实际音频或UI |
 | `resources/source-validation/post-images/`、`resources/source-validation/share-fingerprint/` | 实际游记模型图片输入归一化、分享生命周期与指纹性质检查；保留正常内容和初始化委托，明示枚举/编码/平台记录器，不强制某个内部哈希算法，不认证图片渲染或分享传输 |
 | `resources/source-validation/exam-search/`、`resources/source-validation/fitness-search/`、`resources/source-validation/cutlery-count/` | 试题实际查询方法、健身实际搜索回调和点餐实际餐具确认回调；检查关键字/城市/委托与选择数量，披露记录/状态替代及UI省略，不执行完整页面 |
+| `resources/source-validation/video-share/`、`resources/source-validation/news-author/`、`resources/source-validation/order-logistics/` | 视频实际分享回调、两份新闻变体的完整阅读builder、订单完整地址卡builder；明示类形记录器和有限UI语法转换，保留原条件/载荷/委托，不认证真实SDK或ArkUI渲染 |
+| `resources/source-validation/calendar-selection/`、`resources/source-validation/cache-read/` | 实际日期选择回调与缓存读取/关闭方法；检查空日期刷新、数据保持、字节对齐和读错误清理，披露dayjs/文件系统替代，不认证未暴露的内部校验和 |
 | `sessions/` | 按工作批次保存的历史摘要，允许保留当时的旧路径与决定 |
 | `skill/` | 唯一 Skill 源库与提交入口；四类标准 SKILL.md 及后续外部 Skill 的 references/scripts/assets 均放在所属包内。它们是产品指导资源，不采用设计文档的状态头；格式由锁定 SDK 解析及软件测试核验 |
 | `data_B/` | 本地竞赛数据；Git 忽略 |
