@@ -7,7 +7,7 @@
 
 目标产品是普通 Windows x64 本机可运行的源码/日志修复 Agent：配置云端模型后完成分析、根因行定位与补丁生成；接纳宿主验证器后实际执行原版和候选的相关源码、回放故障输入、检查行为并反馈修订。完整 HarmonyOS 工程、平台 SDK、签名、真机和模拟器不作为默认前置，application 全应用执行保留为可选扩展。正式截止为 2026-10-31；按用户安排，内部完成目标为 2026-10-24，优先完成可独立运行的系统、真实模型/宿主范围的测试结果和可复现作品；正式提交文档、精简session及提交版Git在测试完成并收到用户具体要求后整理。用户并非全天开发，不按连续满日工时估算。
 
-用户于2026-10-17确认已在configs/model.local.json填好Key，并授权有限总预算内真实DeepSeek测试；2026-10-18确定下述三部分的顺序。模型保持deepseek-flash、thinking enabled。金额、保留额、费率和停止条件唯一见[评测口径](preparation/metrics-and-gates.md#本次真实测试的总费用边界)，configs/evaluation.local.json保存私有批次清单。正式提交模板、精简session和提交版Git在测试完成且用户给出要求后整理。当前执行第一部分，不提前安装新依赖/平台SDK或运行application；第三部分先评估可行性，不将平台安装作为源码主线前置。
+用户于2026-10-17确认已在configs/model.local.json填好Key，并授权有限总预算内真实DeepSeek测试；2026-10-18确定下述三部分的顺序。模型保持deepseek-flash、thinking enabled。金额、保留额、费率和停止条件唯一见[评测口径](preparation/metrics-and-gates.md#本次真实测试的总费用边界)，configs/evaluation.local.json保存私有批次清单。正式提交模板、精简session和提交版Git在测试完成且用户给出要求后整理。按下表依次推进，实际完成阶段只见STATUS；不提前安装新依赖/平台SDK或运行application，第三部分先评估可行性，不将平台安装作为源码主线前置。
 
 ### 三部分测试顺序
 
