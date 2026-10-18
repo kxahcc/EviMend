@@ -130,6 +130,7 @@ def main() -> None:
     positive = [row for row in rows if row["category"] == "ood_positive"]
     ood_rows = negative + positive
     ablations = [row for row in rows if row["category"] == "ablation"]
+    ablations.sort(key=lambda row: (row["task_id"], {"general": 0, "guided": 1, "skill": 2}[row["variant"]]))
     ood_stats = {**totals(ood_rows), "negative_scenes": len(negative),
         "complete_correct_abstentions": sum(row["autonomous_abstention_complete"] for row in negative),
         "positive_controls": len(positive), "positive_source_passes": sum(row["source_pass"] for row in positive)}
@@ -146,6 +147,7 @@ def main() -> None:
         lines = ["# " + title, "", "按最后一次有效完成的测试汇总，原件与统计分别保留。", ""]
         if folder_name == "robustness":
             lines += ["[解析矩阵](parser-matrix.json) · [源码证据矩阵](evidence-matrix.json) · [材料异常](material-gaps.json)", "",
+                "[可选完整应用环境评估](application-feasibility.json)", "",
                 "软件测试覆盖23种解析输入和17种源码证据场景；这些是软件处理证据，与下面的真实模型OOD分别统计。", "",
                 f"模型证据不足场景：{ood_stats['complete_correct_abstentions']}/{len(negative)}符合预期。",
                 f"真实故障日志变形对照：{ood_stats['positive_source_passes']}/{len(positive)}源码验证通过。" if positive else "真实故障日志变形对照待完成。", "",
@@ -156,7 +158,7 @@ def main() -> None:
         lines += ["| 任务 | 组 | 结果 | 调用 | 命中输入 | 未命中输入 | 输出 | 估算元 | 产物 |",
                   "|---|---|---|---:|---:|---:|---:|---:|---|"]
         for row in selected:
-            result = "正确停止修改" if row.get("autonomous_abstention_complete") else "源码通过" if row["source_pass"] else "未通过"
+            result = "依据不足，未修改" if row.get("autonomous_abstention_complete") else "源码通过" if row["source_pass"] else "未通过"
             relative = Path(row["result"]).relative_to(folder_name).as_posix()
             lines.append(f"| {row['task_id']} | {row['variant']} | {result} | {row['model_calls']} | {row['cache_hit_input_tokens']} | {row['cache_miss_input_tokens']} | {row['output_tokens']} | {row['estimated_cny']} | [打开]({relative}/RESULT.md) |")
         lines += ["", "费用按命中、未命中输入和输出的冻结费率估算；不是账户账单。完整HarmonyOS应用未执行。", ""]
