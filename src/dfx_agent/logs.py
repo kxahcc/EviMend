@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 MAX_LOG_BYTES = 10_000_000
-FRAME = re.compile(r"^\s*at\s+(.*?)\((.+?\.(?:ets|ts|js)):(\d+):(\d+)\)\s*$")
+FRAME = re.compile(r"^\s*(?:#\d+\s+)?at\s+(.*?)\((.+?\.(?:ets|ts|js)):(\d+):(\d+)\)\s*$")
 FIELDS = ("Module name", "Reason", "Error name", "Error message")
 
 

@@ -69,7 +69,7 @@ flowchart LR
 
 根目录 `skill/` 是唯一的 Skill 维护和竞赛提交入口。`bounds/`、`lifecycle/`、`recursion/`、`dynamic-pattern/` 各有标准 `SKILL.md`，使用 YAML 的 name/description 和可读 Markdown 保存前提、查证步骤、保留行为及反例。新增自设计或外部 Skill 直接放入独立子目录，配套资料、脚本和模板放在该包内，不再维护 JSON 定义。competition 动态发现并冻结这些原文，复用 SDK 目录解析及现有 read_skill：启动只给名称与触发描述，正文和引用资料按需读取。脚本读取不会自动执行，外部工具要求须另行接纳；实际验收与效果边界见 STATUS。
 
-任务内 context、memory 和 Skills 服务于同一修复决定。完整历史留在本机，任务记忆保存假设、证据、义务和候选检查；模型每步看到按修复阶段构建的决策工作集。定位时重点是竞争根因、矛盾与待查证问题，改代码时是恢复条件和保留行为，失败后是原候选反例和修订问题。竞赛配置用 decision_frontier 复用当前已保存决策，展示具体问题与反证入口；repair_frontier 筛选原文，跨诊断保留最近实际失败，并给移出探索留下有界的版本回读导航。必要工具正文只发送一份，完整语义和原历史保持。任务语义记忆是增量条目，通用语义摘要在竞赛入口尚未启用；这些安排不证明模型效果。方法与能力边界见 [设计第7.1节](docs/development/system-design-draft.md#71-以当前修复决定组织工作上下文)。
+任务内 context、memory 和 Skills 服务于同一修复决定。代码已有假设、证据、义务和候选检查的增量记忆，以及按修复阶段组织工作集的可选能力：decision_frontier展示当前问题与反证入口，repair_frontier选择原文、保留最近失败并提供回读导航。**当前真实DeepSeek thinking运行保留完整历史，关闭working_context重组，未启用上述前沿选择或通用语义摘要。** 这些设计不能作为已测收益；真实配置、机制消费与比较结果只记STATUS。方法和能力边界见[设计第7.1节](docs/development/system-design-draft.md#71-以当前修复决定组织工作上下文)。
 
 旧经验先核对适用前提，未知就给出查证问题。判断仍由模型提出，程序核对引用和执行事实，不认证因果语义。修复义务与决策建议是可选指导；实际是否改变后续读取、补丁及失败修订，必须观察和比较。合成闭环不能证明自主纠错效果或 Token 节省，图存储本身也不形成方法收益。
 
@@ -254,7 +254,9 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `configs/generated/` | 本机当前测试的四份生成配置：analysis 案例共用 analysis.local.json，三个 full-source 配置分别绑定检查协议；由 cases 清单关联，不要求逐例手写模型配置，与模型填写示例和部署配置分开 |
 | `configs/bootstrap.json` | 固定 uv 下载身份、大小上限和项目 Python 版本 |
 | `.dfx-local/` | 本机环境、缓存、当前任务快照、真实运行原件及管理回执；Git 忽略，所有当前运行入口受管。真实失败账本也保留，不通过归档重置消费 |
-| `runs/exports/cases/` | 面向用户的逐例修复结果；runs 当前只保留这一结果入口，Git 忽略，普通清理保留导出包 |
+| `runs/exports/cases/` | 面向用户的正常案例最终修复结果，逐例入口和统计；Git忽略，普通清理保留导出包 |
+| `runs/exports/robustness/`、`runs/exports/phase2/` | 缺材料/解析矩阵，以及预登记的模型OOD与分层消融原件和统计；与正常案例分母分开，保留比较中的全部预定结果 |
+| `tests/test_input_robustness.py`、`tests/test_phase2_protocol.py`、`tests/test_news_final_export.py` | 异常解析与耗时导出、付费前冻结小规模同预算实验、最后新闻冻结补丁的零模型复验；私有产物操作均须显式开启 |
 | `archive/` | 失效文档、旧配置、历史合成运行/自检导出及一次性脚本；按主题保留原相对目录和本地说明，Git 忽略。当前命令及配置不依赖这里；归档不释放磁盘空间 |
 | `pyproject.toml`、`uv.lock`、`.python-version` | Python 3.13 基线、SDK 与质量工具的已解析依赖锁 |
 | `.gitignore` | 排除本地数据、归档、运行产物、缓存、虚拟环境和凭据文件 |

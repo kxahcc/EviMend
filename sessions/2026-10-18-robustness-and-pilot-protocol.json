@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-18",
+  "scope": "After normal-case closure, validate abnormal-input handling and freeze the smallest useful OOD/ablation pilot",
+  "base_commit": "4097600",
+  "parser_change": "Accept optional numeric #N prefix before at; preserve normal stack/frame anchors and restrict supported source suffixes",
+  "parser_evidence": {
+    "receipt": "1edfc37f-ad19-4790-ba31-24c6d03dfb32",
+    "passed": 25,
+    "seconds": 0.10,
+    "input_rows": 23,
+    "additional_checks": ["Oversize rejection before decoding", "20-repeat timing export over each input row"],
+    "export": "runs/exports/robustness/parser-matrix.json",
+    "scope": "Software parser/size checks, zero model calls; not end-to-end OOD repair or injection resistance"
+  },
+  "frozen_protocol": {
+    "receipt": "d2110a64-99de-4ed4-9506-14a1640f973d",
+    "passed": 1,
+    "seconds": 6.77,
+    "path": ".dfx-local/state/phase2-protocol.json",
+    "model_ood": "Two benign typed-source tasks with empty log or native-only SIGSEGV stack; expect no invented source root or patch and no claimed validation",
+    "ablations": "B3-019 recursion and B3-021 PCM, each general/guided/skill, same source/log, protocol, model/thinking/history, knowledge, tools and per-case budgets",
+    "variation": "Only static_skills_enabled and policy_features differ within each case; catalog/body ordinary access separated from optional domain guidance",
+    "runtime": "Frozen source/Skill/oracle hashes; no code changes while live queue runs",
+    "interpretation": "Small pilot for competition development, no significant/generalizable or frontier-context/automatic-learning claim"
+  },
+  "quality": {"ruff_receipt": "83becea0-9825-4468-a19c-19c59af65ac5", "status": "passed"},
+  "financial_admission": "User explicitly accepted retry20 known-plus-original-request reservation; new configurations list exactly the four accepted unknown runs, old frozen runs and unknown entries unchanged",
+  "presentation": "Normal selected results remain 26/26. Pilot outcomes, including failed or limited variants, are retained separately rather than replacing those selected results.",
+  "environment": "Existing managed Python and ordinary Node, unchanged limits, no installs, SDK, emulator, weights or global changes",
+  "next": "Run the frozen two OOD tasks then six method comparisons serially through the existing CLI and monetary gate; preserve every planned outcome and actual cache-aware usage"
+}
