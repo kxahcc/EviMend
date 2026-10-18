@@ -112,7 +112,7 @@ def check_exported_candidate(
         "source_verification": checked.status, "application_verification": "not_run",
         "check": checked.model_dump(mode="json"), "execution": receipt,
         "oracle_sha256": sha, "model_calls": 0, "model_tokens": 0,
-        "limitation": "Checks the exact exported candidate after generation; original model report remains analysis-only."}
+        "limitation": "Checks the exact exported candidate after generation; original model report remains unchanged."}
     (destination / "result.json").write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     assert checked.status == "pass" and checked.level == "source_execution"
     assert receipt["baseline"]["fault_reproduced"] is True

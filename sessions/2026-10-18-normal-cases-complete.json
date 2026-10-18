@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-18",
+  "scope": "Complete the 26 normal-case final source-verified artifacts before OOD and ablations",
+  "base_commit": "f0adca2",
+  "normal_results": {
+    "selected_cases": 26,
+    "source_verified": 26,
+    "application_verified": 0,
+    "model_calls": 381,
+    "cache_hit_input_tokens": 7222016,
+    "cache_miss_input_tokens": 486469,
+    "output_tokens": 182444,
+    "total_tokens": 7890929,
+    "selected_run_estimated_cny": "2.72137064",
+    "mean_agent_wall_ms": 120503.4221923077
+  },
+  "new_live_successes": [
+    "b2-005-moneytrack1/live1017-case15",
+    "b3-014-driverlicenseexam1.0.7/live1017-case20",
+    "b3-015-fitnesscenter1.0.3/live1017-case21",
+    "b3-019-exam1/live1017-case22",
+    "b3-020-teadrinkorders1/live1017-case23",
+    "b3-021-audioediting1/live1017-case24",
+    "b3-024-webshortdrama1/live1017-case25",
+    "b2-003-comprehensivenews1/live1017-case26"
+  ],
+  "final_news_candidate": {
+    "run_id": "live1017-retry18",
+    "original_status": "unresolved",
+    "reason": "Old reporting classified a local request-token reservation refusal as provider admission failure despite a completed passing source check; classifier fixed and independently tested in 21f2839",
+    "action": "Restore exact frozen export and independently rerun baseline plus all four candidate stages; retain original report and append bound verification only",
+    "new_model_calls": 0,
+    "candidate_snapshot_sha256": "afc881bb14980dbbf5f1108fc282f9d01e95c4585021e02ffd90a53028629b6c",
+    "proof": "runs/exports/cases/b2-002-comprehensivenews1/live1017-retry18/source-validation/news-author/result.json",
+    "coverage": "Complete readNewsBuilder after declared inert UI lowering, missing/null/empty/normal author, loading guard and reader payload; not real ArkUI, SpeechKit, network or correctness of all mock-data records"
+  },
+  "checks": [
+    {"suite": "25 exported manifests and actual git patch application", "receipt": "a3163726-243f-4d99-8aac-dad54c702844", "passed": 25, "seconds": 81.14},
+    {"suite": "Final news actual-source baseline and candidate validation", "receipt": "eaabab81-68ee-4388-8789-e41c0cadc5ab", "passed": 1, "seconds": 54.25},
+    {"suite": "Final news exported manifest and actual git patch application", "receipt": "812fe4bd-1e4a-42ab-a26a-5c10ba85fb11", "passed": 1, "seconds": 7.37},
+    {"suite": "Ruff", "receipt": "a2fc7412-85b4-4251-ae34-40dcadd81443", "status": "passed"}
+  ],
+  "observed_mechanisms": {
+    "observed_cases": 26,
+    "cases_with_saved_obligations": 0,
+    "cases_with_saved_decisions": 0,
+    "cases_with_skill_actions": 4,
+    "rule_consultations": 8,
+    "cases_with_working_context_plans": 0,
+    "interpretation": "Actual consumption only; does not establish causal gains. Full-history thinking runs did not enable working-context pruning or frontier layouts. Do not claim inactive mechanisms as measured contributions."
+  },
+  "interrupted_run": {
+    "run_id": "live1017-retry20",
+    "known_calls": 1,
+    "unknown_calls": 1,
+    "candidate_count": 0,
+    "reason": "provider_transport_error on second request; no automatic resend",
+    "known_plus_original_request_reservation_cny": "0.2932604",
+    "financial_acceptance": "Explicit user reply accepted known-plus-original-request-reservation accounting for this run; future configs now list the four individually authorized runs",
+    "export": "archived with original relative path; original work, request and ledger retained"
+  },
+  "presentation": "Uniform final source-verified case view, cache hit/miss input and output separated; original immutable reports retain their actual status. Main selected-run fees are not total development expenditure or reconciled account charges. Root-cause accuracy and full-application success remain unmeasured.",
+  "environment": "Existing project Python, locked dependencies and ordinary Node only; no installations, global changes, SDK, emulator, weights or relaxed resource limits",
+  "next": "Parser/input robustness, then small model OOD tests and frozen representative ablations once financial admission is explicitly resolved. Submission template rewrite remains deferred."
+}

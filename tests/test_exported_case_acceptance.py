@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -20,6 +19,8 @@ INDEX = ROOT / "runs/exports/cases/index.json"
 ENABLED = os.environ.get("DFX_REAL_EXPORT_ACCEPTANCE") == "1"
 ENTRIES = ([row for row in json.loads(INDEX.read_bytes())["cases"] if row.get("run_id")]
            if ENABLED and INDEX.is_file() else [])
+if os.environ.get("DFX_REAL_EXPORT_CASE"):
+    ENTRIES = [row for row in ENTRIES if row["case_id"] == os.environ["DFX_REAL_EXPORT_CASE"]]
 
 
 def _hashes(root: Path) -> dict[str, str]:
@@ -32,14 +33,9 @@ def _hashes(root: Path) -> dict[str, str]:
 def test_published_candidate_manifest_and_git_application(tmp_path: Path, entry: dict) -> None:
     case = entry.get("case_id", entry["task_id"])
     folder = ROOT / "runs/exports/cases" / case
-    records = []
-    for path in folder.glob("*/summary.json"):
-        summary = json.loads(path.read_bytes())
-        if (path.parent.name == summary["run_id"] and summary["candidate_id"] and
-                summary["status"] in {"patch_proposed", "source_verified", "application_verified"}):
-            records.append((datetime.fromisoformat(summary["timing"]["finished_at"]), path.parent, summary))
-    assert records, f"No effective published result for {case}"
-    _, result, summary = max(records, key=lambda row: row[0])
+    result = folder / entry["run_id"]
+    summary = json.loads((result / "summary.json").read_bytes())
+    assert summary["run_id"] == entry["run_id"] and summary["candidate_id"]
     assert summary["task_id"] == entry["task_id"] and summary["usage"]["usage_complete"]
     assert summary["model_cost"]["status"] == "estimated"
     for name, metadata in summary["files"].items():
@@ -64,7 +60,20 @@ def test_published_candidate_manifest_and_git_application(tmp_path: Path, entry:
     assert _hashes(applied) == _hashes(result / "repaired-source"), "applied bytes differ from frozen candidate"
     verification = json.loads((result / "verification.json").read_bytes())
     assert verification["verification_level"] == summary["verification_level"]
-    if summary["status"] == "patch_proposed":
-        assert summary["accepted"] is False and summary["verification_level"] == "not_run"
+    if summary["status"] in {"patch_proposed", "unresolved"}:
+        assert summary["accepted"] is False
+        proofs = list(result.glob("source-validation/*/result.json"))
+        assert proofs, "unaccepted original report requires independently bound successful verification"
+        for path in proofs:
+            proof = json.loads(path.read_bytes())
+            assert proof["original_run_id"] == summary["run_id"]
+            assert proof["original_report_sha256"] == summary["report_sha256"]
+            assert proof["candidate_snapshot_sha256"] == summary["candidate_snapshot_sha256"]
+            assert proof["source_snapshot_sha256"] == summary["source_snapshot_sha256"]
+            assert proof["source_verification"] == "pass" and proof["check"]["level"] == "source_execution"
+            assert proof["execution"]["baseline"]["fault_reproduced"] is True
+            assert [s["stage"] for s in proof["execution"]["stages"]] == ["build", "target", "behavior", "regression"]
+            assert all(s["exit_code"] == 0 and s["source_binding_verified"] and s["oracle_binding_verified"]
+                       for s in proof["execution"]["stages"])
     else:
         assert summary["accepted"] is True
