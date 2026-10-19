@@ -683,7 +683,7 @@ Windows 管理器用扩展路径执行深层目录的元数据读取、盘点和
 
 生产入口由managed_runtime.py提供Prepare/Status/Clean/Stop/Init、competition及有限检查的受管Run，windows_job.py直接调用Windows Job，managed_bootstrap.py在保护器内装项目环境；不依赖PowerShell互操作。Prepare不下载；Init按固定来源安装便携uv/CPython并同步锁，不装全局包/服务。Run只接纳具名任务和审核输入，harmony-prepare另用于单应用官方工具准备，不开放任意shell。历史PS仅保留兼容，生产CLI不调用。执行器保存并核对唯一job_name和实际限制，实验权限取配置，结果见STATUS。
 
-用户自行操作的可选SDK演示与上述Agent入口分开：本机open-office.cmd仅给官方IDE局部HOME/工具/缓存环境，不提供Windows Job或7分钟自动关闭。使用者自行观察占用、关闭模拟器/IDE；该入口不能作为Agent资源限制已生效的证据，自动构建/测试仍使用原管理入口。具体手动流程、英文缓存引用、截图/日志与清理清单在application-demo说明中，不新增产品SDK前置。
+本次竞赛提交不包含可选SDK演示。用户已取消并清理平台环境、手动IDE入口与application-demo，相关路径不再是当前可用依赖；上表保留管理器的可选资源边界，不表示这些目录仍存在。未来若另行安排平台扩展，须重新盘点、接纳和验证，不沿用已删除环境或把历史构建当应用运行证据。
 
 安装时通过显式子进程环境设置 UV_CACHE_DIR、UV_PROJECT_ENVIRONMENT、UV_PYTHON_INSTALL_DIR、UV_PYTHON_BIN_DIR、UV_TOOL_DIR/UV_TOOL_BIN_DIR、TEMP/TMP 与 PYTHONPYCACHEPREFIX；Pyright 后备 Node 目录和 Ruff 缓存也路由到项目根。pytest 使用受管 basetemp，关闭持久 pytest 缓存和字节码写入，并在退出时删除自己的临时目录，避免不同 Windows 账户交替运行时产生不可访问目录。变量只在该子进程树生效，不改用户级 PATH、注册表、Shell profile、Conda base 或全局 pip。uv 固定版本/下载哈希，关闭 Python 注册表安装；环境同步使用 `uv sync --locked` 和项目 Python。正式 Agent 任务也须遵循同样入口，不用普通 `uv run` 绕过限制。
 

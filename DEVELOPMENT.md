@@ -105,9 +105,9 @@ CLI 只承担传参、显示活动、停止/恢复与读取结果。后续需要
 
 ### 本机资源怎样集中管理
 
-本机实现采用仓库内 .dfx-local 作为Agent环境、缓存、临时副本和运行记录的集中位置；离线证据通过受管 Export 保留到 runs/exports。可选办公考勤应用演示的工具、SDK、模拟器镜像/实例、构建缓存、冻结工程和过程日志放在用户指定且Git忽略的DFX-HarmonyOS/，最终核验证据进入runs/exports/robustness/application-demo/。官方构建器要求英文真实工程路径，因此用户另行批准C:/Users/kxahcc/DFX-HarmonyOS-build只存临时构建副本；其中sdk是指向原SDK的英文路径引用，不另复制工具。Python管理入口将两个目录均计入共同磁盘预算、核对构建目录归属，普通Agent env/all清理保留它们；平台安装、启动与清理仍须另行接纳，实际进度见STATUS。日常只启动一个受管任务，不改全局环境，没有本机模型权重占用。
+本机实现采用仓库内.dfx-local作为Agent环境、缓存、临时副本和运行记录的集中位置，保留证据通过受管Export进入runs/exports。用户已取消并自行清理可选办公考勤SDK演示；平台目录、外部英文构建目录和application-demo不再是当前可用资源或提交依赖。代码保留的可选平台管理能力不代表本次继续使用SDK。日常只启动一个受管任务，不改全局环境，没有本机模型权重占用；实际资源与验收见STATUS。
 
-面向用户的dfx前端负责启动、配置、进度和会话操作，env管理安装、占用和按计划清理。交付范围是Windows x64完整项目、专属环境和console entry。一次setup.cmd使用普通Python 3.11+创建锁定环境；日常用dfx.cmd或环境内dfx，不依赖PowerShell、Codex路径或全局PATH修改。Python管理入口复用Windows Job及原停止/归属/限额；历史PS仅作兼容。Agent资源在.dfx-local，可选平台资源在DFX-HarmonyOS。删除Agent env/all先退出，再用外部普通Python的setup.cmd --clean预览/应用；该操作保留平台目录。平台只按用户选定单应用的授权和STATUS继续，资源值唯一取配置。独立wheel及跨平台仍未验收；命令见[Agent说明](src/dfx_agent/README.md)，边界见[设计第9节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
+面向用户的dfx前端负责启动、配置、进度和会话操作，env管理安装、占用和按计划清理。交付范围是Windows x64完整项目、专属环境和console entry。一次setup.cmd使用普通Python 3.11+创建锁定环境；日常用dfx.cmd或环境内dfx，不依赖PowerShell、Codex路径或全局PATH修改。Python管理入口复用Windows Job及原停止/归属/限额；历史PS仅作兼容。删除Agent env/all先退出，再用外部普通Python的setup.cmd --clean预览/应用；资源值唯一取配置。独立wheel及跨平台仍未验收；命令见[Agent说明](src/dfx_agent/README.md)，边界见[设计第9节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 
 ### 竞赛版的交付标准从哪里来
 
@@ -119,13 +119,13 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 
 ## 6. 怎样一步步把它做出来
 
-竞赛版的交付路线是：在累计费用门下做零推理预检与小额真实接入，022 校验逻辑和 016 公用方法由两个固定宿主协议逐例接纳，021 等其余数据按实际适配继续覆盖；每例有可信宿主检查才计源码级结果，没有 adapter 的案例仍保留 analysis/未验证。先保证真实基础闭环与完整逐例记录，预算允许再成对筛选增强，最后冻结确认并整理竞赛材料。用户明确接纳的未知费用例外须在对应全cap或请求级名单中点名已结束run，按明确获准的全cap或请求级预留占预算，原unknown和请求保持不变；默认仍是未知即停止，规则见 [评测口径](docs/preparation/metrics-and-gates.md#本次真实测试的总费用边界)。到正式截止及提前内部完成的日期、依赖和退出扩展规则统一见 [实施计划](docs/project-work-plan.md)，不在本导览复制日程或额度表；实际进度只见 [STATUS](docs/STATUS.md)。
+竞赛版已有真实模型、源码协议、异常/OOD及必要比较证据，当前按用户要求准备独立提交仓库answer_B：team50分支下的team50/是完整项目根。成熟文档与精华session按模板重新编写，代码、标准Skill和有效机器证据按依赖筛选迁移；具体目录和文档职责统一见[提交组织](docs/project-work-plan.md#交付与修改范围)。外层开发仓库保留历史与原预算，不把它整体复制进提交目录，不重新启动已取消的平台演示。
 
-竞赛版保留修复义务、工作上下文、有条件经验使用和任务内反馈修订。跨任务模型提炼与自动晋升、完整生命周期科研成本和自动运行采值作为扩展保留，不再阻塞该节点。交付软件后先接通并验证真实基础闭环，再按相同模型、材料、工具和预算比较增强；依据实测决定比赛配置与论文主张。
+迁移后的安装、CLI、输入/宿主源码回放、报告和资源释放须从team50根实际核验，不能借用开发机绝对路径或旧环境归属。正式文档区分实现能力、实际启用和已证明效果；方法比较与论文主张只据现有证据，不为材料包装追加无必要的模型调用。日期、依赖和退出扩展规则统一见[实施计划](docs/project-work-plan.md)，实际进度只见[STATUS](docs/STATUS.md)。
 
 本项目不等待设备到位。优先把可在宿主运行时中保持语义的相关逻辑接成回放，用真实候选源码与独立预期验证；平台依赖无法覆盖时明确报告限制或只产出未验证补丁。完整 HarmonyOS 行为属于可选更高层验证，不把宿主结果冒充设备实测，也不预先承诺组委会会把二者视为等价成绩。
 
-后续实施围绕完整任务路径逐步打通。换模型接手时，先读 STATUS 指定的下一包，再按 [实施计划的工作包](docs/project-work-plan.md#可直接接手的实现工作包) 查看修改范围、前置依赖和失败用例；每包通过检查再提交。资源保护和停止/清理优先于依赖安装，基础 Agent 优先于效果增强。
+换模型接手时先读STATUS指定的下一步，再按[提交组织](docs/project-work-plan.md#交付与修改范围)完成软件/证据迁移、文档和独立核验；既有组件依赖可查[工作包索引](docs/project-work-plan.md#可直接接手的实现工作包)，不从早期工程包重新开发。每个完整目标核验后本地提交，不自行推送远程。
 
 ## 7. 文档怎么用
 
@@ -159,7 +159,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | 位置 | 用途 |
 |---|---|
 | `docs/` | 上表中的阶段、设计、规格、评测与证据文档 |
-| `DFX-HarmonyOS/` | Git忽略的可选HarmonyOS应用演示存储；安装包、平台工具、设备数据和工作副本集中存放，最终证据另导出到application-demo |
+| `DFX-HarmonyOS/` | 已退出本次提交范围且由用户删除的可选平台存储；代码仍保留归属与清理边界，当前不依赖或重建该目录 |
 | `src/dfx_agent/` | Python 证据与修复 Agent、候选工作区、SDK 闭环、云端请求和本机检查通道、竞赛交付及受控策略；实际验收见 STATUS，模块职责见下表 |
 | `scripts/dfx.py` | 加载 src 包，提供 doctor / prepare / analyze 和受管 competition / repair / resume / aggregate / export / verify-export 入口 |
 | `scripts/bootstrap.py`、`setup.cmd`、`dfx.cmd` | 无 PowerShell 的一次安装/外部环境清理、仓库快捷启动；初始安装需要普通 Python 3.11+，不借用 Codex 路径 |
@@ -261,6 +261,7 @@ Export 从显式离线评测清单保留任务源码、全部候选、账本和�
 | `tests/test_news_final_export.py`、`tests/test_pilot_export_acceptance.py` | 最后新闻冻结补丁的零模型复验；全部预定OOD/消融产物的原清单、原件包及实际Git应用检查，失败和无补丁结果也核验 |
 | `scripts/preparation/report_evaluation.py` | 只读有效终态导出和冻结模型账本，生成robustness/ablations统计及共同条件检查；不发模型请求，不修改原报告 |
 | `archive/` | 失效文档、旧配置、历史合成运行/自检导出及一次性脚本；按主题保留原相对目录和本地说明，Git 忽略。当前命令及配置不依赖这里；归档不释放磁盘空间 |
+| `answer_B/` | 用户fork的独立提交仓库，由自己的Git维护；使用team50分支和team50项目根，外层Git忽略。当前仅组织已定，迁移与正式文档状态见STATUS |
 | `pyproject.toml`、`uv.lock`、`.python-version` | Python 3.13 基线、SDK 与质量工具的已解析依赖锁 |
 | `.gitignore` | 排除本地数据、归档、运行产物、缓存、虚拟环境和凭据文件 |
 | `.gitkeep` / 各目录 README.txt / template-session.json | 竞赛模板的占位及格式说明 |

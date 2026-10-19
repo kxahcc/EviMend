@@ -2,11 +2,7 @@
 
 状态：当前工具说明。最后维护：2026-10-19。
 
-`office_application_demo.py`仅为B3-017完整应用演示包装现成7-Zip、ohpm、Hvigor及Emulator CLI，不另建Agent。使用项目Python的`-B -m dfx_agent.managed_runtime --workspace . Run -Task harmony-prepare -HarmonyStep <步骤>`；具名步骤有storage、inspect、extractor、payload、extract、tools、emulator-info、emulator-license、build-original、build-patched、build-evidence及ide-inspect。最后一项仅限额内查看官方IDE，实际启动须满足操作授权，不代表已运行应用。工具、SDK、缓存、冻结工程和过程日志留DFX-HarmonyOS；用户因SDK路径限制批准C:/Users/kxahcc/DFX-HarmonyOS-build存临时构建副本并计共同预算，其中sdk引用原SDK，为资源编译器提供英文参数，不复制SDK。build-evidence重新核对每个原始输入和HAP，再导出两版包、构建日志及清单到runs/exports/robustness/application-demo/build，构建通过不等于应用运行通过。
-
-用户下载的固定版本axios HAR须符合官方发布完整性值才进入SDK缓存，实际安装仍由ohpm完成，不改应用依赖声明。先核原版/补丁冻结清单，构建在独立副本，不改data_B；SDK适配只限声明的构建配置，不能改业务源码。复用SDK重试和SSL校验，不自行实现包管理协议。emulator-info显式指定项目镜像/实例目录并记录默认及本机现有代理下的查询结果，空输出不代表取得镜像；SDK许可标记及清理见本机目录README。普通Agent env/all清理保留平台及获准的构建目录，实际结果和阻塞见STATUS。
-
-用户改为自行尝试一次平台演示，完整操作/取证/停止/清理见本机runs/exports/robustness/application-demo/README.md。DFX-HarmonyOS/open-office.cmd是随SDK一起清理的本机手动入口，只设进程局部环境，不是Agent生产入口、不提供Job限额或此前7分钟关闭；不要将它与受管构建命令混用。默认轻量源码主线及其安装方式不变。
+`office_application_demo.py`是已退出本次提交范围的B3-017可选平台实验脚本。用户已取消完整应用验证并自行删除SDK环境和application-demo，当前不再使用或重建这些资源，不把SDK或手动IDE入口作为Agent运行前置。代码及历史测试在开发仓库保留原义；提交版按实际import/测试依赖筛选，不能照搬已失效的环境或说明。正式软件/证据组织见[实施计划](../../docs/project-work-plan.md#交付与修改范围)。
 
 `report_evaluation.py` 用标准库读取 `runs/exports/evaluation-runs.json` 和各个有效终态导出的 `evidence.zip`，分别生成robustness与ablations的README、统计JSON/CSV及逐次RESULT.md，总统计为evaluation-summary.json。它只整理报告，不启动模型、检查或恢复任务。冻结SQLite从ZIP精确读取到项目临时目录并以只读immutable方式打开，不读取活动数据库；思考历史和Key不输出。统计分开保留缓存命中/未命中输入、输出、费用、源码验证和实际机制消费，核对比较的模型、知识、工具、输入及其他限额；Token上限有差异时明确保留，不能称为严格同额度通过率比较。命令：`python scripts/preparation/report_evaluation.py`，需已有本机有效导出；不依赖旧work或archive。
 
