@@ -134,3 +134,43 @@ def test_cleaned_platform_copies_can_be_rebuilt_without_old_tmp(project: Path) -
     assert (copies / "original/DataManager.ets").read_bytes() == b"faulty source"
     assert (copies / "patched/DataManager.ets").read_bytes() == b"fixed source"
     assert (original / "DataManager.ets").read_bytes() == b"faulty source"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="ohpm uses Windows directory junctions")
+def test_platform_package_junctions_are_counted_without_following_or_double_counting(project: Path) -> None:
+    from _winapi import CreateJunction
+
+    runtime = managed_runtime.Runtime(project)
+    storage = project / "DFX-HarmonyOS"
+    package = storage / "cache/packages/axios"
+    package.mkdir(parents=True)
+    (package / "index.js").write_bytes(b"verified package")
+    before, _, _ = runtime.accounting()
+    modules = storage / "projects/app/oh_modules"
+    modules.mkdir(parents=True)
+    junction = modules / "axios"
+    CreateJunction(str(package), str(junction))
+    try:
+        after, _, missing = runtime.accounting()
+        assert not missing
+        assert after["harmonyos"] == before["harmonyos"]
+    finally:
+        junction.rmdir()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="ohpm uses Windows directory junctions")
+@pytest.mark.parametrize("outside", ["data_B", ".dfx-local/cache"])
+def test_platform_junctions_cannot_escape_into_other_project_roots(project: Path, outside: str) -> None:
+    from _winapi import CreateJunction
+
+    runtime = managed_runtime.Runtime(project)
+    target = project / outside
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "foreign.txt").write_bytes(b"must not be counted or followed")
+    junction = project / "DFX-HarmonyOS/foreign"
+    CreateJunction(str(target), str(junction))
+    try:
+        with pytest.raises(ValueError, match="unsafe linked inventory"):
+            runtime.accounting()
+    finally:
+        junction.rmdir()

@@ -1,0 +1,53 @@
+{
+  "date": "2026-10-19",
+  "base_commit": "d80ad3b",
+  "scope": "Admit the user-downloaded official axios HAR, continue the one OfficeAttendance application build, and identify the next concrete SDK prerequisite",
+  "dependency": {
+    "name": "@ohos/axios",
+    "version": "2.2.15",
+    "bytes": 90430,
+    "sha256": "9c1d6784b915692f863abe1f2fb807bd6535bf0abd88703d61bc64e0e044a734",
+    "registry_metadata_collected": "2026-10-19 via HTTPS from ohpm.openharmony.cn/ohpm/@ohos/axios",
+    "integrity": "sha512-kfibdLAEXfafLAw22OTcaXVMB5RSJGShinWcdJF/DXItmrHYEeOjIeLkIYK3Bq6kkLYYeJHXStdpSMiBniffDg==",
+    "official_integrity_matches": true,
+    "admission": "Seed verified bytes into the bundled ohpm content-addressed cache; ohpm itself rechecks registry integrity. Application dependency declarations remain unchanged",
+    "observed_install": "install completed in 2s 435ms; later runs completed in 0s 139ms and 0s 142ms",
+    "pnpm": "Official Hvigor wrapper installed its pinned pnpm 10.28.2 successfully using npm in the platform cache; no automatic audit fix or package upgrade"
+  },
+  "resource_changes": {
+    "canonical_values": "configs/local-runtime.json",
+    "job_memory_cap": "Tightened from 6 GiB to 5 GiB; kept the existing 2 GiB system reserve and all other limits",
+    "reason": "Observed 8251244544 available bytes could not admit the previous full cap plus reserve; no user processes terminated",
+    "ohpm_junctions": "Actual installation created Windows Junctions inside the platform root. Inventory now accepts only platform-internal resolved targets, does not traverse aliases or double count them, and rejects links into data_B, the Agent root or any external location. Exports remain strict"
+  },
+  "actual_attempts": [
+    {"receipt": "0c503ca2-66c2-4b92-a9f3-ea1af7fdfcfa", "result": "ohpm installation succeeded; manager rejected newly observed Junctions before compilation, leading to the scoped inventory correction"},
+    {"receipt": "dacaa143-646d-41e9-aaca-06f7c931a73c", "result": "ohpm and pnpm setup succeeded; Hvigor rejected the real Chinese project path with error 00306003 and zero build tasks"},
+    {"receipt": "94c0a32a-a0f0-4b8c-bc17-be915c4f8201", "result": "A temporary drive alias was tested, but Hvigor realpathSync.native restored the Chinese physical path and rejected it. Mapping release confirmed by native receipt; ineffective implementation and its extra tests removed"},
+    {"receipt": "5399243f-a36c-4763-b19c-01a8f3b2c1e7", "result": "After alias removal, SDK CLI probes passed and ohpm cache configuration was restored to the physical project path"}
+  ],
+  "rejected_workaround": {
+    "windows_short_path": "Still contains the two Chinese ancestor directory names",
+    "temporary_drive": "Does not satisfy the SDK's real-path validation; no registry edit or physical file relocation was performed",
+    "retained_state": "No active alias implementation; discarded local configuration and trial log are under DFX-HarmonyOS/tmp/rejected-path-alias"
+  },
+  "verification": {
+    "offline_package_and_setup": {"receipt": "aed27141-5645-490e-98e0-89f05bfe758c", "passed": 11, "seconds": 0.22},
+    "native_manager": {"receipt": "306c2971-af90-4100-b179-424997fe5b75", "passed": 28, "seconds": 8.79},
+    "storage_and_junctions": {"receipt": "fd34cd9f-6f34-43b0-8ee5-4ed972520097", "passed": 10, "seconds": 0.69},
+    "ruff": {"receipt": "ed258476-234e-44f6-91e3-959678ca29b4", "result": "All checks passed"},
+    "docs": {"receipt": "f8f710c2-4e48-428e-ba92-c50b55a39d76", "documents": 14, "errors": 0}
+  },
+  "initial_check_failures": [
+    "First 10-test Junction run passed assertions but fixture links remained and caused managed temporary cleanup rejection. Added explicit unlink in each fixture and removed only the three owned stale test Junctions before the complete passing run",
+    "First offline package test run was 10 passed/1 failed because the content-addressed filename exceeded legacy Windows path length in the deep fixture. Reused the existing extended-path IO helper for cache copying and kept the original deep path and assertions; all 11 passed"
+  ],
+  "user_decision": "After the SDK path restriction was demonstrated, user explicitly allowed C:/Users/kxahcc/DFX-HarmonyOS-build for temporary original/patched build copies only; SDK, caches and logs stay in DFX-HarmonyOS. Account/bind this separate root before creating it in the next implementation batch",
+  "external_build_directory_created": false,
+  "application_built": false,
+  "emulator_started": false,
+  "fresh_fault_or_screenshots_collected": false,
+  "new_model_calls": 0,
+  "original_data_or_submission_templates_modified": false,
+  "next": "Implement the explicitly approved directory admission/accounting, compile both copies using identical recorded build configuration, then assess the emulator and collect real runtime/behavior/screenshots"
+}

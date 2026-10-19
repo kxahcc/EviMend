@@ -6,6 +6,7 @@ only final application verification evidence is published in application-demo.
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -19,6 +20,7 @@ from typing import Any
 from dfx_agent.harmony_workspace import _manifest
 from dfx_agent.managed_runtime import (
     Runtime,
+    _io_path,
     _now,
     _read,
     _write,
@@ -402,6 +404,32 @@ def accept_emulator_license(repo: Path) -> dict[str, Any]:
             "derived_payload_bytes_released": removed, "original_installer_preserved": True}
 
 
+def stage_downloaded_axios(repo: Path, storage: Path) -> dict[str, Any] | None:
+    archive = checked(storage / "downloads/axios-2.2.15.har", storage)
+    if not archive.exists():
+        return None
+    metadata = _read(storage / "config/axios-registry-metadata.json", repo)
+    integrity = metadata["versions"]["2.2.15"]["dist"]["integrity"]
+    if not integrity.startswith("sha512-"):
+        raise ValueError("official axios metadata does not declare SHA-512")
+    expected = base64.b64decode(integrity[7:], validate=True)
+    with _io_path(archive).open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha512").digest()
+    if len(expected) != 64 or digest != expected:
+        raise ValueError("downloaded axios differs from the official package integrity")
+    # The bundled ohpm/lib/core/cache/index.js uses this content-addressed
+    # layout and rechecks the same registry digest before accepting a cache hit.
+    # Seed only this verified download; keep dependency declarations unchanged.
+    value = digest.hex()
+    cached = checked(storage / "cache/ohpm/content-v1/sha512" / value[:2] / value[2:4] / value[4:], storage)
+    _io_path(cached.parent).mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(_io_path(archive), _io_path(cached))
+    record = {"name": "@ohos/axios", "version": "2.2.15", "bytes": _io_path(archive).stat().st_size,
+              "official_integrity_matches": True, "integrity": integrity, "cache_path": str(cached)}
+    _write(storage / "config/axios-offline-package.json", record, repo)
+    return record
+
+
 def build_application(repo: Path, variant: str) -> dict[str, Any]:
     runtime, storage, marker = storage_context(repo)
     if variant not in {"original", "patched"}:
@@ -429,6 +457,7 @@ def build_application(repo: Path, variant: str) -> dict[str, Any]:
     hvigor = checked(storage / "ide/tools/hvigor/bin/hvigorw.js", repo, exists=True)
     started = time.monotonic()
     configure_package_network(repo, storage, node, ohpm)
+    stage_downloaded_axios(repo, storage)
     record: dict[str, Any] = {"variant": variant, "workspace": str(work), "status": "running"}
     destination = storage / "config" / ("build-" + variant + ".json")
     try:
@@ -436,7 +465,7 @@ def build_application(repo: Path, variant: str) -> dict[str, Any]:
                 "ohpm-install-" + variant + ".txt", timeout=600, cwd=work)
         execute(repo, storage, [str(node), str(hvigor), "--mode", "module", "-p", "product=default",
                                 "-p", "module=phone@default", "assembleHap", "--no-daemon", "--no-parallel",
-                                "--no-analyze", "--max-old-space-size", "2048", "--Xmx", "1024"],
+                                "--analyze=false", "--max-old-space-size", "2048", "--Xmx", "1024"],
                 "build-" + variant + ".txt", timeout=900, cwd=work)
         packages = sorted(work.glob("product/phone/build/default/outputs/default/*.hap"))
         if not packages:

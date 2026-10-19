@@ -184,6 +184,7 @@ class Runtime:
         checked(target, self.repo)
         if not target.exists():
             return 0, []
+        link_boundary = self.harmony_root if self.harmony_root is not None and target == self.harmony_root else self.root
         total, inaccessible = 0, []
         pending = [target]
         while pending:
@@ -204,7 +205,7 @@ class Runtime:
                 try:
                     info = child.stat(follow_symlinks=False)
                     if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
-                        if strict_links or not entry.resolve(strict=True).is_relative_to(self.root):
+                        if strict_links or not entry.resolve(strict=True).is_relative_to(link_boundary):
                             raise ValueError("unsafe linked inventory entry")
                         checked(entry.resolve(strict=True), self.repo, exists=True)
                     elif stat.S_ISDIR(info.st_mode):
@@ -225,7 +226,7 @@ class Runtime:
             sizes[name], errors = self.inventory(self.root / name)
             inaccessible.extend(errors)
         if self.harmony_root is not None:
-            sizes["harmonyos"], errors = self.inventory(self.harmony_root, strict_links=True)
+            sizes["harmonyos"], errors = self.inventory(self.harmony_root)
             inaccessible.extend(errors)
         exports, errors = self.inventory(self.exports, strict_links=True)
         inaccessible.extend(errors)

@@ -2,7 +2,7 @@
 
 状态：当前工具说明。最后维护：2026-10-19。
 
-`office_application_demo.py`仅为B3-017完整应用演示包装现成7-Zip、ohpm、Hvigor及Emulator CLI，不另建Agent。使用项目Python的`-B -m dfx_agent.managed_runtime --workspace . Run -Task harmony-prepare -HarmonyStep <步骤>`；已接入storage、inspect、extractor、payload、extract、tools、emulator-info、emulator-license、build-original及build-patched。安装包、工具、缓存、构建副本及过程日志留DFX-HarmonyOS，核验证据入口为runs/exports/robustness/application-demo。先核原版/补丁冻结清单，构建在独立build副本，不改data_B；SDK适配只限声明的构建配置，不能改业务源码。工具安装不等于HAP构建、故障复现、回归或截图完成，结果见STATUS。复用SDK重试和SSL校验，不自行实现包管理协议；SDK许可标记例外及清理见本机目录README。Agent普通env/all清理保留平台目录。
+`office_application_demo.py`仅为B3-017完整应用演示包装现成7-Zip、ohpm、Hvigor及Emulator CLI，不另建Agent。使用项目Python的`-B -m dfx_agent.managed_runtime --workspace . Run -Task harmony-prepare -HarmonyStep <步骤>`；已接入storage、inspect、extractor、payload、extract、tools、emulator-info、emulator-license、build-original及build-patched。安装包、工具、缓存、构建副本及过程日志留DFX-HarmonyOS，核验证据入口为runs/exports/robustness/application-demo。用户下载的固定版本axios HAR须符合官方发布完整性值才进入SDK缓存，实际安装仍由ohpm完成，不改应用依赖声明。先核原版/补丁冻结清单，构建在独立build副本，不改data_B；SDK适配只限声明的构建配置，不能改业务源码。工具安装不等于HAP构建、故障复现、回归或截图完成，结果见STATUS。SDK另有英文真实工程路径限制，拟议外部构建副本未接纳前不创建。复用SDK重试和SSL校验，不自行实现包管理协议；SDK许可标记例外及清理见本机目录README。Agent普通env/all清理保留平台目录。
 
 `report_evaluation.py` 用标准库读取 `runs/exports/evaluation-runs.json` 和各个有效终态导出的 `evidence.zip`，分别生成robustness与ablations的README、统计JSON/CSV及逐次RESULT.md，总统计为evaluation-summary.json。它只整理报告，不启动模型、检查或恢复任务。冻结SQLite从ZIP精确读取到项目临时目录并以只读immutable方式打开，不读取活动数据库；思考历史和Key不输出。统计分开保留缓存命中/未命中输入、输出、费用、源码验证和实际机制消费，核对比较的模型、知识、工具、输入及其他限额；Token上限有差异时明确保留，不能称为严格同额度通过率比较。命令：`python scripts/preparation/report_evaluation.py`，需已有本机有效导出；不依赖旧work或archive。
 

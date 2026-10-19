@@ -709,7 +709,7 @@ Stop 优先通过当前用户可访问的控制通道请求管理器停止，再
 
 ### 9.4 统一命令与清理协议
 
-下表列出生产入口，实际验收见STATUS。Status遇不可读目录保留inaccessible_paths并标记resource_accounting=incomplete，新Run拒绝直到可完整盘点。实验权限取配置，软件通过不作为修复效果。开发测试经Python管理入口，不直接pytest绕过限制。大SDK文件树复用os.scandir的DirEntry元数据，保持链接和不可读拒绝，避免每文件另做lstat。
+下表列出生产入口，实际验收见STATUS。Status遇不可读目录保留inaccessible_paths并标记resource_accounting=incomplete，新Run拒绝直到可完整盘点。实验权限取配置，软件通过不作为修复效果。开发测试经Python管理入口，不直接pytest绕过限制。大SDK文件树复用os.scandir的DirEntry元数据，避免每文件另做lstat。平台包管理器的链接必须解析后仍在DFX-HarmonyOS内部，计真实文件而不跟随别名重复遍历；指向data_B、Agent环境或根外目标一律拒绝。导出目录仍拒绝链接，不放宽清理范围。SDK可能另要求真实工程路径无中文，不能假定逻辑盘符能满足；遇到与用户存储要求冲突时先确认具体目录例外，实际接纳及工具限制见STATUS。
 
 | 目标调用 | 行为 |
 |---|---|

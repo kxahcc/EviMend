@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import runpy
 from contextlib import nullcontext
@@ -54,3 +56,27 @@ def test_installed_toolchain_does_not_require_retained_installer(tmp_path: Path,
     assert context(repo)[2]["installed"] is True
     with pytest.raises(FileNotFoundError):
         context(repo, require_installer=True)
+
+
+@pytest.mark.parametrize("tampered", [False, True])
+def test_offline_download_must_match_registry_before_cache_write(tmp_path: Path, tampered: bool) -> None:
+    storage = tmp_path / "DFX-HarmonyOS"
+    (storage / "downloads").mkdir(parents=True)
+    (storage / "config").mkdir()
+    package = b"package bytes supplied by the registry"
+    integrity = "sha512-" + base64.b64encode(hashlib.sha512(package).digest()).decode("ascii")
+    (storage / "config/axios-registry-metadata.json").write_text(json.dumps({
+        "versions": {"2.2.15": {"dist": {"integrity": integrity}}}
+    }))
+    (storage / "downloads/axios-2.2.15.har").write_bytes(b"changed package" if tampered else package)
+    script = Path(__file__).parents[1] / "scripts/preparation/office_application_demo.py"
+    stage = runpy.run_path(str(script))["stage_downloaded_axios"]
+    if tampered:
+        with pytest.raises(ValueError, match="official package integrity"):
+            stage(tmp_path, storage)
+        assert not (storage / "cache").exists()
+        assert not (storage / "config/axios-offline-package.json").exists()
+    else:
+        result = stage(tmp_path, storage)
+        assert managed_runtime._io_path(Path(result["cache_path"])).read_bytes() == package
+        assert result["official_integrity_matches"] is True
