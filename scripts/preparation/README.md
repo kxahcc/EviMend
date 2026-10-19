@@ -6,6 +6,8 @@
 
 用户下载的固定版本axios HAR须符合官方发布完整性值才进入SDK缓存，实际安装仍由ohpm完成，不改应用依赖声明。先核原版/补丁冻结清单，构建在独立副本，不改data_B；SDK适配只限声明的构建配置，不能改业务源码。复用SDK重试和SSL校验，不自行实现包管理协议。emulator-info显式指定项目镜像/实例目录并记录默认及本机现有代理下的查询结果，空输出不代表取得镜像；SDK许可标记及清理见本机目录README。普通Agent env/all清理保留平台及获准的构建目录，实际结果和阻塞见STATUS。
 
+用户改为自行尝试一次平台演示，完整操作/取证/停止/清理见本机runs/exports/robustness/application-demo/README.md。DFX-HarmonyOS/open-office.cmd是随SDK一起清理的本机手动入口，只设进程局部环境，不是Agent生产入口、不提供Job限额或此前7分钟关闭；不要将它与受管构建命令混用。默认轻量源码主线及其安装方式不变。
+
 `report_evaluation.py` 用标准库读取 `runs/exports/evaluation-runs.json` 和各个有效终态导出的 `evidence.zip`，分别生成robustness与ablations的README、统计JSON/CSV及逐次RESULT.md，总统计为evaluation-summary.json。它只整理报告，不启动模型、检查或恢复任务。冻结SQLite从ZIP精确读取到项目临时目录并以只读immutable方式打开，不读取活动数据库；思考历史和Key不输出。统计分开保留缓存命中/未命中输入、输出、费用、源码验证和实际机制消费，核对比较的模型、知识、工具、输入及其他限额；Token上限有差异时明确保留，不能称为严格同额度通过率比较。命令：`python scripts/preparation/report_evaluation.py`，需已有本机有效导出；不依赖旧work或archive。
 
 `inspect_dfx_data.py` 只读检查本地 data_B 的应用、日志、ZIP 内容和源码映射，输出 resources/preparation/data-b-inventory.json；不联网，不执行数据中的脚本，不修改应用源码，结果不是根因标签或修复成绩。现有全量清单采集于 2026-09-15；重新盘点前须先为该脚本接入受管 `Run` 任务，目前不使用直接 Python 命令绕过本机资源入口。

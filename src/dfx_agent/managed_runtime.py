@@ -215,6 +215,13 @@ class Runtime:
                 entry = folder / child.name
                 try:
                     info = child.stat(follow_symlinks=False)
+                    # IntelliJ-based DevEco uses an AF_UNIX endpoint here on
+                    # Windows. It is not a redirectable filesystem link.
+                    if (not strict_links and self.harmony_root is not None and target == self.harmony_root and
+                            entry == self.harmony_root / "cache/ide/.port" and
+                            getattr(info, "st_reparse_tag", 0) == 0x80000023):
+                        total += info.st_size
+                        continue
                     if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
                         resolved = entry.resolve(strict=True)
                         # The SDK remains physically inside project storage.

@@ -1,0 +1,58 @@
+{
+  "date": "2026-10-19",
+  "base_commit": "e18c982",
+  "scope": "Close the interrupted optional IDE inspection, preserve its narrow endpoint fix, and hand one manual application attempt plus cleanup instructions to the user",
+  "user_decisions": [
+    "Explicitly accepted opening the official IDE within the original resource limits for up to seven minutes",
+    "Personally handled the first Device Manager agreement and asked to continue",
+    "Pressed physical Escape to stop Computer Use; all further UI input stopped and the owned SDK job was stopped",
+    "Now wants a complete manual attempt/collection/cleanup guide, then submission preparation; optional full application verification may be omitted if the attempt remains blocked"
+  ],
+  "sdk_runs": [
+    {"receipt": "0a8718cc-d870-4b19-be3f-a4f1fa9f2e08", "result": "IDE started; manager rejected the Windows AF_UNIX cache/ide/.port endpoint as a reparse target and terminated this Job"},
+    {"receipt": "f529a52f-461f-48da-ab68-55920bd8a4bd", "result": "After exact endpoint recognition, the complete finite seven-minute session finished successfully; IDE opened the original project and Device Manager, then all owned processes closed"},
+    {"receipt": "b8f4a3dd-26bb-456b-9248-cbc60fd93900", "result": "Second finite inspection reached the emulator cache path picker, which explicitly rejected the Chinese project path; canceled via verified native Stop after physical Escape"}
+  ],
+  "endpoint_fix": {
+    "path": "DFX-HarmonyOS/cache/ide/.port",
+    "observed_reparse_tag": "0x80000023",
+    "observed_size": 0,
+    "behavior": "Count only this fixed official IPC endpoint's own size; do not resolve/traverse it. Other link paths/types and strict export rules are unchanged",
+    "initial_tests": "15 existing tests passed. An attempted real socket fixture skipped because this managed Python lacks AF_UNIX; removed that unavailable fixture instead of claiming it passed. The actual JBR endpoint and full native IDE session provide integration evidence"
+  },
+  "manual_handoff": {
+    "guide": "runs/exports/robustness/application-demo/README.md",
+    "entry": "DFX-HarmonyOS/open-office.cmd",
+    "entry_status": "Prepared and reviewed, not executed; user-controlled official IDE with process-local environment, no Windows Job caps or seven-minute shutdown",
+    "image_cache_logical": "C:/Users/kxahcc/DFX-HarmonyOS-build/sdk/emulator-workspace",
+    "image_cache_physical": "DFX-HarmonyOS/ide/sdk/emulator-workspace",
+    "image_cache_admission": "Directory prepared; GUI acceptance, download and boot remain unverified",
+    "outputs": "application-demo/manual original/patched installation, launch, timestamps, logs, fresh screenshots and user result notes",
+    "extra_boundary": "Static review found that the selected 017 patch does not add question-mark escaping; the existing fixed source protocol omits that keyword. Explicitly listed as an extra manual check, no new candidate or passing result fabricated"
+  },
+  "cleanup": {
+    "performed": false,
+    "primary_storage_bytes_observed": 15900468114,
+    "external_build_bytes_observed": 81332431,
+    "agent_accounting": "complete, inaccessible_paths=[], active_state=none, cleanup_available=true",
+    "owned_ide_or_emulator_processes_observed": [],
+    "small_external_state": [
+      "C:/Users/kxahcc/AppData/Local/Huawei/Emulator26.0/.emu_config (75 bytes)",
+      "C:/ProgramData/huawei/Emulator/deployed/privacy.json (124 bytes)",
+      "C:/ProgramData/huawei/Emulator/deployed/versionInfo.txt (10 bytes)"
+    ],
+    "order": "Stop owned emulator/IDE/hdc; keep exported evidence; remove the sdk Junction itself; remove the exact owned external build directory and project SDK root; separately review the small default SDK records",
+    "preserve": [".dfx-local", "runs/exports", "data_B", "source/skills/configs/docs/sessions", "Git", "private model configuration"]
+  },
+  "verification": {
+    "storage_regression": {"receipt": "6ba06335-e800-4527-a5c4-e3e7ed4f8814", "passed": 15, "seconds": 1.04},
+    "ruff": {"receipt": "33b09834-b15d-4893-bff9-e45fa6794006", "result": "All checks passed"},
+    "docs": {"receipt": "69a41864-f0e7-418a-9368-a9aefdb6f327", "documents": 14, "errors": 0}
+  },
+  "new_model_calls": 0,
+  "new_image_downloads_or_vm_instances": 0,
+  "new_global_software_plugins_drivers_services_or_model_weights": false,
+  "resource_limits_or_original_data_or_submission_templates_changed": false,
+  "application_verified": false,
+  "next": "Wait for the user's one manual attempt or decision to omit the application extension; then verify supplied evidence and prepare the submission under the user's requested format"
+}
