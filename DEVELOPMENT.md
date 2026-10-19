@@ -105,7 +105,7 @@ CLI 只承担传参、显示活动、停止/恢复与读取结果。后续需要
 
 ### 本机资源怎样集中管理
 
-本机实现采用仓库内 .dfx-local 作为Agent环境、缓存、临时副本和运行记录的集中位置；离线证据通过受管 Export 保留到 runs/exports。可选办公考勤应用演示的工具、SDK、模拟器镜像/实例、构建缓存、工程副本和过程日志统一放在用户指定且Git忽略的DFX-HarmonyOS/，最终核验证据进入runs/exports/robustness/application-demo/。Python管理入口把该平台目录计入共同磁盘预算，普通Agent env/all清理保留它；平台安装、启动与清理仍须另行接纳，实际进度见STATUS。日常只启动一个受管任务，不改全局环境，没有本机模型权重占用。
+本机实现采用仓库内 .dfx-local 作为Agent环境、缓存、临时副本和运行记录的集中位置；离线证据通过受管 Export 保留到 runs/exports。可选办公考勤应用演示的工具、SDK、模拟器镜像/实例、构建缓存、冻结工程和过程日志放在用户指定且Git忽略的DFX-HarmonyOS/，最终核验证据进入runs/exports/robustness/application-demo/。官方构建器要求英文真实工程路径，因此用户另行批准C:/Users/kxahcc/DFX-HarmonyOS-build只存临时构建副本；其中sdk是指向原SDK的英文路径引用，不另复制工具。Python管理入口将两个目录均计入共同磁盘预算、核对构建目录归属，普通Agent env/all清理保留它们；平台安装、启动与清理仍须另行接纳，实际进度见STATUS。日常只启动一个受管任务，不改全局环境，没有本机模型权重占用。
 
 面向用户的dfx前端负责启动、配置、进度和会话操作，env管理安装、占用和按计划清理。交付范围是Windows x64完整项目、专属环境和console entry。一次setup.cmd使用普通Python 3.11+创建锁定环境；日常用dfx.cmd或环境内dfx，不依赖PowerShell、Codex路径或全局PATH修改。Python管理入口复用Windows Job及原停止/归属/限额；历史PS仅作兼容。Agent资源在.dfx-local，可选平台资源在DFX-HarmonyOS。删除Agent env/all先退出，再用外部普通Python的setup.cmd --clean预览/应用；该操作保留平台目录。平台只按用户选定单应用的授权和STATUS继续，资源值唯一取配置。独立wheel及跨平台仍未验收；命令见[Agent说明](src/dfx_agent/README.md)，边界见[设计第9节](docs/development/system-design-draft.md#9-本机环境资源限制与集中清理)。
 

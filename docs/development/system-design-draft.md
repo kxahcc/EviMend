@@ -673,6 +673,7 @@ Windows 管理器用扩展路径执行深层目录的元数据读取、盘点和
 | .dfx-local/work/ | 每个 run 的可写源码副本、候选 diff、SQLite 检查点、检查意图与报告 | 终态只证明运行结束；非空 work 清理仍须明确丢弃授权，不共享可写硬链接到 data_B |
 | 宿主验证运行时/缓存 | 优先复用已有工具；新增工具使用项目专属路径，来源、限额和清理先接纳 | 不卸载既有工具，不将其他环境归入本项目清理 |
 | DFX-HarmonyOS/ | 可选应用的安装包、ide/、sdk/、emulator/images与devices、cache/config/home/tmp、projects/officeattendance原版与补丁、logs/evidence | Python入口单列harmonyos占用并计入共同磁盘预算；普通Agent env/all清理保留。仅核实全部平台进程停止、保留最终证据后另行清理，不卸载其他系统工具 |
+| C:/Users/kxahcc/DFX-HarmonyOS-build/ | 用户因官方英文路径限制另行批准的原版/补丁临时构建副本 | 平台workspace.json明确授权，.dfx-build-owner.json绑定项目；单列harmony_build并计共同预算。sdk仅为指向原平台SDK的Junction，不重复计数。普通Agent清理保留；最终证据不依赖它 |
 | .dfx-local/artifacts/、state/ | 受限进程日志、资源记录、管理状态 | 为证据/恢复数据，不按缓存自动删 |
 | .dfx-local/owner.json | schema、仓库绝对路径、随机项目实例 ID、创建时间 | 管理入口生成，用于校验归属；不是删除授权本身 |
 | runs/exports/ | 显式矩阵的本机私有证据包及清理回执 | 普通清理保留、独立显示大小；单包上限及与 managed 共用的磁盘预算约束累计占用，不视为已脱敏公开材料 |
@@ -695,7 +696,7 @@ Windows 管理器用扩展路径执行深层目录的元数据读取、盘点和
 | CPU、进程数 | Windows Job Object 对受管工作进程树设置 CPU hard cap 和活动进程数上限 | 无法建立/核验限制则拒绝工作进程继续运行，不能悄悄变为无限制 |
 | 内存 | Job 的 committed memory 上限取配置绝对上限与物理内存比例的较小值；启动预留系统可用内存，运行时监测 | 分配可能失败；记录资源原因并停止任务。它不是对全机 RSS 或系统文件缓存的硬限制 |
 | 并发 | 一个管理根的互斥锁与运行租约；生产任务及历史开发入口共享同一资源归属，禁止重叠执行 | 第二个启动返回 busy；Stop/Status 不受工作锁阻挡 |
-| 磁盘 | Python受管任务预检和监测Agent managed、可选DFX-HarmonyOS与exports的合计逻辑大小及卷剩余空间；下载/解压前估算，Export另估算包和暂存新增 | 超过共同预算、导出单包上限或预留线则拒绝；不通过换Export ID或把SDK放到独立目录漏算 |
+| 磁盘 | Python受管任务预检和监测Agent managed、可选DFX-HarmonyOS、获准的外部构建副本与exports的合计逻辑大小及卷剩余空间；下载/解压前估算，Export另估算包和暂存新增 | 超过共同预算、导出单包上限或预留线则拒绝；不通过换Export ID或把SDK放到独立目录漏算 |
 | 日志 | 受管任务的 stdout/stderr 经管道按字节上限保存，超额立即终止 Job 并继续排空 | 不在内存或磁盘无限堆积输出；留存日志标记截断 |
 | 时间 | 单调时钟截止时间 + 子命令超时，采用资源配置与任务预算中的较严值 | 先请求退出，宽限结束后终止本任务 Job，记录 timeout/inconclusive |
 
@@ -709,7 +710,7 @@ Stop 优先通过当前用户可访问的控制通道请求管理器停止，再
 
 ### 9.4 统一命令与清理协议
 
-下表列出生产入口，实际验收见STATUS。Status遇不可读目录保留inaccessible_paths并标记resource_accounting=incomplete，新Run拒绝直到可完整盘点。实验权限取配置，软件通过不作为修复效果。开发测试经Python管理入口，不直接pytest绕过限制。大SDK文件树复用os.scandir的DirEntry元数据，避免每文件另做lstat。平台包管理器的链接必须解析后仍在DFX-HarmonyOS内部，计真实文件而不跟随别名重复遍历；指向data_B、Agent环境或根外目标一律拒绝。导出目录仍拒绝链接，不放宽清理范围。SDK可能另要求真实工程路径无中文，不能假定逻辑盘符能满足；遇到与用户存储要求冲突时先确认具体目录例外，实际接纳及工具限制见STATUS。
+下表列出生产入口，实际验收见STATUS。Status遇不可读目录保留inaccessible_paths并标记resource_accounting=incomplete，新Run拒绝直到可完整盘点。实验权限取配置，软件通过不作为修复效果。开发测试经Python管理入口，不直接pytest绕过限制。大SDK文件树复用os.scandir的DirEntry元数据，避免每文件另做lstat。平台包管理器的链接必须解析后仍在DFX-HarmonyOS内部，计真实文件而不跟随别名重复遍历；外部构建目录只额外接纳根下sdk到本项目ide/sdk的精确引用，SDK真实文件由平台根计一次。其他指向data_B、Agent环境或根外目标拒绝，导出仍拒绝链接。英文构建目录只接受当前用户主目录下固定的DFX-HarmonyOS-build，创建前检查平台与Agent owner一致，已有无owner目录不接管；不能靠换盘符绕过SDK真实路径校验。
 
 | 目标调用 | 行为 |
 |---|---|

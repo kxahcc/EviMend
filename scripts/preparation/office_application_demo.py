@@ -83,8 +83,19 @@ def execute(repo: Path, storage: Path, argv: list[str], log_name: str, timeout: 
     log = checked(storage / "logs" / log_name, repo)
     if log.exists() and log.stat().st_nlink != 1:
         raise ValueError("linked platform log is refused")
+    runtime = Runtime(repo)
+    working = cwd or storage
+    boundary = storage if working.is_relative_to(storage) else runtime.harmony_build_root
+    if boundary is None:
+        raise ValueError("platform command working directory is not admitted")
+    env = process_environment(storage)
+    if boundary == runtime.harmony_build_root:
+        alias = boundary / "sdk"
+        if not alias.is_junction() or alias.resolve(strict=True) != storage / "ide/sdk":
+            raise ValueError("external SDK alias is not the admitted SDK")
+        env["DEVECO_SDK_HOME"] = str(alias)
     with log.open("wb") as output:
-        result = subprocess.run(argv, cwd=checked(cwd or storage, storage, exists=True), env=process_environment(storage),
+        result = subprocess.run(argv, cwd=checked(working, boundary, exists=True), env=env,
                                 stdout=output, stderr=subprocess.STDOUT, shell=False, timeout=timeout, check=False)
     if log.stat().st_size > Runtime(repo).policy["limits"]["max_log_file_bytes"]:
         raise ValueError("platform command output exceeds the configured log cap")
@@ -354,12 +365,23 @@ def emulator_information(repo: Path) -> dict[str, Any]:
         raise ValueError("emulator tooling has not been admitted")
     emulator = checked(storage / "ide/tools/emulator/Emulator.exe", repo, exists=True)
     execute(repo, storage, [str(emulator), "-version"], "emulator-version.txt", cwd=emulator.parent)
+    execute(repo, storage, [str(emulator), "-config", "-instancePath", str(storage / "emulator/devices"),
+                            "-imageRoot", str(storage / "emulator/images")],
+            "emulator-config-paths.txt", timeout=30, cwd=emulator.parent)
     execute(repo, storage, [str(emulator), "-imageList", "-downloaded", "false"],
             "emulator-images-all.txt", timeout=90, cwd=emulator.parent)
     execute(repo, storage, [str(emulator), "-imageList", "-deviceType", "Phone", "-downloaded", "false"],
             "emulator-images-phone.txt", timeout=90, cwd=emulator.parent)
+    execute(repo, storage, [str(emulator), "-imageList", "-deviceType", "Phone", "-downloaded", "false",
+                            "-http_proxy", "http://127.0.0.1:7897"],
+            "emulator-images-proxy.txt", timeout=90, cwd=emulator.parent)
+    execute(repo, storage, [str(emulator), "-screenProfileList", "-deviceType", "Phone", "-details"],
+            "emulator-screen-profiles.txt", timeout=90, cwd=emulator.parent)
     return {"application_run": False, "image_downloaded": False,
-            "logs": ["emulator-version.txt", "emulator-license.txt", "emulator-images.txt"]}
+            "images_returned": bool((storage / "logs/emulator-images-phone.txt").read_bytes().strip()
+                                     or (storage / "logs/emulator-images-proxy.txt").read_bytes().strip()),
+            "logs": ["emulator-version.txt", "emulator-config-paths.txt", "emulator-images-all.txt",
+                     "emulator-images-phone.txt", "emulator-images-proxy.txt", "emulator-screen-profiles.txt"]}
 
 
 def configure_package_network(repo: Path, storage: Path, node: Path, ohpm: Path) -> None:
@@ -440,7 +462,9 @@ def build_application(repo: Path, variant: str) -> dict[str, Any]:
     source = checked(storage / "projects/officeattendance" / variant, repo, exists=True)
     if _manifest(source, repo) != preparation[variant + "_manifest"]:
         raise ValueError("frozen application input differs")
-    work = checked(source.with_name("build-" + variant), repo)
+    boundary = runtime.harmony_build_root or repo
+    work = (checked(runtime.harmony_build_root / variant, boundary) if runtime.harmony_build_root is not None
+            else checked(source.with_name("build-" + variant), repo))
     if not work.exists():
         shutil.copytree(source, work)
     # Only build-system files may be adapted to the installed SDK. Application
@@ -448,7 +472,7 @@ def build_application(repo: Path, variant: str) -> dict[str, Any]:
     for relative, expected in preparation[variant + "_manifest"].items():
         if relative.endswith(("build-profile.json5", "oh-package.json5", "hvigor-config.json5")):
             continue
-        path = checked(work / relative, repo, exists=True)
+        path = checked(work / relative, boundary, exists=True)
         with path.open("rb") as stream:
             if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
                 raise ValueError("application business source differs in build workspace")
@@ -472,7 +496,7 @@ def build_application(repo: Path, variant: str) -> dict[str, Any]:
             raise ValueError("build returned success without a HAP")
         record["haps"] = []
         for path in packages:
-            checked(path, repo, exists=True)
+            checked(path, boundary, exists=True)
             with path.open("rb") as stream:
                 record["haps"].append({"path": str(path), "bytes": path.stat().st_size,
                                        "sha256": hashlib.file_digest(stream, "sha256").hexdigest()})
@@ -486,11 +510,81 @@ def build_application(repo: Path, variant: str) -> dict[str, Any]:
         _write(destination, record, repo)
 
 
+def export_build_evidence(repo: Path) -> dict[str, Any]:
+    runtime, storage, _ = storage_context(repo)
+    if runtime.harmony_build_root is None:
+        raise ValueError("approved build directory is not configured")
+    runtime.prepare_harmony_build_root()
+    preparation = _read(repo / "runs/exports/robustness/application-demo/preparation.json", repo)
+    output = checked(repo / "runs/exports/robustness/application-demo/build", repo)
+    records = {}
+    for variant in ("original", "patched"):
+        record = _read(storage / "config" / ("build-" + variant + ".json"), repo)
+        work = checked(runtime.harmony_build_root / variant, runtime.harmony_build_root, exists=True)
+        if record["status"] != "built" or record["workspace"] != str(work) or not record.get("haps"):
+            raise ValueError("application build has not completed")
+        # Verify every supplied input again after compilation, including build
+        # configuration. Generated files are not confused with input changes.
+        for relative, expected in preparation[variant + "_manifest"].items():
+            path = checked(work / relative, runtime.harmony_build_root, exists=True)
+            with path.open("rb") as stream:
+                if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
+                    raise ValueError("application input changed during compilation")
+        target = checked(output / variant, repo)
+        target.mkdir(parents=True, exist_ok=True)
+        packages = []
+        for package in record["haps"]:
+            path = checked(Path(package["path"]), work, exists=True)
+            with path.open("rb") as stream:
+                if hashlib.file_digest(stream, "sha256").hexdigest() != package["sha256"]:
+                    raise ValueError("compiled HAP changed before export")
+            destination = checked(target / path.name, repo)
+            shutil.copyfile(path, destination)
+            packages.append({**package, "path": destination.relative_to(output).as_posix()})
+        for prefix in ("build-", "ohpm-install-"):
+            source = checked(storage / "logs" / (prefix + variant + ".txt"), repo, exists=True)
+            shutil.copyfile(source, checked(target / source.name, repo))
+        records[variant] = {**record, "haps": packages, "input_files_verified_after_build": len(preparation[variant + "_manifest"]),
+                            "build_configuration_changes": [], "signed": False}
+    report = {"case_id": preparation["case_id"], "patch_run": "live1017-retry03", "scope": "application_build_only",
+              "application_run": False, "collected_at_utc": _now(), "builds": records,
+              "native_receipt": require_managed_worker(repo, "harmony-prepare")["run_id"]}
+    _write(output / "builds.json", report, repo)
+    return report
+
+
+def inspect_ide(repo: Path) -> dict[str, Any]:
+    runtime, storage, _ = storage_context(repo)
+    if not runtime.policy["execution"]["allow_application_experiments"]:
+        raise ValueError("application inspection is not admitted")
+    if runtime.harmony_build_root is None:
+        raise ValueError("approved build directory is not configured")
+    runtime.prepare_harmony_build_root()
+    executable = checked(storage / "ide/bin/devecostudio64.exe", repo, exists=True)
+    work = checked(runtime.harmony_build_root / "original", runtime.harmony_build_root, exists=True)
+    env = process_environment(storage)
+    env["DEVECO_SDK_HOME"] = str(runtime.harmony_build_root / "sdk")
+    # Keep launcher descendants in the existing Job for a finite UI inspection;
+    # the native manager closes that Job when this worker returns or is stopped.
+    log = checked(storage / "logs/ide-launch.txt", repo)
+    with log.open("wb") as output:
+        process = subprocess.Popen([str(executable), str(work)], cwd=work, env=env,
+                                   stdout=output, stderr=subprocess.STDOUT, shell=False)
+        deadline = time.monotonic() + 420
+        while time.monotonic() < deadline:
+            if process.poll() not in (None, 0):
+                raise ValueError("IDE launcher failed; inspect ide-launch.txt")
+            time.sleep(1)
+    return {"scope": "ide_inspection_only", "application_run": False}
+
+
 def run(repo: Path, step: str) -> dict[str, Any]:
     require_managed_worker(repo, "harmony-prepare")
     handlers = {"inspect": inspect_package, "extractor": prepare_extractor,
                 "payload": prepare_payloads, "extract": extract_package, "tools": configure_and_probe_tools,
                 "emulator-info": emulator_information, "emulator-license": accept_emulator_license,
+                "build-evidence": export_build_evidence,
+                "ide-inspect": inspect_ide,
                 "build-original": lambda root: build_application(root, "original"),
                 "build-patched": lambda root: build_application(root, "patched")}
     if step not in handlers:

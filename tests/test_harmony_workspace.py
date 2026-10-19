@@ -174,3 +174,89 @@ def test_platform_junctions_cannot_escape_into_other_project_roots(project: Path
             runtime.accounting()
     finally:
         junction.rmdir()
+
+
+def _external_build_runtime(project: Path, monkeypatch: pytest.MonkeyPatch) -> managed_runtime.Runtime:
+    home = project.parent / "profile"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    runtime = managed_runtime.Runtime(project)
+    marker = {"project_instance_id": runtime.owner()["project_instance_id"], "root": str(project / "DFX-HarmonyOS"),
+              "build_root_authorized": True, "paths": {"build_root": str(home / "DFX-HarmonyOS-build")}}
+    (project / "DFX-HarmonyOS/workspace.json").write_text(json.dumps(marker))
+    return managed_runtime.Runtime(project)
+
+
+def test_approved_build_root_is_owned_counted_and_preserved(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _external_build_runtime(project, monkeypatch)
+    runtime.prepare_harmony_build_root()
+    root = runtime.harmony_build_root
+    assert root is not None
+    before, _, _ = runtime.accounting()
+    (root / "result.hap").write_bytes(b"application package")
+    after, _, missing = runtime.accounting()
+    assert not missing and after["harmony_build"] == before["harmony_build"] + len(b"application package")
+    assert all(not root.is_relative_to(target) for target in runtime.targets("all"))
+    preview = runtime.clean(SimpleNamespace(Scope="all", DiscardEvidence=True, Apply=False, PlanId=""))
+    assert str(root) in preview["preserved"]
+    owner = root / ".dfx-build-owner.json"
+    record = json.loads(owner.read_text())
+    owner.write_text(json.dumps({**record, "project_instance_id": "another project"}))
+    with pytest.raises(ValueError, match="owner differs"):
+        runtime.prepare_harmony_build_root()
+
+
+def test_external_build_root_does_not_adopt_an_existing_foreign_folder(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _external_build_runtime(project, monkeypatch)
+    root = runtime.harmony_build_root
+    assert root is not None
+    root.mkdir()
+    (root / "foreign.txt").write_bytes(b"existing user file")
+    with pytest.raises(FileNotFoundError):
+        runtime.prepare_harmony_build_root()
+    assert (root / "foreign.txt").read_bytes() == b"existing user file"
+    assert not (root / ".dfx-build-owner.json").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="SDK resource compiler needs a Windows junction")
+def test_external_sdk_alias_counts_the_physical_sdk_once(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from _winapi import CreateJunction
+
+    runtime = _external_build_runtime(project, monkeypatch)
+    sdk = project / "DFX-HarmonyOS/ide/sdk"
+    sdk.mkdir(parents=True)
+    (sdk / "resource.bin").write_bytes(b"SDK resource")
+    runtime.prepare_harmony_build_root()
+    root = runtime.harmony_build_root
+    assert root is not None
+    alias = root / "sdk"
+    try:
+        sizes, _, missing = runtime.accounting()
+        assert not missing
+        assert sizes["harmony_build"] == (root / ".dfx-build-owner.json").stat().st_size
+        assert alias.resolve(strict=True) == sdk
+        runtime.prepare_harmony_build_root()
+        alias.rmdir()
+        (project / "data_B").mkdir()
+        CreateJunction(str(project / "data_B"), str(alias))
+        with pytest.raises(ValueError, match="SDK alias differs"):
+            runtime.prepare_harmony_build_root()
+        with pytest.raises(ValueError, match="unsafe linked inventory"):
+            runtime.accounting()
+    finally:
+        if os.path.lexists(alias):
+            alias.rmdir()
+
+
+@pytest.mark.parametrize("change", ["wrong-root", "not-authorized"])
+def test_external_build_configuration_cannot_select_other_directories(project: Path, monkeypatch: pytest.MonkeyPatch, change: str) -> None:
+    _external_build_runtime(project, monkeypatch)
+    path = project / "DFX-HarmonyOS/workspace.json"
+    marker = json.loads(path.read_text())
+    if change == "wrong-root":
+        marker["paths"]["build_root"] = str(Path.home() / "unapproved-folder")
+    else:
+        marker["build_root_authorized"] = False
+    path.write_text(json.dumps(marker))
+    with pytest.raises(ValueError, match="unapproved external"):
+        managed_runtime.Runtime(project)

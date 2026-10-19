@@ -150,6 +150,15 @@ class Runtime:
             raise ValueError("unsupported management policy")
         self.harmony_root = (checked(self.repo / "DFX-HarmonyOS", self.repo)
                              if "harmony_root" in policy["paths"] else None)
+        self.harmony_build_root = None
+        if self.harmony_root is not None and (self.harmony_root / "workspace.json").exists():
+            platform = _read(self.harmony_root / "workspace.json", self.repo)
+            build_root = platform.get("paths", {}).get("build_root")
+            if build_root is not None:
+                expected = Path.home() / "DFX-HarmonyOS-build"
+                if Path(build_root) != expected or platform.get("build_root_authorized") is not True:
+                    raise ValueError("unapproved external application build root")
+                self.harmony_build_root = checked(expected, Path.home())
         execution, cleanup = policy["execution"], policy["cleanup"]
         if (execution.get("application_target") != "local" or execution.get("require_windows_job_limits") is not True or
                 any(execution.get(key) is not False for key in ("allow_background_services", "allow_local_model_weights")) or
@@ -181,10 +190,12 @@ class Runtime:
             return {"project_instance_id": owner["project_instance_id"], "prepared": True, "runtime_installed": False}
 
     def inventory(self, target: Path, *, strict_links: bool = False) -> tuple[int, list[str]]:
-        checked(target, self.repo)
+        boundary = self.harmony_build_root if self.harmony_build_root is not None and target == self.harmony_build_root else self.repo
+        checked(target, boundary)
         if not target.exists():
             return 0, []
-        link_boundary = self.harmony_root if self.harmony_root is not None and target == self.harmony_root else self.root
+        link_boundary = (self.harmony_build_root if boundary == self.harmony_build_root else
+                         self.harmony_root if self.harmony_root is not None and target == self.harmony_root else self.root)
         total, inaccessible = 0, []
         pending = [target]
         while pending:
@@ -205,9 +216,18 @@ class Runtime:
                 try:
                     info = child.stat(follow_symlinks=False)
                     if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
-                        if strict_links or not entry.resolve(strict=True).is_relative_to(link_boundary):
+                        resolved = entry.resolve(strict=True)
+                        # The SDK remains physically inside project storage.
+                        # Its resource compiler also requires ASCII arguments;
+                        # admit this single SDK alias without counting it twice.
+                        if (not strict_links and target == self.harmony_build_root and
+                                entry == target / "sdk" and self.harmony_root is not None and
+                                resolved == self.harmony_root / "ide/sdk"):
+                            checked(resolved, self.repo, exists=True)
+                            continue
+                        if strict_links or not resolved.is_relative_to(link_boundary):
                             raise ValueError("unsafe linked inventory entry")
-                        checked(entry.resolve(strict=True), self.repo, exists=True)
+                        checked(resolved, boundary, exists=True)
                     elif stat.S_ISDIR(info.st_mode):
                         pending.append(entry)
                     elif stat.S_ISREG(info.st_mode):
@@ -227,6 +247,9 @@ class Runtime:
             inaccessible.extend(errors)
         if self.harmony_root is not None:
             sizes["harmonyos"], errors = self.inventory(self.harmony_root)
+            inaccessible.extend(errors)
+        if self.harmony_build_root is not None:
+            sizes["harmony_build"], errors = self.inventory(self.harmony_build_root)
             inaccessible.extend(errors)
         exports, errors = self.inventory(self.exports, strict_links=True)
         inaccessible.extend(errors)
@@ -267,7 +290,35 @@ class Runtime:
                 "remote_jobs_unknown": remote, "resource_enforcement": "native_windows_job",
                 "cleanup_available": owned and active_state == "none" and not inaccessible and not remote,
                 "harmony_storage_root": str(self.harmony_root) if self.harmony_root is not None else None,
+                "harmony_build_root": str(self.harmony_build_root) if self.harmony_build_root is not None else None,
                 "harmony_storage_cleanup": "preserved_separately" if self.harmony_root is not None else "not_configured"}
+
+    def prepare_harmony_build_root(self) -> None:
+        target = self.harmony_build_root
+        if target is None or self.harmony_root is None:
+            raise ValueError("external build root has not been admitted")
+        if not self.policy["execution"]["allow_application_experiments"]:
+            raise ValueError("application execution is not admitted")
+        platform = _read(self.harmony_root / "workspace.json", self.repo)
+        identity = self.owner()["project_instance_id"]
+        if platform.get("project_instance_id") != identity:
+            raise ValueError("platform owner differs")
+        expected = {"project_instance_id": identity, "repo": str(self.repo), "root": str(target)}
+        marker = target / ".dfx-build-owner.json"
+        if not target.exists():
+            target.mkdir()
+            _write(marker, expected, target, replace=False)
+        if _read(marker, target) != expected:
+            raise ValueError("external build root owner differs")
+        sdk = checked(self.harmony_root / "ide/sdk", self.repo)
+        if sdk.is_dir():
+            from _winapi import CreateJunction
+
+            alias = target / "sdk"
+            if not os.path.lexists(alias):
+                CreateJunction(str(sdk), str(alias))
+            if not alias.is_junction() or alias.resolve(strict=True) != sdk:
+                raise ValueError("external SDK alias differs")
 
     def limits(self, timeout: int) -> dict[str, int]:
         values = self.policy["limits"]
@@ -441,6 +492,8 @@ class Runtime:
             record = self.root / "artifacts" / (run_id + ".json")
             marker_created = False
             try:
+                if task == "harmony-prepare" and args.HarmonyStep in {"build-original", "build-patched"} and self.harmony_build_root is not None:
+                    self.prepare_harmony_build_root()
                 job = BoundedJob("Local\\DFX-Guard-" + run_id, effective["cpu_percent"], effective["memory_bytes"], effective["max_processes"])
                 job.start_suspended(argv, self.repo, env, log, effective["max_log_file_bytes"])
                 child_pid = job.pid
@@ -583,6 +636,8 @@ class Runtime:
             preserved = ["data_B", "archive", "runs/exports", "tracked files"]
             if self.harmony_root is not None:
                 preserved.append("DFX-HarmonyOS")
+            if self.harmony_build_root is not None:
+                preserved.append(str(self.harmony_build_root))
             self.quiescent(args.Scope, args.DiscardEvidence)
             targets = self.targets(args.Scope)
             # A running owned interpreter cannot be deleted on Windows. Use
@@ -736,7 +791,7 @@ def parser() -> argparse.ArgumentParser:
     cli.add_argument("--workspace", type=Path, required=True)
     cli.add_argument("action", choices=("Prepare", "Status", "Stop", "Clean", "Init", "Run", "Worker"))
     cli.add_argument("-Task", choices=("competition", "case-export", "provider", "prepare", "harmony-prepare", "test", "docs", "ruff", "pyright", "bootstrap"), default="competition")
-    cli.add_argument("-HarmonyStep", choices=("storage", "inspect", "extractor", "payload", "extract", "tools", "emulator-info", "emulator-license", "build-original", "build-patched"), default="storage")
+    cli.add_argument("-HarmonyStep", choices=("storage", "inspect", "extractor", "payload", "extract", "tools", "emulator-info", "emulator-license", "build-original", "build-patched", "build-evidence", "ide-inspect"), default="storage")
     for name in ("CompetitionTaskPath", "CompetitionConfigPath", "CompetitionWorkId", "PreparationConfigPath", "ExportProjectPath", "TestPath", "ExpectedRunId", "PlanId"):
         cli.add_argument("-" + name, default="")
     cli.add_argument("-Scope", choices=("cache", "testcache", "tmp", "work", "env", "all"), default="cache")

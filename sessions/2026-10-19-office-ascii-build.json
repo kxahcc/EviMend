@@ -1,0 +1,74 @@
+{
+  "date": "2026-10-19",
+  "base_commit": "0add21d",
+  "scope": "Use the explicitly approved ASCII build directory and produce original/patched OfficeAttendance HAPs with the official toolchain",
+  "external_root": {
+    "path": "C:/Users/kxahcc/DFX-HarmonyOS-build",
+    "authorized_by_user": true,
+    "owner_bound": true,
+    "shared_disk_accounting": true,
+    "ordinary_agent_cleanup": "preserved",
+    "sdk_alias": "sdk Junction targets only this project's DFX-HarmonyOS/ide/sdk; no second SDK copy or duplicate byte accounting"
+  },
+  "builds": {
+    "original": {
+      "receipt": "769aa361-688d-40d5-9b49-90bd0cb281b3",
+      "status": "built_unsigned",
+      "tasks": 113,
+      "elapsed_ms_including_dependency_configuration": 24294.93089998141,
+      "hap_bytes": 1605865,
+      "hap_sha256": "d54cf1059e58411faa8eaec721e1c82bd6c447c7c45613adcef6af620206203c",
+      "input_files_verified_after_build": 400
+    },
+    "patched": {
+      "receipt": "b4e5a208-510b-4f7a-af3a-002c260c47fc",
+      "selected_agent_patch": "live1017-retry03",
+      "status": "built_unsigned",
+      "tasks": 124,
+      "elapsed_ms_including_dependency_configuration": 26016.127299983054,
+      "hap_bytes": 1605835,
+      "hap_sha256": "7331e5daf095ef91c7b9f3b8baa31bf698e26763538bf60afca8e3e386327a58",
+      "input_files_verified_after_build": 400
+    },
+    "build_configuration_or_dependency_changes": [],
+    "export_receipt": "143ce4eb-50b8-40d2-990e-10d1517332fa",
+    "export": "runs/exports/robustness/application-demo/build",
+    "export_scope": "application_build_only"
+  },
+  "observed_path_constraint": {
+    "first_ascii_project_build_receipt": "ffe7b9f9-ee02-485f-a954-0e1d45f7a3b4",
+    "result": "91 tasks reached; restool rejected the Chinese SDK id_defined.json argument with 11210020",
+    "resolution": "Fixed SDK Junction provides an ASCII SDK argument path while physical files remain in project storage; subsequent original and patched builds passed"
+  },
+  "verification": {
+    "storage_external_owner_and_junctions": {"receipt": "558880ab-fecb-4ac9-83d1-0ef43b37d59c", "passed": 15, "seconds": 0.96},
+    "native_manager": {"receipt": "1519943c-70da-48a3-9787-cfeb0d24a5eb", "passed": 28, "seconds": 7.95},
+    "preparation_and_offline_dependency": {"receipt": "43718b5b-feb9-4695-93cd-e383e11a6692", "passed": 11, "seconds": 0.22},
+    "ruff": {"receipt": "57e7d9c2-78e0-459f-96bf-56b15fd1cdb0", "result": "All checks passed"},
+    "docs": {"receipt": "6b69de6f-eb5c-4ddf-b783-2caea2f6a842", "documents": 14, "errors": 0}
+  },
+  "initial_test_failure": "The new SDK alias negative fixture did not create its foreign target directory; 14 passed/1 failed. Created the test directory and made fixture unlink conditional; all 15 then passed without relaxing production boundaries",
+  "emulator": {
+    "receipt": "f23caa0e-18da-4790-b655-5d2021089ca0",
+    "attempts": "Explicit project instance/image paths, all-image query, Phone query, explicit current local proxy query, screen-profile query",
+    "result": "Commands exited zero with empty output; no usable image list or confirmed configuration update",
+    "downloaded": false,
+    "started": false,
+    "ide_launch": "Automatic approval review rejected full IDE launch because of possible persistent user-profile state and resource use; no IDE process started. Explicit user acceptance requested asynchronously; not bypassed"
+  },
+  "post_validation_status": {
+    "owner_valid": true,
+    "resource_accounting": "complete",
+    "inaccessible_paths": [],
+    "active_state": "none",
+    "cleanup_available": true,
+    "harmonyos_bytes": 15594919737,
+    "external_build_bytes": 80940667,
+    "export_bytes": 194110386
+  },
+  "new_model_calls": 0,
+  "resource_limits_or_global_environment_changed": false,
+  "original_data_or_submission_templates_modified": false,
+  "application_run_or_fresh_fault_or_screenshots": false,
+  "next": "After explicit acceptance, inspect official IDE Device Manager, or let user prepare one image manually. Admit image capacity, signing, virtualization, rendering and stop; then replay the original and patched application with logs, behavior checks and screenshots"
+}
