@@ -1,0 +1,47 @@
+{
+  "session_id": "2026-10-20-submission-package",
+  "date": "2026-10-20",
+  "developer": "zeus队 / Codex",
+  "ai_tool": "Codex",
+  "model": "当前开发会话，具体型号未独立登记",
+  "objective": "将开发仓库迁为team50独立作品，人工编写正式材料、图示和逐例说明，并核验代码与证据",
+  "context": "工作跨10月19日至20日。用户要求answer_B根目录展开，保留其填写的队伍信息，正式文档聚焦实际能力和贡献，不包含开发提醒；原始结果保持不变。",
+  "conversation": [
+    {"turn": 1, "role": "user", "content": "team50分支根目录直接展开作品；文档必须人工组织，模板是最低要求，写清楚分类用例、技术设计和成果。", "files_referenced": ["answer_B/README.md", "answer_B/docs/technical-design.md", "answer_B/docs/test-report.md"]},
+    {"turn": 1, "role": "assistant", "content": "迁移代码/锁/Skill/运行器和43份结果，创建独立环境，接入公开check命令，重写主文档与逐例说明，避免统计脚本覆盖作者正文。", "code_generated": true, "files_modified": ["answer_B/src/dfx_agent/product_cli.py", "answer_B/src/dfx_agent/provenance.py", "answer_B/scripts/", "answer_B/docs/"]},
+    {"turn": 2, "role": "user", "content": "继续整理满足提交的全部材料，包括架构图和测试截图。", "files_referenced": ["answer_B/docs/assets/"]},
+    {"turn": 2, "role": "assistant", "content": "完成可编辑SVG与PNG的架构/闭环图、真实CLI输出与源码验证记录图。专用终端已实际运行，但窗口采集返回黑屏，不将其用作截图；输出图明确标注可视化与合成/源码层级。", "code_generated": true, "files_modified": ["answer_B/docs/assets/", "answer_B/README.md", "answer_B/docs/test-report.md"]}
+  ],
+  "outcome": {
+    "goal_achieved": false,
+    "summary": "主要提交正文、43例作者说明、五份精华session和四张图已形成可审阅作品。模型实验原件保持；仍待用户审阅与最终远程提交，原生截图另待可采集桌面。",
+    "files_created": ["answer_B/docs/assets/architecture.svg", "answer_B/docs/assets/repair-workflow.svg", "answer_B/docs/assets/cli-execution.svg", "answer_B/docs/assets/source-verification.svg", "tests/test_submission_staging.py"],
+    "files_modified": ["DEVELOPMENT.md", "docs/project-work-plan.md", "docs/STATUS.md", "configs/local-runtime.json"],
+    "issues_found": ["uv首次下载HTTP403，使用已校验工具/安装缓存重建独立venv，没有宣称无缓存网络安装通过", "迁移审计首次普通路径超过Windows长度，采用现有扩展路径后通过", "当前可用内存不足旧5GiB任务上限加2GiB余量，两项目任务上限收紧为2GiB，其余保护保留", "窗口截图全黑；本地文件浏览器预览被URL策略拒绝，没有通过另设浏览器入口绕过，图示使用离线SVG渲染检查"],
+    "code_quality_notes": "原始README/解释及源码/usage/检查为清单绑定原件，作者RESULT与导览单独人工改写；Git属性保护原始字节。"
+  },
+  "validation": {
+    "independent_setup_receipt": "37a2a832-8cbe-4e1d-9c44-73e87630d5f7",
+    "provenance": {"passed": 58, "skipped": 1, "receipt": "e6a17698-3ec8-48be-88f1-28e18762c9e0"},
+    "product_cli": {"passed": 66, "seconds": 7.60, "receipt": "a5dcac70-1fbf-4761-aebe-bd999c682618"},
+    "normal_exports": {"passed": 26, "seconds": 95.27, "receipt": "0c11e457-b8c7-46ae-a49b-407cd8f6b9d6"},
+    "ood_ablation_exports": {"passed": 19, "seconds": 33.78, "receipt": "a58814a5-c748-4781-91cb-687b7f50e4ec"},
+    "material_reporting": {"passed": 4, "skipped": 1, "receipt": "a23131fa-a156-48d9-9652-461ffe3a01ba"},
+    "migration_and_git_bytes": {"passed": 46, "seconds": 26.76, "receipt": "c2780bad-acbb-4630-992c-8bc773819927"},
+    "submission_docs": {"documents": 62, "errors": 0, "receipt": "fe9f31a7-d591-46f8-8d7f-f90213aa0b51"},
+    "development_docs": {"documents": 14, "errors": 0, "notes": 0, "receipt": "def6ce25-48ef-4f4a-9d26-1cdbfc07cbaa"},
+    "submission_commit": "98dcf3a",
+    "git_status_clean": true,
+    "whitespace_review": "作者文件检查通过；完整差异按CRLF正确处理后有5220行诊断，属于保留原字节的日志/源码等原始证据；未为格式改原件。巨大重复诊断临时文件已删除。",
+    "final_resource_state": {"owner_valid": true, "resource_accounting": "complete", "inaccessible_paths": [], "active_state": "none", "cleanup_available": true},
+    "ruff": {"passed": true, "receipt": "2caf82b1-f66e-4455-8e75-ff725f2ec660"},
+    "synthetic_run": {"run_id": "submission-demo01", "status": "synthetic_checked", "accepted": false, "model_calls": 15, "tool_calls": 14, "candidates": 2, "agent_wall_ms": 48417.982, "receipt": "f84e8d16-2ff7-4716-9ef8-00cd65c09818"},
+    "new_paid_model_requests": 0,
+    "exports_bytes_before_new_figures": 190622576,
+    "largest_existing_export_bytes": 7818987
+  },
+  "ai_evaluation": {"helpfulness": "完成软件迁移、正文与实际原件逐项关联", "code_accuracy": "以受管定向检查及Git字节核验说明范围", "areas_ai_did_well": "保留用户信息，区分作者说明和原件；复用框架与受管入口", "areas_ai_did_poorly": "首次材料过浅，补写大量全文后才达到用户要求；原生截图未取得可用图像", "human_modifications": "用户填写队伍信息并收敛正式文档口吻；并行出现的session说明修改予以保留"},
+  "next_steps": ["完成最终本地文档/差异检查和本地Git提交", "由用户审阅作品；如需要原生截图则在桌面可采集后补充", "按确认完成tag、仓库访问和PR等远程动作"],
+  "duration_minutes": null,
+  "tags": ["submission", "documentation", "cli", "evidence", "figures"]
+}

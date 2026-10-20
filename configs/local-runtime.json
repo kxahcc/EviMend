@@ -11,7 +11,7 @@
     "max_concurrent_runs": 1,
     "max_active_processes": 32,
     "cpu_rate_percent": 20,
-    "job_memory_cap_bytes": 5368709120,
+    "job_memory_cap_bytes": 2147483648,
     "job_memory_fraction_of_physical": 0.25,
     "min_free_memory_bytes": 2147483648,
     "managed_disk_budget_bytes": 34359738368,
