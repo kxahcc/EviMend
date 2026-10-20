@@ -272,6 +272,8 @@ answer_B/                         独立Git作品仓库，分支team50，根目�
 | repair-workflow.svg/png与repair-workflow.mmd | 读取、诊断、候选、四阶段检查和失败反馈 | technical-design；按实际修复主链绘制 |
 | cli-execution.svg/png及JSON/原始事件 | submission-demo01实际离线CLI运行的两候选修订 | README、usage和test-report；明确是实际输出排版，不是桌面截图，不计付费模型成绩 |
 | source-verification.svg/png | B3-022原版故障、容量补丁、候选四阶段与校验向量，绑定原运行 | test-report典型案例；明确为原件可视化 |
+| cli-replay.gif、cli-terminal.png及摘要/CLI输出/事件 | screenshot-demo02实际终端事件回放，展示首候选行为失败、修订及四项通过 | README、usage、test-report；明确回放节奏，播放时长与原Agent时间分别计量 |
+| case-verification-terminal.png及原始检查输出 | 26份选定正常结果的清单/源码/真实Git应用/检查绑定核验 | test-report；与原模型修复及源码回放结果分别计量 |
 
 典型案例优先从现有容量/单位、递归进展、校验语义或生命周期修复中选择2至3例，用同一格式展示“日志线索→上游原因→diff→原版/候选检查”。每例链接其结果目录，不另外复制一套答案或新增效果实验。图注和截图附近标注证据身份、验证范围；原始数值只由JSON/CSV维护。
 
