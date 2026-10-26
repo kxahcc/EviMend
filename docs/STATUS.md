@@ -11,6 +11,7 @@
 - 代码基线为外层原开发提交 `8b45c823228d7ff8b194eec237f96aed9d2f7444`。
 - GitHub：`git@github.com:kxahcc/EviMend.git`。完整原状态已推送到 `dfx-agent` 和注释标签 `dfx-agent-v1.0`。
 - 本地外层已切换 main，旧 main 通过快进到达该基线，没有重置或改写原历史。
+- 研究整理提交 `3aac0c0` 已推送到 GitHub main，本地跟踪 origin/main；GitHub 已确认默认分支为 main。
 - answer_B 保持独立、被忽略，未修改其文件、分支、远程或 GitCode；本次没有合并内层后续产品修改。
 - 当前入口、研究计划、设计概览、评测规则和维护约定已改为 EviMend。旧模板、数据盘点、开发会话和专用提交审计移入本机归档；固定快照仍保存原件，新克隆不依赖归档。
 
