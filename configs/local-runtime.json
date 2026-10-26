@@ -31,9 +31,9 @@
     "require_windows_job_limits": true,
     "allow_background_services": false,
     "allow_local_model_weights": false,
-    "allow_local_harmony_sdk": true,
-    "allow_model_experiments": true,
-    "allow_application_experiments": true
+    "allow_local_harmony_sdk": false,
+    "allow_model_experiments": false,
+    "allow_application_experiments": false
   },
   "cleanup": {
     "default_dry_run": true,

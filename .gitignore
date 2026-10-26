@@ -11,7 +11,7 @@ configs/*.local.json
 configs/generated/
 archive/
 DFX-HarmonyOS/
-# Independent competition submission checkout; maintained by its own Git.
+# Independent local checkout; maintained by its own Git and never synchronized here.
 answer_B/
 
 # Project-owned runtime, caches and disposable workspaces

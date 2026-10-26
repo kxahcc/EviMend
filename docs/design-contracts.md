@@ -1,7 +1,7 @@
 # 模块契约与规则规格
 
-状态：当前规格草案，软件通道已实现，尚未全部实测。最后维护：2026-10-18。
-职责：维护对象不变量、控制器分支与规则卡。配套 [总体技术设计](development/system-design-draft.md)。SDK 循环、诊断/义务/决策、候选、账本、上下文/Skills 及停止恢复继续复用。默认产品为 Windows x64 本机源码/日志分析与可选宿主真实源码回放，完整 HarmonyOS/application 降为扩展，无硬件前置；四层语义及旧记录兼容由本规格约束。实际软件和真实模型/数据修复证据见 STATUS；本次预算授权内的云端测试已开放，不推定其他型号、未覆盖 .ets 语义或方法收益已通过。可信采值/自动演进等保持冻结扩展；案例推演不进入未来独立求解上下文。
+状态：当前实现与兼容规格，部分研究扩展尚未闭合。最后维护：2026-10-26。
+职责：维护对象不变量、控制器分支与规则卡，配套[总体技术设计](development/system-design-draft.md)。SDK 循环、诊断/义务/决策、候选、账本、上下文/Skills 及停止恢复继续复用。当前部署为 Windows x64，支持源码/日志分析与已接纳的宿主源码回放，完整 application 是独立扩展。内部 competition 名称及历史 schema 保留原接口含义。新研究实验尚未获得费用或环境授权；可信采值、自动演进与跨项目执行按研究计划接纳，不能凭接口存在推定方法收益。
 
 ## 1. 数据契约与不可破坏的条件
 
@@ -95,7 +95,7 @@ ProviderSettings 显式冻结可空 thinking_mode（enabled/disabled）与 reaso
 
 收到消息后保存规范化消息及哈希、提供方消息 ID、工具名称/ID/参数摘要与格式问题。wire 的非 null 原始 usage 完整保留为 response_metadata.dfx_provider_usage_raw；prompt_tokens/completion_tokens/total_tokens 须为非负整数、合计一致并与 usage_metadata 的 input/output/total 对应，才能标为 known。原值缺失/null 为 missing，存在但无效或映射不一致为 invalid；账本保存原值摘要，不以类型强制转换或文本长度补估。格式错误仍是完成的一次调用，不能丢掉其 usage。原始消息用于本机受管恢复，不进入 Git 或普通聚合报告；显式本机私有 Export 保留相关账本原字节并披露完整消息范围，不自动外发。text_only、模型自称成功和工具参数不产生执行事实。
 
-无知识的新运行使用 session schema 10；显式批准知识的新运行使用 schema 11，增加规范 knowledge_profile，并在首个模型调用前完成第 3.1.2 节的 run 内原件复制。三态入口另使用 session 12，增加规范 applicability_profile；显式静态策略使用 session 13，另固定 static_skill_profile；批准版本策略使用 session 14，另固定 version_skill_profile。两者要求批准知识及显式三态策略，彼此不能混代。未指定增强保持对应原代；各代均冻结 model_profile、context_profile（含工作上下文/主机压缩策略及两类提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略、合成 registry 和下述执行来源；续跑须配置与执行兼容身份一致。知识运行的程序启动参数为 knowledge=HostKnowledgeInput，恢复仅接受原 TaskKnowledgeBinding 的显式 knowledge_approval，不能再次传入启动知识库；实际快照和索引从该 run 原件回读，外部库无需仍存在。无知识运行不能在恢复时取得知识批准；11、12、13、14 不能跨代续跑，三态和静态恢复须再次显式提供与原 profile 一致的策略。旧 session 8/9 只能按原契约只读核验，不自动升级、续跑或补写版本；schema 1–7 不进入当前恢复入口，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束且无待执行工作的 Graph 续跑只核对和汇总，不注入新对话，不因已用满调用/已知 Token 预算降低原完成结果；有待执行工作的恢复仍在实际执行边界服从原账本预算和原截止时间，不重置额度。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。云端路径另在发送前预留输入估计与最坏输出，估计不等于精确硬限额。端点与环境密钥通道已有代码，实际数据外发许可、提供方兼容性、实际计费和工具链/设备验收仍待核实；竞赛最终接受另见第 1.3 节。
+无知识的新运行使用 session schema 10；显式批准知识的新运行使用 schema 11，增加规范 knowledge_profile，并在首个模型调用前完成第 3.1.2 节的 run 内原件复制。三态入口另使用 session 12，增加规范 applicability_profile；显式静态策略使用 session 13，另固定 static_skill_profile；批准版本策略使用 session 14，另固定 version_skill_profile。两者要求批准知识及显式三态策略，彼此不能混代。未指定增强保持对应原代；各代均冻结 model_profile、context_profile（含工作上下文/主机压缩策略及两类提示指纹）、项目 system_prompt、初始任务消息、工具 schema/描述、检索限额，以及预算、能力、协议、策略、合成 registry 和下述执行来源；续跑须配置与执行兼容身份一致。知识运行的程序启动参数为 knowledge=HostKnowledgeInput，恢复仅接受原 TaskKnowledgeBinding 的显式 knowledge_approval，不能再次传入启动知识库；实际快照和索引从该 run 原件回读，外部库无需仍存在。无知识运行不能在恢复时取得知识批准；11、12、13、14 不能跨代续跑，三态和静态恢复须再次显式提供与原 profile 一致的策略。旧 session 8/9 只能按原契约只读核验，不自动升级、续跑或补写版本；schema 1–7 不进入当前恢复入口，另建 run 保留历史。Graph 仅保存 solver 响应，恢复核对连续 model-N 身份、solver 用途及已保存响应；LangChain 在持久化边界之后添加的消息 ID 不改变调用身份。摘要数量不作为 solver 序号，全部用途仍共享总预算。Graph 检查点之前的完成响应可按同一调用回放，已发出且未保存的响应停止为 unknown。已结束且无待执行工作的 Graph 续跑只核对和汇总，不注入新对话，不因已用满调用/已知 Token 预算降低原完成结果；有待执行工作的恢复仍在实际执行边界服从原账本预算和原截止时间，不重置额度。输出 Token 设置只是请求参数；max_known_tokens 达到后禁止新请求，不构成实际总 Token 硬限额。云端路径另在发送前预留输入估计与最坏输出，估计不等于精确硬限额。端点与环境密钥通道已有代码，实际数据外发许可、提供方兼容性、实际计费和工具链/设备验收仍待核实；任务最终接受另见第 1.3 节。
 
 execution_provenance 是嵌入 session 的 schema 1 主机记录，不是模型可提交对象。source_inventory 记录 src/dfx_agent 下全部 Python 源码（含生产管理/安装/Job 模块）及 scripts/dfx.py、local_agent.ps1、local_competition.ps1、local.ps1、local_job.cs 的规范相对路径、大小和原字节 SHA-256；保留历史脚本来源不表示生产需要 PowerShell。文档、测试、历史 session、数据和缓存不属于这份运行源码清单。repository_inputs 固定 uv.lock、pyproject.toml、.python-version、configs/local-runtime.json 的原字节大小与哈希。runtime 保存实际 Python 实现、版本、cache_tag、平台、机器架构和 importlib.metadata 读到的已安装 distribution 名称/版本，不把锁中声明的版本冒充实际安装版本。Git 保存初始 HEAD、全仓 dirty、状态字节摘要及条目数；不可用时明确为未知，不猜测干净状态。
 
@@ -147,7 +147,7 @@ task_strategy 的共享指引接入 SDK system_prompt，启动消息包含核对
 
 ### 1.3 补丁、验证和尝试
 
-CandidatePatch 当前保存 candidate_id、ordinal、parent_snapshot_sha256、candidate_snapshot_sha256、diff_sha256、diagnosis_id、changed_paths、restores、preserves 及可选成对的 decision_id/direction_id。competition 启用 require_candidate_diagnosis：register_candidate 必须传入已登记的 diagnosis_id，该诊断须选定假设且包含有效原版根因行。缺项在冻结前拒绝，保留完整草稿；模型补充完整诊断后可用同一草稿重新登记，不必重做编辑或制造不同补丁。中间诊断仍可保留未知，旧离线入口默认不增加这一要求；新竞赛会话冻结要求、提示及工具描述，不能在恢复时改变旧会话语义。拟议 intended_constraint、preserved_behaviors、verification_obligations 的信息目前由关联诊断/义务表达，尚未独立实现这些字段。完整 diff 登记后才进入任何候选专属检查；格式错误、无法应用和局部检查失败同样记为已产生候选的失败。
+CandidatePatch 当前保存 candidate_id、ordinal、parent_snapshot_sha256、candidate_snapshot_sha256、diff_sha256、diagnosis_id、changed_paths、restores、preserves 及可选成对的 decision_id/direction_id。competition 启用 require_candidate_diagnosis：register_candidate 必须传入已登记的 diagnosis_id，该诊断须选定假设且包含有效原版根因行。缺项在冻结前拒绝，保留完整草稿；模型补充完整诊断后可用同一草稿重新登记，不必重做编辑或制造不同补丁。中间诊断仍可保留未知，旧离线入口默认不增加这一要求；新主链会话冻结要求、提示及工具描述，不能在恢复时改变旧会话语义。拟议 intended_constraint、preserved_behaviors、verification_obligations 的信息目前由关联诊断/义务表达，尚未独立实现这些字段。完整 diff 登记后才进入任何候选专属检查；格式错误、无法应用和局部检查失败同样记为已产生候选的失败。
 
 没有生成完整候选的模型失败记录为 generation_failure，计入总成本，但不伪造一个可验证候选。首次候选通过率同时报告“全部任务”为分母的端到端口径，避免把未生成补丁的任务排除后抬高成绩。
 
@@ -176,7 +176,7 @@ source 回放须实际装载原版/冻结候选相关源码；抽取/转译记�
 
 每个准备/检查子进程挂起创建并加入嵌套 Job 后恢复，正常退出、超时或停止都终止该子树并有界确认零活动进程，不按进程名批量结束。阶段 timeout 受阶段配置、max_check_seconds 及 set_deadline 指定的 Agent 剩余墙钟共同约束；耗尽不再启动。stdout/stderr 持续排空而只保存有界字节，超限、捕获异常或子树无法确认保持 inconclusive。主机提供的 API 凭据排除名和 credential_env_names 不进入子进程环境，TMP/TEMP 位于副本；npm_config_cache 指向副本 .dfx-tool-cache/npm，DFX_PROJECT_CACHE_ROOT 提供给批准 runner，不改 HOME/USERPROFILE。ohpm/hvigor 其他缓存仍须核定参数或已接纳路径，不猜测 SDK 环境变量，也不以此声明所有外部写入均被隔离；这不是文件系统安全沙箱，主机仍须审查命令。
 
-同 key 完成结果由 evidence(key) 只读核候选、阶段/输出、基准复现和四项结果；空初始化残留/pending/未知保持 inconclusive，不重启。source/application 恢复须原 project_root、清单、run 内基准与配置一致，analysis 不要求工程；交付副本不替代输入。execution schema 2 保留层级/启动/源码绑定，schema 3 加 oracle 绑定，source schema 4 另核 scope/mock 和 source_verification。先保存执行事实再核源/oracle，漂移不得认证通过。source 的 source_verification 按实际尝试/结果派生，即使 pass，底层 application_verification 仍 not_run、application_success/accepted 仍 false；任务源码级接受另由竞赛报告判断。synthetic 同样无源码/应用资格。旧 schema 1/2 application 原件只读按原字段核，缺执行时 oracle 绑定则派生 inconclusive（未启动 not_run），不改原件、不补新认证或新启动。application 接受仍须原故障、候选四项和源码/oracle 有效；未知调用/定位另核。
+同 key 完成结果由 evidence(key) 只读核候选、阶段/输出、基准复现和四项结果；空初始化残留/pending/未知保持 inconclusive，不重启。source/application 恢复须原 project_root、清单、run 内基准与配置一致，analysis 不要求工程；交付副本不替代输入。execution schema 2 保留层级/启动/源码绑定，schema 3 加 oracle 绑定，source schema 4 另核 scope/mock 和 source_verification。先保存执行事实再核源/oracle，漂移不得认证通过。source 的 source_verification 按实际尝试/结果派生，即使 pass，底层 application_verification 仍 not_run、application_success/accepted 仍 false；任务源码级接受另由任务报告判断。synthetic 同样无源码/应用资格。旧 schema 1/2 application 原件只读按原字段核，缺执行时 oracle 绑定则派生 inconclusive（未启动 not_run），不改原件、不补新认证或新启动。application 接受仍须原故障、候选四项和源码/oracle 有效；未知调用/定位另核。
 
 CheckResult 的 level 为 offline_synthetic/source_execution/application_execution，execution_scope 对应 synthetic/source/application，旧缺省仍为 offline_synthetic。CheckLedger 依实际 mode 派生级别，诊断/决策/工作上下文沿同一级别交接，不把旧失败或 mock 升为完整应用事实；模型无权自填执行观察。analysis 无真实检查，只保存未运行反馈。执行来源不证明根因、义务语义或最终接受。
 
@@ -190,7 +190,7 @@ CheckResult 的 level 为 offline_synthetic/source_execution/application_executi
 
 ### 1.3.1 案例接纳与协议冻结
 
-案例身份须明确任务、原材料案例键、应用谱系、故障变体、唯一日志/原字节、分析版本；source 验证另固定相关执行源码/运行器/语义范围，application 才要求完整应用与设备。CaseCatalog schema 2 已有案例选择及可选场景哈希，prepare 核字节后产 analysis_source_v1，不把评测脚本给 Agent。摘要不证明日志/源码同版或可执行，运行器/输入/oracle 另核。同谱系变体为相关样本，README 的完整/真机声明只描述原应用，不替代宿主局部适用性判断；已知数据歧义及021/022历史观察见 [数据核查](preparation/data-b-assessment.md)。
+案例身份须明确任务、原材料案例键、应用谱系、故障变体、唯一日志/原字节、分析版本；source 验证另固定相关执行源码/运行器/语义范围，application 才要求完整应用与设备。CaseCatalog schema 2 已有案例选择及可选场景哈希，prepare 核字节后产 analysis_source_v1，不把评测脚本给 Agent。摘要不证明日志/源码同版或可执行，运行器/输入/oracle 另核。同谱系变体为相关样本，README 的完整/真机声明只描述原应用，不替代宿主局部适用性判断；各数据适配器须自行说明已知歧义；历史盘点保留于 dfx-agent-v1.0，不作为新研究任务的准入结论。
 
 默认流程先核分析输入，再接纳宿主相关真实源码/运行时/抽取转译/mock，复现故障输入并取得独立正常/边界/回归预期。缺运行条件仍可 analysis/产补丁，但不计源码级通过；source 不要求完整打包或硬件。application 扩展才额外核完整工程/产物/设备场景。验证覆盖率与全部冻结任务并列，未就绪留 blocked，不按某组结果删分母。协议/重复次数在成绩前冻结，各组同运行器/语义/输入/判据，模型临时自测或专属探针不改共同协议。
 
@@ -204,7 +204,7 @@ schema 4 accepted 表示声明验证层级接受，必须连同 verification_lev
 
 最新候选完成所选层级必要检查、定位完整且无未知调用后，仅因 model_budget/wall_time/action_budget 无法收尾，不撤销可信接受，保留停止原因/成本，不加调用或预算。未知模型/工具、其他错误、缺检查或最新候选失败仍阻断；定位缺项不抹掉实际检查 pass。失败/未知不写 not_run，新候选不继承旧通过。源码级功能/修复指标须注明范围，平台稳定性和根因准确率缺依据仍 null；官方对宿主验证评分认可程度未知。JS 示例的软件结果不计 data_B 成绩，旧 synthetic 矩阵不能仅改组名成为新层级结果。
 
-timing 保存首次报告观察的 finished_at、agent_wall_ms 及绑定实际报告事实的 terminal_facts_sha256；范围为原 session 开始到报告观察，包含初始化/核验开销，不代替定位/修复分阶段耗时。无新事实的完成恢复复用原计时及报告摘要，不计入之后的空闲/只读恢复；新增真实求解/候选/检查事实才重新记录观察。恢复先在可写执行前核原报告身份、摘要及计时自洽性；哈希不是签名或独立时间认证。旧 schema 2 只改变派生完整性/接受标签且原定位、义务、决策、候选、检查与成本相同时，升级报告重绑事实摘要但保留原终态时间；格式兼容不放宽执行源码恢复准入。旧 schema 1 缺可信终态时间且无实际进展时保持 agent_wall_ms/finished_at=null，reason=legacy_terminal_time_unknown，不根据当前日期推造旧耗时。缺原完成报告时只有本次首次报告观察，不能认证此前已完成工作的真实结束时刻。原模型/执行共享预算和截止时间不改变，来源兼容准入仍须通过。旧 SDK 报告按下节保留轨迹，不承担竞赛接受，不能用补丁落点覆盖初始定位。
+timing 保存首次报告观察的 finished_at、agent_wall_ms 及绑定实际报告事实的 terminal_facts_sha256；范围为原 session 开始到报告观察，包含初始化/核验开销，不代替定位/修复分阶段耗时。无新事实的完成恢复复用原计时及报告摘要，不计入之后的空闲/只读恢复；新增真实求解/候选/检查事实才重新记录观察。恢复先在可写执行前核原报告身份、摘要及计时自洽性；哈希不是签名或独立时间认证。旧 schema 2 只改变派生完整性/接受标签且原定位、义务、决策、候选、检查与成本相同时，升级报告重绑事实摘要但保留原终态时间；格式兼容不放宽执行源码恢复准入。旧 schema 1 缺可信终态时间且无实际进展时保持 agent_wall_ms/finished_at=null，reason=legacy_terminal_time_unknown，不根据当前日期推造旧耗时。缺原完成报告时只有本次首次报告观察，不能认证此前已完成工作的真实结束时刻。原模型/执行共享预算和截止时间不改变，来源兼容准入仍须通过。旧 SDK 报告按下节保留轨迹，不承担主链接受，不能用补丁落点覆盖初始定位。
 
 ### 1.3.2 主机终止摘要与结果核验
 
@@ -212,7 +212,7 @@ timing 保存首次报告观察的 finished_at、agent_wall_ms 及绑定实际�
 
 定位按工具动作账本排序：initial 是首次允许 edit_source 之前、已有完成回执的首个登记诊断；首次允许编辑即形成 cutoff，即使该编辑后来失败，也不能用后续诊断补成初次预测。latest 是最后一个有完成回执的登记诊断，candidate_linked 是最新候选实际关联的诊断；三者可以不同。已登记但没有可核对动作顺序的诊断列为 unsequenced，不猜测其先后。各定位保持 model_inference/root_cause_confirmation=unknown，包含候选根因位置及原证据；没有 ground truth 判断就不生成定位准确率。
 
-候选按登记 ordinal 排序，保留全部 patch 引用及摘要、manifest、not_requested/pending/completed 检查状态和实际回执。latest_candidate_id 只指最后一个候选，最终状态依据它的检查，不选择历史上最好的一次：旧候选通过而最新候选失败或未查时，保留历史通过列表并报告当前 unresolved。未完成模型/工具/检查优先保持未知，模型格式或不支持请求同样 unresolved；预算耗尽按其停止条件报告。旧 SDK 摘要通过最多是 offline_checked；其 verification.level 仍按 legacy 摘要口径为 offline_synthetic 或 not_run，accepted 始终 false、application_verification 始终 not_run。新 CheckResult 保留实际 level，诊断/决策/工作上下文按该级别交接失败；竞赛源码级/应用接受由 competition-report.json 按实际层级独立回核 evidence，不借旧 SDK 摘要认证 source 或 application。
+候选按登记 ordinal 排序，保留全部 patch 引用及摘要、manifest、not_requested/pending/completed 检查状态和实际回执。latest_candidate_id 只指最后一个候选，最终状态依据它的检查，不选择历史上最好的一次：旧候选通过而最新候选失败或未查时，保留历史通过列表并报告当前 unresolved。未完成模型/工具/检查优先保持未知，模型格式或不支持请求同样 unresolved；预算耗尽按其停止条件报告。旧 SDK 摘要通过最多是 offline_checked；其 verification.level 仍按 legacy 摘要口径为 offline_synthetic 或 not_run，accepted 始终 false、application_verification 始终 not_run。新 CheckResult 保留实际 level，诊断/决策/工作上下文按该级别交接失败；主链源码级/应用接受由 competition-report.json 按实际层级独立回核 evidence，不借旧 SDK 摘要认证 source 或 application。
 
 cost 从模型和动作账本汇总所有登记调用、已知 Token、missing/invalid usage、未发出/结果未知调用、拒绝动作与检查请求，并以 calls_by_kind 区分求解与摘要等用途，分用途次数之和仍是统一总分母。只有全部登记调用完成且 usage 完整时 total_tokens 才有数值；否则保持 null，同时保留已知 subtotal 和未知计数。没有实测依据的 monetary_cost、localization_ms 和 repair_ms 保持 null，不能用脚本长度、合成响应或零值代替真实成本和耗时。
 
@@ -283,7 +283,7 @@ privacy 明确 local_only=true、redacted=false、share_ready=false，并披露�
 
 W07 已把下面四张规则卡的压缩执行提示登记在 `policies.py`，通过 `consult_rule` 访问；未知类别或关闭规则开关时返回通用路径。修复方向、义务、区分问题与实际失败的绑定统一见第 1.2.3 节；Agent 当前没有诊断执行探针。R1/R2 的部分有限条件已有第 3.0 节的合成计算工具，R3/R4 和业务语义仍是规则知识；提示命中不能解释为条件已满足或根因正确。
 
-工作上下文、跨任务经验与 Skill 演进流程见 [设计第 7 节](development/system-design-draft.md#7-skills-的具体位置)，对象和行为契约在第 3.1 节定义。主机批准经验、冻结快照、确定性检索及独立三态接口已有实现；普通检索及显式三态 SDK 切片覆盖 run 内原件、工具、会话、报告、聚合与私有导出，受管验收结果见 STATUS。静态过程资源、SDK middleware 与实际 Agent 会话交接已有实现，受管配置使用显式分代的固定/模拟脚本，自动学习仍待完成；规则卡不能等同于这些能力。独立契约、实际发送和后续学习分别验收，只有明确的新 schema 接纳对应因素，具体依赖与反例见 W07 实施顺序。
+工作上下文、跨任务经验与 Skill 演进流程见 [设计第 7 节](development/system-design-draft.md#7-skills-的具体位置)，对象和行为契约在第 3.1 节定义。主机批准经验、冻结快照、确定性检索及独立三态接口已有实现；普通检索及显式三态 SDK 切片覆盖 run 内原件、工具、会话、报告、聚合与私有导出，受管验收结果见 STATUS。静态过程资源、SDK middleware 与实际 Agent 会话交接已有实现，受管配置使用显式分代的固定/模拟脚本，自动学习仍待完成；规则卡不能等同于这些能力。独立契约、实际发送和后续学习分别验收，只有明确的新 schema 接纳对应因素，具体阶段依赖见当前研究计划，原对象不变量仍按本节约束。
 
 义务记录由模型工具创建时固定为 `model_inference`，须引用已登记诊断证据；候选的 restores/preserves 只能引用本次运行、本源码版本已登记的义务。已保存检查实际失败后，模型可把失败与候选义务关联为反例：scope 从 CheckResult.execution_scope 取得，link_authority 固定 model_inference，观察来自执行器。合成观察不是应用行为证据；application 观察也只支持对应主机命令覆盖，违反哪项义务仍是模型解释，不构成硬拒绝或根因确认。反例只关联原候选哈希及源码版本；可信需求、独立业务判据和实际应用实验仍须另行核实。
 
@@ -566,9 +566,9 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 
 #### 3.1.3 Skill 版本、验证与演进
 
-**静态过程提供可读诊断步骤，格式与加载复用标准能力。** `static_skills.py` 保存根目录 Skill 包的标准原文和配套文本，复用锁定 Deep Agents 的 `SkillsMiddleware`；旧投影继续按历史规则生成受限正文。`static_skill_handoff.py` 将正文、资料读取、实际模型输入和动作账本接起来，程序入口、启停对照和导出使用同一冻结身份。标准包原文不是已经验证的经验；下文的独立版本验证/演进作为冻结研究扩展保留，不进入竞赛前置。原扩展接口的实际验收见 STATUS，模型来源直接进入旧知识及其新代 CLI 尚未接入。
+**静态过程提供可读诊断步骤，格式与加载复用标准能力。** `static_skills.py` 保存根目录 Skill 包的标准原文和配套文本，复用锁定 Deep Agents 的 `SkillsMiddleware`；旧投影继续按历史规则生成受限正文。`static_skill_handoff.py` 将正文、资料读取、实际模型输入和动作账本接起来，程序入口、启停对照和导出使用同一冻结身份。标准包原文不是已经验证的经验；下文的独立版本验证/演进作为冻结研究扩展保留，不作为当前研究主线的前置。原扩展接口的实际验收见 STATUS，模型来源直接进入旧知识及其新代 CLI 尚未接入。
 
-`domain_skills.py` 的 prepare_domain_knowledge 将根目录 skill/ 动态发现的标准 SKILL.md 与包内配套文本原文分块桥接为 derivation_authority=host_curated、validation_scopes 为空的 SolverProjection，经 HostMaterialRegistry、KnowledgeStore、冻结快照/索引和 TaskKnowledgeBinding 接入现有知识及静态加载管道；不填写合成成功历史，不包含 data_B 答案。competition 保存精确主机批准，恢复只消费 run 原件及原批准，原临时库可不存在。CompetitionConfig 明确默认开启 rule_guidance、obligation_tracking、decision_checks、working_context、applicability 与 static_skills；原通用模块各自默认值及显式关闭能力保持原解释。configs/competition-demo.json 与 competition-cloud.template.json 固定竞赛输入，真实模板仍须填写并审查。内容、实际读取和后续可见性的验收统一引用 STATUS，不能由默认开启推定方法收益或学习晋升。
+`domain_skills.py` 的 prepare_domain_knowledge 将根目录 skill/ 动态发现的标准 SKILL.md 与包内配套文本原文分块桥接为 derivation_authority=host_curated、validation_scopes 为空的 SolverProjection，经 HostMaterialRegistry、KnowledgeStore、冻结快照/索引和 TaskKnowledgeBinding 接入现有知识及静态加载管道；不填写合成成功历史，不包含 data_B 答案。competition 保存精确主机批准，恢复只消费 run 原件及原批准，原临时库可不存在。CompetitionConfig 明确默认开启 rule_guidance、obligation_tracking、decision_checks、working_context、applicability 与 static_skills；原通用模块各自默认值及显式关闭能力保持原解释。configs/competition-demo.json 与 competition-cloud.template.json 固定主链输入，真实模板仍须填写并审查。内容、实际读取和后续可见性的验收统一引用 STATUS，不能由默认开启推定方法收益或学习晋升。
 
 | 静态入口/对象 | 当前约束 |
 |---|---|
@@ -700,18 +700,18 @@ Agent 启动和恢复绑定具体已物化快照，SQLite 原件不得依赖未�
 - 反例义务：普通文本、特殊字符、空查询、合法复杂输入及明确无效输入；核验实际结果集合。
 - 退出：产品语义未明确时，先查 UI/调用方与已核验需求，不能只依据错误名称决定修法。
 
-## 4. 用现有材料检查设计能否表达问题
+## 4. 用典型问题检查设计表达能力
 
-下表来自此前静态阅读，作为设计推演而非独立效果评测。准确行号与来源以 [数据核查报告](preparation/data-b-assessment.md) 及固定源码版本为准。
+下表是机制设计示例，不是新的评测数据或实验结论。具体任务必须另行绑定源码版本、输入和独立判据。
 
 | 代表材料 | 设计必须表达的区别 | 下一条有用证据 | 不能接受的表面成功 |
 |---|---|---|---|
-| BookRead2 / 004 | 使用位置与较晚的初始化位置不同 | 初始化依赖及页面加载应产生的内容 | 跳过加载后不崩溃 |
-| ComprehensiveTool1 / 001 | 固定索引访问与集合实际长度的关系 | 集合来源及为何选择该项 | 随意换成第一项即可运行 |
-| FitnessCenter / 015 | 正则可构造与搜索语义正确不同 | 查询是否支持用户正则及结果预期 | catch 后返回空列表 |
-| Exam1 / 019 | 框架栈帧、业务递归与关系数据不同 | 环结构、输出顺序和重复节点的约定 | 限制递归深度后遗漏学习条目 |
-| AudioEditing1 / 021 | 循环边界、读取宽度和帧步长共同作用 | 声道/帧结构及完整音频的输出约定 | 少读取一些数据后不越界 |
-| HouseholdService1 / 022 | buffer 字节容量与元素个数不同 | 同一 payload 的生成、校验与其他消费者 | 只让视图构造通过，校验结果却错误 |
+| 异步初始化 | 使用位置与较晚的初始化位置不同 | 初始化依赖及加载应产生的内容 | 跳过加载后不崩溃 |
+| 集合访问 | 固定索引访问与集合实际长度的关系 | 集合来源及为何选择该项 | 随意换成第一项即可运行 |
+| 动态查询 | 正则可构造与搜索语义正确不同 | 查询是否支持用户正则及结果预期 | catch 后返回空列表 |
+| 关系遍历 | 框架栈帧、业务递归与关系数据不同 | 环结构、输出顺序和重复节点的约定 | 限制递归深度后遗漏必要条目 |
+| 分帧读取 | 循环边界、读取宽度和帧步长共同作用 | 帧结构及完整输出约定 | 少读取一些数据后不越界 |
+| 缓冲区构造 | buffer 字节容量与元素个数不同 | 同一 payload 的生成、校验与其他消费者 | 只让视图构造通过，校验结果却错误 |
 
 这些推演说明我们需要诊断、业务约束和反例三部分；它们不证明增强方法优于一个强基础 Agent。方法收益仍需运行对照。
 
@@ -738,4 +738,4 @@ Stop 不隐式删除文件；Clean 不隐式杀未知进程。当前非空 work 
 
 ## 6. 关联与待完成规格
 
-工作包和完成门见 [实施计划](project-work-plan.md)，实际证据只见 [STATUS](STATUS.md)，对照见 [评测口径](preparation/metrics-and-gates.md)。当前以无硬件 analysis 和可选 source 源码验证收口既有 SDK/上下文/Skill/账本/执行/报告，不重建底座；完整应用、旧离线聚合/Export 与研究扩展各保留原义。真实模型和数据修复实验仍禁用，提供方、代表 .ets 的宿主语义/独立 oracle、正式分层聚合及公开材料须接纳/实测；SDK/设备仅可选 application。自动采值/学习/晋升、完整部署和研究总账继续冻结，旧未通过/未知保留，不因本次 JS 示例或静态 Skill 接入推定效果。
+阶段和完成门见[研究计划](project-work-plan.md)，实际证据只见[STATUS](STATUS.md)，比较见[评测口径](preparation/metrics-and-gates.md)。当前复用 analysis、已接纳的 source 检查及 SDK/上下文/Skill/账本，不重建底座。新研究任务的环境、模型预算与独立判据尚待接纳。完整应用、旧离线聚合和研究扩展保持各自原义；自动采值、主动实验选择、学习/晋升须按具体任务另外实现与验证，不能从合成示例或静态过程推定收益。

@@ -1,24 +1,14 @@
-tests/ 目录说明
-===============
+EviMend 软件测试
+================
 
-此目录用于存放项目的测试相关代码和文件，例如（仅作参考）：
+本目录包含模型协议、SDK 工具循环、候选与来源、上下文、Skill、宿主执行、
+恢复、预算和运行管理的回归测试。它们证明对应软件行为，不自动证明研究收益。
 
-1. 自动化测试用例
-   - 单元测试（test_*.py / *.test.ts）
-   - 集成测试
-   - 端到端测试
+从项目根使用原生受管入口运行目标文件：
+.dfx-local\env\Scripts\python.exe -B -m dfx_agent.managed_runtime --workspace . Run -Task test -TestPath tests/test_product_cli.py -TimeoutSeconds 180
 
-2. 测试数据
-   - 测试用的输入样本
-   - 预期输出结果（golden files）
+多数测试使用合成任务或模拟服务。源码回放、历史结果包等测试还需要各自声明
+的本机输入与运行器；先确认条件，不凭文件名推定可以无数据执行全量测试。
 
-3. 测试配置
-   - 测试运行配置（pytest.ini / jest.config.js）
-   - 测试覆盖率配置
-
-4. 测试报告
-
-
-建议：
-- 每个核心模块至少有一个对应的测试文件
-- 测试数据与测试代码放在同一目录或子目录中
+真实模型、多项目修复、独立判据和方法对照按 docs/preparation/metrics-and-gates.md
+另外接纳。当前研究进度和实际测试结果统一在 docs/STATUS.md 维护。

@@ -1,6 +1,6 @@
 # 相关研究证据
 
-状态：当前参考证据。最后维护：2026-10-13。
+状态：既有参考证据，保留原查阅日期。最后维护：2026-10-26。
 主要来源查阅日期：2026-09-12；2026-09-16 定点复核 mini-swe-agent 仓库 README、Agentless 与 TraceRepair 摘要及相关工程文档。2026-10-02–03 定点查阅 ACE、SkillRevise 和 SWE-Skills-Bench 的原文；2026-10-11 定点查阅 Anthropic、Deep Agents 上下文/记忆文档及 ACE v1 方法、v3 摘要页。具体版本/范围见下节及 sources.json；这些是不同范围的采集，不刷新旧证据，也不是完整查新。当前架构决策以 [开发设计草案](../development/system-design-draft.md) 为准，本文只记录来源、参考价值与复用限制。
 
 采用“在成熟方法上升级”的定位。以下是面向技术决策的检索，不是系统综述或完整查新证明；录用状态若来自 arXiv Comments，明确视为作者页面声明。
@@ -36,7 +36,7 @@
 
 SHERLOC 的质量过滤分析部分使用了正确补丁辅助评判；其无补丁验证器被评估的是与回顾性质量标签的一致性，论文注明尚未评估该选择器驱动的下游修复。因而“低额外预算、无正确补丁、真实执行全部分支”的增量实验具有明确比较对象。这是候选升级切口，不是已经证明的独占创新。[论文限制与验证分析](https://arxiv.org/html/2606.24820v2)
 
-ARISE 明确报告了额外 Token 消耗，图构建时间也随仓库规模变化。对成本评估的启示是：先验证数据流信息是否能挽回失败，再决定是否承担图构建成本；一次一仓的比赛场景还应计入首次建图成本。[成本分析](https://arxiv.org/html/2605.03117v2)
+ARISE 明确报告了额外 Token 消耗，图构建时间也随仓库规模变化。对成本评估的启示是：先验证数据流信息是否能挽回失败，再决定是否承担图构建成本；一次一仓的任务场景还应计入首次建图成本。[成本分析](https://arxiv.org/html/2605.03117v2)
 
 诊断测试选择和信息增益也不是新概念。2010 年 QSIC 工作已研究面向定位的测试优先级，2011 年存在相关期刊扩展。因此不把“按信息价值选择检查”作为独立首创；关注面向当前日志—代码—修复链路的具体实现与新增证据。[QSIC 2010 元数据](https://dblp.org/rec/conf/qsic/Gonzalez-SanchezPGG10)、[作者机构的期刊记录](https://research.tudelft.nl/en/publications/prioritizing-tests-for-software-fault-localization-2)
 
@@ -65,13 +65,13 @@ ACE 的 v1 方法采用有 ID 的结构化条目及局部更新，避免不断�
 ## 复用层级必须说清楚
 
 - 使用原始代码和原始配置，且实际核验行为：才能称为原方法复现。
-- 借鉴论文思路，自行适配比赛输入：称为参考方法适配，不拿它的较弱实现代替原论文水平。
+- 借鉴论文思路，自行适配目标输入：称为参考方法适配，不拿它的较弱实现代替原论文水平。
 - 添加自己的证据检查或策略：用同一底座的成对实验隔离增量；论文再补最接近原方法的比较。
 - 公开论文数字只能作背景。模型、数据、定位权限、预算或版本不一致的数字不放进本项目主结果表。
 
 ## 代码查阅结论
 
-mini-swe-agent：已查阅 [Agent 主循环](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/src/minisweagent/agents/default.py)、[Docker 接口](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/src/minisweagent/environments/docker.py)、[依赖](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/pyproject.toml) 与 [MIT 许可证](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/LICENSE.md)。9 月 12 日所读代码的费用和墙钟限制在循环边界检查，单次调用可能越界；正式比赛需另设调用/进程级限制并记录越界，而不能声称配置阈值就是硬上限。读取的是 main 页面，未固定 SHA，未验证安装。
+mini-swe-agent：已查阅 [Agent 主循环](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/src/minisweagent/agents/default.py)、[Docker 接口](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/src/minisweagent/environments/docker.py)、[依赖](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/pyproject.toml) 与 [MIT 许可证](https://raw.githubusercontent.com/SWE-agent/mini-swe-agent/main/LICENSE.md)。9 月 12 日所读代码的费用和墙钟限制在循环边界检查，单次调用可能越界；实际运行需另设调用/进程级限制并记录越界，而不能声称配置阈值就是硬上限。读取的是 main 页面，未固定 SHA，未验证安装。
 
 SHERLOC：论文提供 [官方 recipe](https://github.com/NVIDIA-NeMo/Skills/tree/main/recipes/sherloc)。已确认目录入口，未完成完整依赖与许可审核；整体采用前需要完成依赖、许可及接入成本评估。
 

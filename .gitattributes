@@ -1,0 +1,3 @@
+# Keep dependency inputs byte-stable for the managed environment on Windows.
+pyproject.toml text eol=lf
+uv.lock text eol=lf
